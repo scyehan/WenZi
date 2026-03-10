@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 
 
 DEFAULT_CONFIG: Dict[str, Any] = {
-    "hotkey": "f2",
+    "hotkey": "fn",
     "audio": {
         "sample_rate": 16000,
         "block_ms": 20,

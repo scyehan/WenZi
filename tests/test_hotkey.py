@@ -3,7 +3,13 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from voicetext.hotkey import _parse_key, HoldHotkeyListener
+from voicetext.hotkey import (
+    _parse_key,
+    _is_fn_key,
+    _QuartzFnListener,
+    _PynputListener,
+    HoldHotkeyListener,
+)
 
 
 class TestParseKey:
@@ -11,6 +17,12 @@ class TestParseKey:
         from pynput import keyboard
         assert _parse_key("f2") == keyboard.Key.f2
         assert _parse_key("cmd") == keyboard.Key.cmd
+
+    def test_fn_key(self):
+        from pynput import keyboard
+        result = _parse_key("fn")
+        assert isinstance(result, keyboard.KeyCode)
+        assert result.vk == 0x3F
 
     def test_char_key(self):
         from pynput import keyboard
@@ -26,41 +38,54 @@ class TestParseKey:
         assert _parse_key("F2") == keyboard.Key.f2
 
 
+class TestIsFnKey:
+    def test_fn_variants(self):
+        assert _is_fn_key("fn") is True
+        assert _is_fn_key("FN") is True
+        assert _is_fn_key(" fn ") is True
+
+    def test_non_fn(self):
+        assert _is_fn_key("f2") is False
+        assert _is_fn_key("cmd") is False
+
+
 class TestHoldHotkeyListener:
-    def test_press_and_release_callbacks(self):
+    def test_fn_uses_quartz_backend(self):
+        listener = HoldHotkeyListener("fn", MagicMock(), MagicMock())
+        assert isinstance(listener._impl, _QuartzFnListener)
+
+    def test_regular_key_uses_pynput_backend(self):
+        listener = HoldHotkeyListener("f2", MagicMock(), MagicMock())
+        assert isinstance(listener._impl, _PynputListener)
+
+    def test_pynput_press_and_release(self):
         on_press = MagicMock()
         on_release = MagicMock()
 
         listener = HoldHotkeyListener("f2", on_press, on_release)
 
         from pynput import keyboard
-        # Simulate press
-        listener._handle_press(keyboard.Key.f2)
+        listener._impl._handle_press(keyboard.Key.f2)
         on_press.assert_called_once()
-        assert listener._held is True
+        assert listener._impl._held is True
 
-        # Simulate release
-        listener._handle_release(keyboard.Key.f2)
+        listener._impl._handle_release(keyboard.Key.f2)
         on_release.assert_called_once()
-        assert listener._held is False
+        assert listener._impl._held is False
 
-    def test_repeated_press_ignored(self):
+    def test_pynput_repeated_press_ignored(self):
         on_press = MagicMock()
-        on_release = MagicMock()
-
-        listener = HoldHotkeyListener("f2", on_press, on_release)
+        listener = HoldHotkeyListener("f2", on_press, MagicMock())
 
         from pynput import keyboard
-        listener._handle_press(keyboard.Key.f2)
-        listener._handle_press(keyboard.Key.f2)  # Repeated, should be ignored
+        listener._impl._handle_press(keyboard.Key.f2)
+        listener._impl._handle_press(keyboard.Key.f2)
         assert on_press.call_count == 1
 
-    def test_wrong_key_ignored(self):
+    def test_pynput_wrong_key_ignored(self):
         on_press = MagicMock()
-        on_release = MagicMock()
-
-        listener = HoldHotkeyListener("f2", on_press, on_release)
+        listener = HoldHotkeyListener("f2", on_press, MagicMock())
 
         from pynput import keyboard
-        listener._handle_press(keyboard.Key.f3)
+        listener._impl._handle_press(keyboard.Key.f3)
         on_press.assert_not_called()

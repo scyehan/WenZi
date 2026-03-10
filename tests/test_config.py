@@ -36,7 +36,7 @@ class TestMergeDict:
 class TestLoadConfig:
     def test_default_config(self):
         config = load_config()
-        assert config["hotkey"] == "f2"
+        assert config["hotkey"] == "fn"
         assert config["audio"]["sample_rate"] == 16000
 
     def test_load_from_file(self):

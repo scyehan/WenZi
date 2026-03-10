@@ -11,6 +11,9 @@ from pynput import keyboard
 
 logger = logging.getLogger(__name__)
 
+_FN_FLAG = 0x800000  # NSEventModifierFlagFunction
+_FN_KEYCODE = 63
+
 _SPECIAL_KEYS = {
     "f1": keyboard.Key.f1,
     "f2": keyboard.Key.f2,
@@ -24,6 +27,7 @@ _SPECIAL_KEYS = {
     "f10": keyboard.Key.f10,
     "f11": keyboard.Key.f11,
     "f12": keyboard.Key.f12,
+    "fn": keyboard.KeyCode.from_vk(_FN_KEYCODE),
     "esc": keyboard.Key.esc,
     "space": keyboard.Key.space,
     "cmd": keyboard.Key.cmd,
@@ -44,8 +48,94 @@ def _parse_key(name: str):
     raise ValueError(f"Unknown key: {name}")
 
 
-class HoldHotkeyListener:
-    """Listen for a hotkey: call on_press when pressed, on_release when released."""
+def _is_fn_key(name: str) -> bool:
+    return name.strip().lower() == "fn"
+
+
+class _QuartzFnListener:
+    """Listen for fn key press/release via Quartz event tap."""
+
+    def __init__(
+        self,
+        on_press: Callable[[], None],
+        on_release: Callable[[], None],
+    ) -> None:
+        self._on_press = on_press
+        self._on_release = on_release
+        self._held = False
+        self._tap = None
+        self._loop = None
+        self._thread: Optional[threading.Thread] = None
+
+    def _callback(self, proxy, event_type, event, refcon):
+        import Quartz
+        from AppKit import NSEvent
+
+        if event_type != Quartz.kCGEventFlagsChanged:
+            return event
+
+        ns_event = NSEvent.eventWithCGEvent_(event)
+        if ns_event is None or ns_event.keyCode() != _FN_KEYCODE:
+            return event
+
+        fn_down = bool(ns_event.modifierFlags() & _FN_FLAG)
+
+        if fn_down and not self._held:
+            self._held = True
+            try:
+                self._on_press()
+            except Exception as e:
+                logger.error("on_press callback error: %s", e)
+        elif not fn_down and self._held:
+            self._held = False
+            try:
+                self._on_release()
+            except Exception as e:
+                logger.error("on_release callback error: %s", e)
+
+        return event
+
+    def start(self) -> None:
+        import Quartz
+
+        def _run():
+            mask = Quartz.CGEventMaskBit(Quartz.kCGEventFlagsChanged)
+            self._tap = Quartz.CGEventTapCreate(
+                Quartz.kCGSessionEventTap,
+                Quartz.kCGHeadInsertEventTap,
+                Quartz.kCGEventTapOptionListenOnly,
+                mask,
+                self._callback,
+                None,
+            )
+            if self._tap is None:
+                logger.error("Failed to create Quartz event tap for fn key")
+                return
+
+            source = Quartz.CFMachPortCreateRunLoopSource(None, self._tap, 0)
+            self._loop = Quartz.CFRunLoopGetCurrent()
+            Quartz.CFRunLoopAddSource(
+                self._loop, source, Quartz.kCFRunLoopDefaultMode
+            )
+            Quartz.CGEventTapEnable(self._tap, True)
+            logger.info("Quartz fn key listener started")
+            Quartz.CFRunLoopRun()
+
+        self._thread = threading.Thread(target=_run, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        import Quartz
+
+        if self._loop is not None:
+            Quartz.CFRunLoopStop(self._loop)
+            self._loop = None
+        self._tap = None
+        logger.info("Quartz fn key listener stopped")
+
+
+class _PynputListener:
+    """Listen for a regular key via pynput."""
 
     def __init__(
         self,
@@ -66,13 +156,13 @@ class HoldHotkeyListener:
         )
         self._listener.daemon = True
         self._listener.start()
-        logger.info("Hotkey listener started, key=%s", self._target_key)
+        logger.info("Pynput hotkey listener started, key=%s", self._target_key)
 
     def stop(self) -> None:
         if self._listener:
             self._listener.stop()
             self._listener = None
-            logger.info("Hotkey listener stopped")
+            logger.info("Pynput hotkey listener stopped")
 
     def _normalize(self, key):
         if isinstance(key, keyboard.Key):
@@ -104,3 +194,28 @@ class HoldHotkeyListener:
                 self._on_release()
             except Exception as e:
                 logger.error("on_release callback error: %s", e)
+
+
+class HoldHotkeyListener:
+    """Listen for a hotkey: call on_press when pressed, on_release when released.
+
+    Uses Quartz event tap for fn key (not supported by pynput),
+    and pynput for all other keys.
+    """
+
+    def __init__(
+        self,
+        key_name: str,
+        on_press: Callable[[], None],
+        on_release: Callable[[], None],
+    ) -> None:
+        if _is_fn_key(key_name):
+            self._impl = _QuartzFnListener(on_press, on_release)
+        else:
+            self._impl = _PynputListener(key_name, on_press, on_release)
+
+    def start(self) -> None:
+        self._impl.start()
+
+    def stop(self) -> None:
+        self._impl.stop()

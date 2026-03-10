@@ -9,6 +9,8 @@ import threading
 from typing import Optional
 
 import rumps
+from ApplicationServices import AXIsProcessTrusted, AXIsProcessTrustedWithOptions
+from CoreFoundation import kCFBooleanTrue
 
 from .config import load_config
 from .hotkey import HoldHotkeyListener
@@ -117,8 +119,22 @@ class VoiceTextApp(rumps.App):
             self._hotkey_listener.stop()
         rumps.quit_application()
 
+    @staticmethod
+    def _ensure_accessibility() -> bool:
+        """Check and prompt for accessibility permission if needed."""
+        if AXIsProcessTrusted():
+            logger.info("Accessibility permission granted")
+            return True
+        # Only prompt if not yet trusted
+        options = {"AXTrustedCheckOptionPrompt": kCFBooleanTrue}
+        AXIsProcessTrustedWithOptions(options)
+        logger.warning("Accessibility permission not granted, prompting user")
+        return False
+
     def run(self, **kwargs) -> None:
         """Initialize models and start the app."""
+        self._ensure_accessibility()
+
         # Load models in background
         def _init_models():
             try:
