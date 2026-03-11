@@ -26,20 +26,23 @@ def mock_appkit(monkeypatch):
         monkeypatch.setitem(__import__("sys").modules, name, mod)
 
 
+def _setup_panel_with_final_field(panel):
+    """Set up a panel with mocked _final_text_field for testing."""
+    panel._build_panel = MagicMock()
+    panel._panel = MagicMock()
+    panel._final_text_field = MagicMock()
+    return panel
+
+
 class TestResultPreviewPanelCallbacks:
     """Test confirm/cancel callback mechanism."""
 
     def test_confirm_triggers_callback_with_text(self):
         from voicetext.result_window import ResultPreviewPanel
 
-        panel = ResultPreviewPanel()
+        panel = _setup_panel_with_final_field(ResultPreviewPanel())
+        panel._final_text_field.stringValue.return_value = "final text"
         confirmed_text = []
-
-        # Mock the panel build to avoid AppKit calls
-        panel._build_panel = MagicMock()
-        panel._final_text_view = MagicMock()
-        panel._final_text_view.string.return_value = "final text"
-        panel._panel = MagicMock()
 
         panel.show(
             asr_text="raw asr",
@@ -56,10 +59,9 @@ class TestResultPreviewPanelCallbacks:
         from voicetext.result_window import ResultPreviewPanel
 
         panel = ResultPreviewPanel()
-        cancelled = []
-
         panel._build_panel = MagicMock()
         panel._panel = MagicMock()
+        cancelled = []
 
         panel.show(
             asr_text="raw asr",
@@ -75,12 +77,9 @@ class TestResultPreviewPanelCallbacks:
     def test_confirm_closes_panel(self):
         from voicetext.result_window import ResultPreviewPanel
 
-        panel = ResultPreviewPanel()
-        panel._build_panel = MagicMock()
-        mock_panel = MagicMock()
-        panel._panel = mock_panel
-        panel._final_text_view = MagicMock()
-        panel._final_text_view.string.return_value = "text"
+        panel = _setup_panel_with_final_field(ResultPreviewPanel())
+        panel._final_text_field.stringValue.return_value = "text"
+        mock_panel = panel._panel
 
         panel.show(
             asr_text="asr",
@@ -119,11 +118,8 @@ class TestResultPreviewPanelCorrectionInfo:
     def test_correction_info_when_user_edited_with_enhance(self):
         from voicetext.result_window import ResultPreviewPanel
 
-        panel = ResultPreviewPanel()
-        panel._build_panel = MagicMock()
-        panel._panel = MagicMock()
-        panel._final_text_view = MagicMock()
-        panel._final_text_view.string.return_value = "user corrected"
+        panel = _setup_panel_with_final_field(ResultPreviewPanel())
+        panel._final_text_field.stringValue.return_value = "user corrected"
         panel._enhance_text_view = MagicMock()
         panel._enhance_text_view.string.return_value = "ai enhanced"
 
@@ -151,11 +147,8 @@ class TestResultPreviewPanelCorrectionInfo:
     def test_correction_info_none_when_not_edited(self):
         from voicetext.result_window import ResultPreviewPanel
 
-        panel = ResultPreviewPanel()
-        panel._build_panel = MagicMock()
-        panel._panel = MagicMock()
-        panel._final_text_view = MagicMock()
-        panel._final_text_view.string.return_value = "text"
+        panel = _setup_panel_with_final_field(ResultPreviewPanel())
+        panel._final_text_field.stringValue.return_value = "text"
         panel._enhance_text_view = MagicMock()
 
         results = []
@@ -175,11 +168,8 @@ class TestResultPreviewPanelCorrectionInfo:
     def test_correction_info_none_when_no_enhance(self):
         from voicetext.result_window import ResultPreviewPanel
 
-        panel = ResultPreviewPanel()
-        panel._build_panel = MagicMock()
-        panel._panel = MagicMock()
-        panel._final_text_view = MagicMock()
-        panel._final_text_view.string.return_value = "text"
+        panel = _setup_panel_with_final_field(ResultPreviewPanel())
+        panel._final_text_field.stringValue.return_value = "text"
 
         results = []
 
@@ -206,7 +196,7 @@ class TestResultPreviewPanelEnhanceUpdate:
         panel._user_edited = False
         panel._enhance_text_view = MagicMock()
         panel._enhance_label = MagicMock()
-        panel._final_text_view = MagicMock()
+        panel._final_text_field = MagicMock()
 
         # Simulate callAfter executing immediately
         with patch("PyObjCTools.AppHelper") as mock_helper:
@@ -214,7 +204,7 @@ class TestResultPreviewPanelEnhanceUpdate:
             panel.set_enhance_result("enhanced text")
 
         panel._enhance_text_view.setString_.assert_called_with("enhanced text")
-        panel._final_text_view.setString_.assert_called_with("enhanced text")
+        panel._final_text_field.setStringValue_.assert_called_with("enhanced text")
 
     def test_set_enhance_result_skips_final_when_user_edited(self):
         from voicetext.result_window import ResultPreviewPanel
@@ -223,14 +213,14 @@ class TestResultPreviewPanelEnhanceUpdate:
         panel._user_edited = True
         panel._enhance_text_view = MagicMock()
         panel._enhance_label = MagicMock()
-        panel._final_text_view = MagicMock()
+        panel._final_text_field = MagicMock()
 
         with patch("PyObjCTools.AppHelper") as mock_helper:
             mock_helper.callAfter.side_effect = lambda fn: fn()
             panel.set_enhance_result("enhanced text")
 
         panel._enhance_text_view.setString_.assert_called_with("enhanced text")
-        panel._final_text_view.setString_.assert_not_called()
+        panel._final_text_field.setStringValue_.assert_not_called()
 
     def test_set_enhance_result_updates_label(self):
         from voicetext.result_window import ResultPreviewPanel
@@ -239,7 +229,7 @@ class TestResultPreviewPanelEnhanceUpdate:
         panel._user_edited = False
         panel._enhance_text_view = MagicMock()
         panel._enhance_label = MagicMock()
-        panel._final_text_view = MagicMock()
+        panel._final_text_field = MagicMock()
 
         with patch("PyObjCTools.AppHelper") as mock_helper:
             mock_helper.callAfter.side_effect = lambda fn: fn()
@@ -255,6 +245,29 @@ class TestResultPreviewPanelEnhanceUpdate:
 
         # Should not raise
         panel.set_enhance_result("text")
+
+
+class TestResultPreviewPanelKeyHandling:
+    """Test that Enter confirms and the text field uses NSTextField behavior."""
+
+    def test_enter_triggers_confirm_via_button_key_equivalent(self):
+        """NSTextField does not consume Enter, so the confirm button's
+        keyEquivalent (\\r) fires directly. Verify confirmClicked_ works."""
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = _setup_panel_with_final_field(ResultPreviewPanel())
+        panel._final_text_field.stringValue.return_value = "text"
+
+        confirmed = []
+        panel.show(
+            asr_text="asr",
+            show_enhance=False,
+            on_confirm=lambda t, info=None: confirmed.append(t),
+            on_cancel=MagicMock(),
+        )
+
+        panel.confirmClicked_(None)
+        assert confirmed == ["text"]
 
 
 class TestResultPreviewPanelUserEdit:
@@ -330,11 +343,8 @@ class TestResultPreviewPanelThreading:
     def test_confirm_unblocks_waiting_thread(self):
         from voicetext.result_window import ResultPreviewPanel
 
-        panel = ResultPreviewPanel()
-        panel._build_panel = MagicMock()
-        panel._panel = MagicMock()
-        panel._final_text_view = MagicMock()
-        panel._final_text_view.string.return_value = "result"
+        panel = _setup_panel_with_final_field(ResultPreviewPanel())
+        panel._final_text_field.stringValue.return_value = "result"
 
         event = threading.Event()
         result_holder = {"text": None}

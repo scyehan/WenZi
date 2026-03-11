@@ -23,7 +23,7 @@ class ResultPreviewPanel:
         │ └──────────────────────────────┘  │
         │ Final Result (editable)           │
         │ ┌──────────────────────────────┐  │
-        │ │ (editable NSTextView)        │  │
+        │ │ (editable NSTextField)       │  │
         │ └──────────────────────────────┘  │
         │           [Cancel]  [Confirm ⏎]   │
         └──────────────────────────────────┘
@@ -46,7 +46,7 @@ class ResultPreviewPanel:
         self._enhance_label = None
         self._enhance_scroll = None
         self._enhance_text_view = None
-        self._final_text_view = None
+        self._final_text_field = None
         self._on_confirm: Optional[Callable[[str, Optional[dict]], None]] = None
         self._on_cancel: Optional[Callable[[], None]] = None
         self._user_edited = False
@@ -101,8 +101,8 @@ class ResultPreviewPanel:
             if self._enhance_label is not None:
                 self._enhance_label.setStringValue_("AI Enhancement")
             # Auto-update final text if user hasn't edited
-            if not self._user_edited and self._final_text_view is not None:
-                self._final_text_view.setString_(text)
+            if not self._user_edited and self._final_text_field is not None:
+                self._final_text_field.setStringValue_(text)
 
         AppHelper.callAfter(_update)
 
@@ -119,10 +119,10 @@ class ResultPreviewPanel:
             NSBackingStoreBuffered,
             NSBezelBorder,
             NSButton,
-            NSCenterTextAlignment,
             NSClosableWindowMask,
             NSFloatingWindowLevel,
             NSFont,
+            NSLineBreakByWordWrapping,
             NSPanel,
             NSScrollView,
             NSTextField,
@@ -200,19 +200,26 @@ class ResultPreviewPanel:
         final_label.setFont_(NSFont.boldSystemFontOfSize_(12))
         content_view.addSubview_(final_label)
 
-        # Final result editable text view
-        final_scroll, final_tv = self._make_text_view(
-            NSMakeRect(self._PADDING, y, inner_width, self._EDIT_HEIGHT),
-            editable=True,
+        # Final result editable text field (NSTextField with wrapping)
+        final_field = NSTextField.alloc().initWithFrame_(
+            NSMakeRect(self._PADDING, y, inner_width, self._EDIT_HEIGHT)
         )
-        final_tv.setString_(asr_text)
-        content_view.addSubview_(final_scroll)
-        self._final_text_view = final_tv
+        final_field.setEditable_(True)
+        final_field.setBezeled_(True)
+        final_field.setFont_(NSFont.userFixedPitchFontOfSize_(12.0))
+        final_field.setStringValue_(asr_text)
+        final_field.setUsesSingleLineMode_(False)
+        final_field.cell().setWraps_(True)
+        final_field.cell().setScrollable_(False)
+        final_field.cell().setLineBreakMode_(NSLineBreakByWordWrapping)
+        # Enter triggers confirm via the button's keyEquivalent
+        content_view.addSubview_(final_field)
+        self._final_text_field = final_field
 
         # Set up delegate to track user edits
-        self._delegate = _TextEditDelegate.alloc().init()
+        self._delegate = _TextFieldEditDelegate.alloc().init()
         self._delegate._panel_ref = self
-        final_tv.setDelegate_(self._delegate)
+        final_field.setDelegate_(self._delegate)
 
         y += self._EDIT_HEIGHT + self._LABEL_HEIGHT + self._PADDING
 
@@ -226,7 +233,6 @@ class ResultPreviewPanel:
 
             enhance_scroll, enhance_tv = self._make_text_view(
                 NSMakeRect(self._PADDING, y, inner_width, self._TEXT_HEIGHT),
-                editable=False,
             )
             enhance_tv.setString_("")
             content_view.addSubview_(enhance_scroll)
@@ -248,7 +254,6 @@ class ResultPreviewPanel:
         # ASR Result text view (read-only)
         asr_scroll, asr_tv = self._make_text_view(
             NSMakeRect(self._PADDING, y, inner_width, self._TEXT_HEIGHT),
-            editable=False,
         )
         asr_tv.setString_(asr_text)
         content_view.addSubview_(asr_scroll)
@@ -257,9 +262,9 @@ class ResultPreviewPanel:
         self._panel = panel
 
     @staticmethod
-    def _make_text_view(frame, editable: bool = True):
-        """Create an NSScrollView + NSTextView pair."""
-        from AppKit import NSBezelBorder, NSFont, NSScrollView, NSTextView
+    def _make_text_view(frame):
+        """Create a read-only NSScrollView + NSTextView pair."""
+        from AppKit import NSBezelBorder, NSColor, NSFont, NSScrollView, NSTextView
         from Foundation import NSMakeRect
 
         scroll = NSScrollView.alloc().initWithFrame_(frame)
@@ -275,26 +280,24 @@ class ResultPreviewPanel:
         tv.setHorizontallyResizable_(False)
         tv.textContainer().setWidthTracksTextView_(True)
         tv.setFont_(NSFont.userFixedPitchFontOfSize_(12.0))
-        tv.setEditable_(editable)
-        if not editable:
-            from AppKit import NSColor
-            tv.setBackgroundColor_(
-                NSColor.colorWithCalibratedRed_green_blue_alpha_(
-                    0.95, 0.95, 0.95, 1.0
-                )
+        tv.setEditable_(False)
+        tv.setBackgroundColor_(
+            NSColor.colorWithCalibratedRed_green_blue_alpha_(
+                0.95, 0.95, 0.95, 1.0
             )
+        )
 
         scroll.setDocumentView_(tv)
         return scroll, tv
 
     def _on_user_edit(self) -> None:
-        """Called when user edits the final text view."""
+        """Called when user edits the final text field."""
         self._user_edited = True
 
     def confirmClicked_(self, sender) -> None:
         """Handle confirm button click."""
-        if self._final_text_view is not None and self._on_confirm is not None:
-            text = self._final_text_view.string()
+        if self._final_text_field is not None and self._on_confirm is not None:
+            text = self._final_text_field.stringValue()
             correction_info = None
             if self._user_edited and self._show_enhance and self._enhance_text_view is not None:
                 enhanced = self._enhance_text_view.string()
@@ -313,21 +316,20 @@ class ResultPreviewPanel:
             self._on_cancel()
 
 
-def _create_text_delegate_class():
-    """Create an NSObject subclass for NSTextViewDelegate using objc runtime."""
-    import objc
+def _create_text_field_delegate_class():
+    """Create an NSObject subclass for NSTextFieldDelegate."""
     from Foundation import NSObject
 
-    class TextEditDelegate(NSObject):
-        """NSTextViewDelegate that tracks user edits."""
+    class TextFieldEditDelegate(NSObject):
+        """NSTextFieldDelegate that tracks user edits."""
 
         _panel_ref = None
 
-        def textDidChange_(self, notification):
+        def controlTextDidChange_(self, notification):
             if self._panel_ref is not None:
                 self._panel_ref._on_user_edit()
 
-    return TextEditDelegate
+    return TextFieldEditDelegate
 
 
-_TextEditDelegate = _create_text_delegate_class()
+_TextFieldEditDelegate = _create_text_field_delegate_class()
