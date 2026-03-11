@@ -6,12 +6,23 @@ import asyncio
 import json
 import logging
 import os
+import threading
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from .config import DEFAULT_CONFIG_DIR
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class BuildCallbacks:
+    """Callbacks for vocabulary build progress reporting."""
+
+    on_batch_start: Optional[Callable[[int, int], None]] = None  # (batch_idx, total)
+    on_stream_chunk: Optional[Callable[[str], None]] = None  # (chunk_text)
+    on_batch_done: Optional[Callable[[int, int, int], None]] = None  # (batch_idx, total, entries_count)
 
 
 class VocabularyBuilder:
@@ -29,8 +40,18 @@ class VocabularyBuilder:
         self._batch_size = 20
         self._batch_timeout = config.get("vocabulary", {}).get("build_timeout", 600)
 
-    async def build(self, full_rebuild: bool = False) -> Dict[str, Any]:
+    async def build(
+        self,
+        full_rebuild: bool = False,
+        cancel_event: Optional[threading.Event] = None,
+        callbacks: Optional[BuildCallbacks] = None,
+    ) -> Dict[str, Any]:
         """Build or update the vocabulary from correction logs.
+
+        Args:
+            full_rebuild: If True, reprocess all corrections from scratch.
+            cancel_event: If set, the build will stop after the current batch.
+            callbacks: Optional callbacks for progress reporting and streaming.
 
         Returns a summary dict with counts.
         """
@@ -53,13 +74,26 @@ class VocabularyBuilder:
         batches = self._batch_records(records, self._batch_size)
         logger.info("Processing %d records in %d batches", len(records), len(batches))
         all_new_entries: List[Dict[str, Any]] = []
+        cancelled = False
 
         for i, batch in enumerate(batches, 1):
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info("Build cancelled before batch %d/%d", i, len(batches))
+                cancelled = True
+                break
+
             try:
+                if callbacks and callbacks.on_batch_start:
+                    callbacks.on_batch_start(i, len(batches))
+
                 logger.info("Extracting batch %d/%d (%d records)...", i, len(batches), len(batch))
-                extracted = await self._extract_batch(batch)
+                on_chunk = callbacks.on_stream_chunk if callbacks else None
+                extracted = await self._extract_batch(batch, on_stream_chunk=on_chunk)
                 logger.info("Batch %d/%d: extracted %d entries", i, len(batches), len(extracted))
                 all_new_entries.extend(extracted)
+
+                if callbacks and callbacks.on_batch_done:
+                    callbacks.on_batch_done(i, len(batches), len(extracted))
             except Exception as e:
                 logger.warning("Failed to extract batch %d/%d: %s", i, len(batches), e)
 
@@ -75,16 +109,20 @@ class VocabularyBuilder:
         }
         self._save_vocabulary(vocabulary)
 
-        summary = {
+        summary: Dict[str, Any] = {
             "new_records": len(records),
             "new_entries": len(all_new_entries),
             "total_entries": len(merged),
         }
+        if cancelled:
+            summary["cancelled"] = True
+
         logger.info(
-            "Vocabulary built: %d new records, %d new entries, %d total entries",
+            "Vocabulary built: %d new records, %d new entries, %d total entries%s",
             summary["new_records"],
             summary["new_entries"],
             summary["total_entries"],
+            " (cancelled)" if cancelled else "",
         )
         return summary
 
@@ -144,9 +182,17 @@ class VocabularyBuilder:
         )
 
     async def _extract_batch(
-        self, batch: List[Dict[str, Any]]
+        self,
+        batch: List[Dict[str, Any]],
+        on_stream_chunk: Optional[Callable[[str], None]] = None,
     ) -> List[Dict[str, Any]]:
-        """Call LLM to extract vocabulary entries from a batch of records."""
+        """Call LLM to extract vocabulary entries from a batch of records.
+
+        Args:
+            batch: Records to process.
+            on_stream_chunk: If provided, use streaming mode and call this
+                with each text chunk as it arrives.
+        """
         from openai import AsyncOpenAI
 
         provider_cfg = self._get_provider_config()
@@ -159,17 +205,37 @@ class VocabularyBuilder:
             api_key=provider_cfg["api_key"],
         )
         model = provider_cfg["model"]
-
         prompt = self._build_extraction_prompt(batch)
-        response = await asyncio.wait_for(
-            client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-            ),
-            timeout=self._batch_timeout,
-        )
+        extra_body = {"chat_template_kwargs": {"enable_thinking": False}}
 
-        content = response.choices[0].message.content
+        if on_stream_chunk is not None:
+            # Streaming path
+            async with asyncio.timeout(self._batch_timeout):
+                stream = await client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    stream=True,
+                    extra_body=extra_body,
+                )
+                parts: List[str] = []
+                async for chunk in stream:
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        delta = chunk.choices[0].delta.content
+                        parts.append(delta)
+                        on_stream_chunk(delta)
+                content = "".join(parts)
+        else:
+            # Non-streaming path (backward compatible)
+            response = await asyncio.wait_for(
+                client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    extra_body=extra_body,
+                ),
+                timeout=self._batch_timeout,
+            )
+            content = response.choices[0].message.content
+
         if not content:
             return []
 

@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+import threading
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
-from voicetext.vocabulary_builder import VocabularyBuilder
+from voicetext.vocabulary_builder import BuildCallbacks, VocabularyBuilder
 
 
 def _make_config(**overrides):
@@ -420,6 +421,210 @@ class TestBuild:
         assert result["new_records"] == 3
         # OldTerm from existing + Python from LLM
         assert result["total_entries"] == 2
+
+
+class TestBuildWithCancel:
+    def test_cancel_after_first_batch(self, tmp_path):
+        """Cancel event set after first batch - should save partial results."""
+        corrections_path = tmp_path / "corrections.jsonl"
+        # Create enough records for 2 batches (batch_size=20)
+        records = []
+        for i in range(25):
+            records.append({
+                "timestamp": f"2026-01-01T{i:02d}:00:00+00:00",
+                "asr_text": f"test{i}",
+                "final_text": f"test{i}",
+            })
+        with open(corrections_path, "w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps([
+            {"term": "TestTerm", "category": "tech", "variants": [], "context": "test"}
+        ])
+
+        cancel_event = threading.Event()
+        call_count = 0
+
+        async def mock_create(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            # Cancel after first batch completes
+            if call_count == 1:
+                cancel_event.set()
+            return mock_response
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = mock_create
+
+        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        with patch("openai.AsyncOpenAI", return_value=mock_client):
+            result = asyncio.get_event_loop().run_until_complete(
+                builder.build(cancel_event=cancel_event)
+            )
+
+        assert result.get("cancelled") is True
+        assert result["new_entries"] == 1  # Only first batch processed
+        assert result["total_entries"] == 1
+        # Vocabulary should still be saved
+        assert (tmp_path / "vocabulary.json").exists()
+
+    def test_cancel_before_any_batch(self, tmp_path):
+        """Cancel event set before processing starts."""
+        corrections_path = tmp_path / "corrections.jsonl"
+        records = _sample_corrections()
+        with open(corrections_path, "w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+        cancel_event = threading.Event()
+        cancel_event.set()  # Already cancelled
+
+        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        result = asyncio.get_event_loop().run_until_complete(
+            builder.build(cancel_event=cancel_event)
+        )
+
+        assert result.get("cancelled") is True
+        assert result["new_entries"] == 0
+
+
+class TestExtractBatchStreaming:
+    def test_streaming_collects_chunks(self):
+        """on_stream_chunk should be called for each streamed chunk."""
+        builder = VocabularyBuilder(_make_config())
+        batch = [{"asr_text": "test", "final_text": "test"}]
+
+        json_parts = ['[{"term"', ': "Python"', ', "category"', ': "tech"}]']
+        full_json = "".join(json_parts)
+
+        # Build async iterator for stream chunks
+        chunks = []
+        for part in json_parts:
+            chunk = MagicMock()
+            chunk.choices = [MagicMock()]
+            chunk.choices[0].delta.content = part
+            chunks.append(chunk)
+
+        async def mock_create(**kwargs):
+            assert kwargs.get("stream") is True
+            # Return an async iterator
+            class AsyncIter:
+                def __init__(self, items):
+                    self._items = iter(items)
+
+                def __aiter__(self):
+                    return self
+
+                async def __anext__(self):
+                    try:
+                        return next(self._items)
+                    except StopIteration:
+                        raise StopAsyncIteration
+
+            return AsyncIter(chunks)
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = mock_create
+
+        collected_chunks = []
+        on_chunk = lambda c: collected_chunks.append(c)
+
+        with patch("openai.AsyncOpenAI", return_value=mock_client):
+            result = asyncio.get_event_loop().run_until_complete(
+                builder._extract_batch(batch, on_stream_chunk=on_chunk)
+            )
+
+        assert collected_chunks == json_parts
+        assert len(result) == 1
+        assert result[0]["term"] == "Python"
+
+    def test_no_callback_uses_non_streaming(self):
+        """Without on_stream_chunk, the non-streaming path is used."""
+        builder = VocabularyBuilder(_make_config())
+        batch = [{"asr_text": "test", "final_text": "test"}]
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps([
+            {"term": "Python", "category": "tech"}
+        ])
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        with patch("openai.AsyncOpenAI", return_value=mock_client):
+            result = asyncio.get_event_loop().run_until_complete(
+                builder._extract_batch(batch)
+            )
+
+        # Verify stream=True was NOT passed
+        create_call = mock_client.chat.completions.create
+        create_call.assert_called_once()
+        call_kwargs = create_call.call_args[1]
+        assert "stream" not in call_kwargs
+
+        assert len(result) == 1
+        assert result[0]["term"] == "Python"
+
+
+class TestBuildWithCallbacks:
+    def test_callbacks_called_correctly(self, tmp_path):
+        """Verify on_batch_start and on_batch_done are called for each batch."""
+        corrections_path = tmp_path / "corrections.jsonl"
+        records = _sample_corrections()
+        with open(corrections_path, "w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+        json_content = json.dumps([
+            {"term": "Python", "category": "tech", "variants": ["派森"]}
+        ])
+
+        # Build streaming mock that yields the full JSON in one chunk
+        stream_chunk = MagicMock()
+        stream_chunk.choices = [MagicMock()]
+        stream_chunk.choices[0].delta.content = json_content
+
+        async def mock_create(**kwargs):
+            class AsyncIter:
+                def __aiter__(self):
+                    return self
+
+                async def __anext__(self):
+                    if not hasattr(self, '_done'):
+                        self._done = True
+                        return stream_chunk
+                    raise StopAsyncIteration
+
+            return AsyncIter()
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = mock_create
+
+        on_batch_start = MagicMock()
+        on_batch_done = MagicMock()
+        on_stream_chunk = MagicMock()
+
+        callbacks = BuildCallbacks(
+            on_batch_start=on_batch_start,
+            on_batch_done=on_batch_done,
+            on_stream_chunk=on_stream_chunk,
+        )
+
+        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        with patch("openai.AsyncOpenAI", return_value=mock_client):
+            result = asyncio.get_event_loop().run_until_complete(
+                builder.build(callbacks=callbacks)
+            )
+
+        # With 3 records and batch_size=20, there's 1 batch
+        on_batch_start.assert_called_once_with(1, 1)
+        on_batch_done.assert_called_once_with(1, 1, 1)
+        on_stream_chunk.assert_called_once_with(json_content)
+        assert result["new_entries"] == 1
 
 
 class TestBuildExtractionPrompt:
