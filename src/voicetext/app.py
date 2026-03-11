@@ -18,6 +18,7 @@ from CoreFoundation import kCFBooleanTrue
 
 from .config import load_config, save_config
 from .enhancer import EnhanceMode, TextEnhancer, create_enhancer
+from .result_window import ResultPreviewPanel
 from .hotkey import HoldHotkeyListener
 from .input import type_text
 from .model_registry import (
@@ -73,8 +74,10 @@ class VoiceTextApp(rumps.App):
 
         self._output_method = self._config["output"]["method"]
         self._append_newline = self._config["output"]["append_newline"]
+        self._preview_enabled = self._config["output"].get("preview", True)
         self._hotkey_listener: Optional[HoldHotkeyListener] = None
         self._busy = False
+        self._preview_panel = ResultPreviewPanel()
 
         # Resolve current preset
         self._current_preset_id = asr_cfg.get("preset")
@@ -186,6 +189,11 @@ class VoiceTextApp(rumps.App):
         )
         self._enhance_menu.add(self._enhance_edit_config_item)
 
+        self._preview_item = rumps.MenuItem(
+            "Preview", callback=self._on_preview_toggle
+        )
+        self._preview_item.state = 1 if self._preview_enabled else 0
+
         self._copy_log_item = rumps.MenuItem(
             "Copy Log Path", callback=self._on_copy_log_path
         )
@@ -196,6 +204,7 @@ class VoiceTextApp(rumps.App):
             None,
             self._model_menu,
             self._enhance_menu,
+            self._preview_item,
             self._copy_log_item,
             None,
         ]
@@ -250,24 +259,13 @@ class VoiceTextApp(rumps.App):
             try:
                 text = self._transcriber.transcribe(wav_data)
                 if text and text.strip():
-                    # AI enhancement step
-                    if self._enhancer and self._enhancer.is_active:
-                        self._set_status("Enhancing...")
-                        try:
-                            loop = asyncio.new_event_loop()
-                            text = loop.run_until_complete(
-                                self._enhancer.enhance(text)
-                            )
-                            loop.close()
-                        except Exception as e:
-                            logger.error("AI enhancement failed: %s", e)
+                    asr_text = text.strip()
+                    use_enhance = bool(self._enhancer and self._enhancer.is_active)
 
-                    type_text(
-                        text.strip(),
-                        append_newline=self._append_newline,
-                        method=self._output_method,
-                    )
-                    self._set_status("VT")
+                    if self._preview_enabled:
+                        self._do_transcribe_with_preview(asr_text, use_enhance)
+                    else:
+                        self._do_transcribe_direct(asr_text, use_enhance)
                 else:
                     self._set_status("(empty)")
                     logger.warning("Transcription returned empty text")
@@ -278,6 +276,89 @@ class VoiceTextApp(rumps.App):
                 self._busy = False
 
         threading.Thread(target=_do_transcribe, daemon=True).start()
+
+    def _do_transcribe_direct(self, asr_text: str, use_enhance: bool) -> None:
+        """Original flow: enhance (if enabled) and type directly."""
+        text = asr_text
+        if use_enhance:
+            self._set_status("Enhancing...")
+            try:
+                loop = asyncio.new_event_loop()
+                text = loop.run_until_complete(self._enhancer.enhance(text))
+                loop.close()
+            except Exception as e:
+                logger.error("AI enhancement failed: %s", e)
+
+        type_text(
+            text.strip(),
+            append_newline=self._append_newline,
+            method=self._output_method,
+        )
+        self._set_status("VT")
+
+    def _do_transcribe_with_preview(self, asr_text: str, use_enhance: bool) -> None:
+        """Show preview panel, optionally run AI enhance, wait for user decision."""
+        from PyObjCTools import AppHelper
+        import time
+
+        result_event = threading.Event()
+        result_holder = {"text": None, "confirmed": False}
+
+        def on_confirm(text: str) -> None:
+            result_holder["text"] = text
+            result_holder["confirmed"] = True
+            result_event.set()
+
+        def on_cancel() -> None:
+            result_holder["confirmed"] = False
+            result_event.set()
+
+        # Show panel on main thread
+        def _show():
+            self._activate_for_dialog()
+            self._preview_panel.show(
+                asr_text=asr_text,
+                show_enhance=use_enhance,
+                on_confirm=on_confirm,
+                on_cancel=on_cancel,
+            )
+
+        AppHelper.callAfter(_show)
+        self._set_status("Preview...")
+
+        # Run AI enhancement in background if enabled
+        if use_enhance:
+            def _enhance():
+                try:
+                    loop = asyncio.new_event_loop()
+                    enhanced = loop.run_until_complete(
+                        self._enhancer.enhance(asr_text)
+                    )
+                    loop.close()
+                    self._preview_panel.set_enhance_result(enhanced)
+                except Exception as e:
+                    logger.error("AI enhancement failed: %s", e)
+                    self._preview_panel.set_enhance_result(f"(error: {e})")
+
+            threading.Thread(target=_enhance, daemon=True).start()
+
+        # Wait for user decision
+        result_event.wait()
+
+        # Restore menu bar mode and inject text
+        AppHelper.callAfter(self._restore_accessory)
+        time.sleep(0.1)  # Brief delay for target app to regain focus
+
+        if result_holder["confirmed"] and result_holder["text"]:
+            type_text(
+                result_holder["text"].strip(),
+                append_newline=self._append_newline,
+                method=self._output_method,
+            )
+            self._set_status("VT")
+        else:
+            self._set_status("VT")
+            logger.info("Preview cancelled by user")
 
     def _on_enhance_mode_select(self, sender) -> None:
         """Handle AI enhance mode menu item click."""
@@ -791,6 +872,15 @@ extra_body: {"chat_template_kwargs": {"enable_thinking": false}}"""
             logger.error("Remove provider failed: %s", e, exc_info=True)
         finally:
             self._restore_accessory()
+
+    def _on_preview_toggle(self, sender) -> None:
+        """Toggle preview window on/off."""
+        self._preview_enabled = not self._preview_enabled
+        sender.state = 1 if self._preview_enabled else 0
+
+        self._config["output"]["preview"] = self._preview_enabled
+        save_config(self._config, self._config_path)
+        logger.info("Preview set to: %s", self._preview_enabled)
 
     def _on_enhance_edit_config(self, _) -> None:
         """Open the config file in the default editor."""

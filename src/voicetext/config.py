@@ -34,6 +34,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "output": {
         "method": "auto",
         "append_newline": False,
+        "preview": True,
     },
     "ai_enhance": {
         "enabled": False,
