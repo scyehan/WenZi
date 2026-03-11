@@ -9,6 +9,7 @@ import pytest
 
 from voicetext.enhancer import MODE_OFF, TextEnhancer, create_enhancer
 from voicetext.mode_loader import ModeDefinition
+from voicetext.vocabulary import VocabularyEntry, VocabularyIndex
 
 
 # --- TextEnhancer tests ---
@@ -721,3 +722,119 @@ class TestCreateEnhancer:
             enhancer = create_enhancer(config)
         assert enhancer is not None
         assert enhancer.is_active is False
+
+
+# --- Vocabulary integration tests ---
+
+
+class TestVocabularyIntegration:
+    def test_vocab_disabled_by_default(self):
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(_make_config())
+        assert enhancer.vocab_enabled is False
+        assert enhancer.vocab_index is None
+
+    def test_vocab_enabled_creates_index(self):
+        cfg = _make_config(vocabulary={"enabled": True, "top_k": 3})
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(cfg)
+        assert enhancer.vocab_enabled is True
+        assert enhancer.vocab_index is not None
+
+    def test_vocab_toggle(self):
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(_make_config())
+        assert enhancer.vocab_enabled is False
+        enhancer.vocab_enabled = True
+        assert enhancer.vocab_enabled is True
+        assert enhancer.vocab_index is not None
+
+    def test_enhance_with_vocab_injects_context(self):
+        mock_client = _make_mock_client("enhanced text")
+        mock_vocab = MagicMock(spec=VocabularyIndex)
+        mock_vocab.is_loaded = True
+        mock_vocab.retrieve.return_value = [
+            VocabularyEntry(term="Python", context="编程语言"),
+        ]
+        mock_vocab.format_for_prompt.return_value = (
+            "参考以下常用词汇进行纠错：\n- Python（编程语言）"
+        )
+
+        cfg = _make_config(enabled=True, vocabulary={"enabled": True, "top_k": 5})
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(cfg)
+            enhancer._providers = {
+                "ollama": (mock_client, ["qwen2.5:7b"], {}),
+            }
+            enhancer._active_provider = "ollama"
+            enhancer._active_model = "qwen2.5:7b"
+            enhancer._vocab_index = mock_vocab
+
+        asyncio.get_event_loop().run_until_complete(enhancer.enhance("派森编程"))
+
+        # Verify system prompt includes vocab context
+        call_kwargs = mock_client.chat.completions.create.call_args
+        system_msg = call_kwargs.kwargs["messages"][0]["content"]
+        assert "Python（编程语言）" in system_msg
+
+    def test_enhance_without_vocab_no_injection(self):
+        mock_client = _make_mock_client("enhanced text")
+
+        cfg = _make_config(enabled=True)
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(cfg)
+            enhancer._providers = {
+                "ollama": (mock_client, ["qwen2.5:7b"], {}),
+            }
+            enhancer._active_provider = "ollama"
+            enhancer._active_model = "qwen2.5:7b"
+
+        asyncio.get_event_loop().run_until_complete(enhancer.enhance("hello"))
+
+        call_kwargs = mock_client.chat.completions.create.call_args
+        system_msg = call_kwargs.kwargs["messages"][0]["content"]
+        assert "参考以下常用词汇" not in system_msg
+
+    def test_enhance_vocab_retrieval_failure_graceful(self):
+        mock_client = _make_mock_client("enhanced text")
+        mock_vocab = MagicMock(spec=VocabularyIndex)
+        mock_vocab.is_loaded = True
+        mock_vocab.retrieve.side_effect = RuntimeError("embedding error")
+
+        cfg = _make_config(enabled=True, vocabulary={"enabled": True, "top_k": 5})
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(cfg)
+            enhancer._providers = {
+                "ollama": (mock_client, ["qwen2.5:7b"], {}),
+            }
+            enhancer._active_provider = "ollama"
+            enhancer._active_model = "qwen2.5:7b"
+            enhancer._vocab_index = mock_vocab
+
+        result = asyncio.get_event_loop().run_until_complete(
+            enhancer.enhance("hello")
+        )
+        # Should still enhance successfully
+        assert result == "enhanced text"
+
+    def test_enhance_vocab_empty_results_no_injection(self):
+        mock_client = _make_mock_client("enhanced text")
+        mock_vocab = MagicMock(spec=VocabularyIndex)
+        mock_vocab.is_loaded = True
+        mock_vocab.retrieve.return_value = []
+
+        cfg = _make_config(enabled=True, vocabulary={"enabled": True, "top_k": 5})
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(cfg)
+            enhancer._providers = {
+                "ollama": (mock_client, ["qwen2.5:7b"], {}),
+            }
+            enhancer._active_provider = "ollama"
+            enhancer._active_model = "qwen2.5:7b"
+            enhancer._vocab_index = mock_vocab
+
+        asyncio.get_event_loop().run_until_complete(enhancer.enhance("hello"))
+
+        call_kwargs = mock_client.chat.completions.create.call_args
+        system_msg = call_kwargs.kwargs["messages"][0]["content"]
+        assert "参考以下常用词汇" not in system_msg

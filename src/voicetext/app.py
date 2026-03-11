@@ -184,6 +184,20 @@ class VoiceTextApp(rumps.App):
             self._enhance_thinking_item.state = 1
         self._enhance_menu.add(self._enhance_thinking_item)
 
+        # Vocabulary toggle
+        vocab_enabled = ai_cfg.get("vocabulary", {}).get("enabled", False)
+        self._enhance_vocab_item = rumps.MenuItem(
+            "Vocabulary", callback=self._on_vocab_toggle
+        )
+        self._enhance_vocab_item.state = 1 if vocab_enabled else 0
+        self._enhance_menu.add(self._enhance_vocab_item)
+
+        # Build vocabulary action
+        self._enhance_vocab_build_item = rumps.MenuItem(
+            "Build Vocabulary...", callback=self._on_vocab_build
+        )
+        self._enhance_menu.add(self._enhance_vocab_build_item)
+
         # Provider configuration items
         self._enhance_menu.add(rumps.separator)
         self._enhance_add_provider_item = rumps.MenuItem(
@@ -590,6 +604,64 @@ Output only the processed text without any explanation."""
         self._config["ai_enhance"]["thinking"] = new_value
         save_config(self._config, self._config_path)
         logger.info("AI thinking set to: %s", new_value)
+
+    def _on_vocab_toggle(self, sender) -> None:
+        """Toggle vocabulary-based retrieval."""
+        if not self._enhancer:
+            return
+
+        new_value = not self._enhancer.vocab_enabled
+        self._enhancer.vocab_enabled = new_value
+        sender.state = 1 if new_value else 0
+
+        # Persist to config
+        self._config.setdefault("ai_enhance", {})
+        self._config["ai_enhance"].setdefault("vocabulary", {})
+        self._config["ai_enhance"]["vocabulary"]["enabled"] = new_value
+        save_config(self._config, self._config_path)
+        logger.info("Vocabulary set to: %s", new_value)
+
+    def _on_vocab_build(self, _sender) -> None:
+        """Build vocabulary from correction logs in a background thread."""
+        if not self._enhancer:
+            rumps.alert("AI Enhance is not configured.")
+            return
+
+        def _build():
+            import asyncio as _asyncio
+
+            from .vocabulary_builder import VocabularyBuilder
+
+            ai_cfg = self._config.get("ai_enhance", {})
+            builder = VocabularyBuilder(ai_cfg)
+
+            old_title = self.title
+            self.title = "VT ⏳"
+            try:
+                loop = _asyncio.new_event_loop()
+                summary = loop.run_until_complete(builder.build())
+                loop.close()
+
+                # Reload vocabulary index if enhancer has one
+                if self._enhancer and self._enhancer.vocab_index is not None:
+                    self._enhancer.vocab_index.reload()
+
+                rumps.notification(
+                    "VoiceText",
+                    "Vocabulary Built",
+                    f"{summary['total_entries']} entries "
+                    f"({summary['new_entries']} new)",
+                )
+            except Exception as e:
+                logger.error("Vocabulary build failed: %s", e)
+                rumps.notification(
+                    "VoiceText", "Vocabulary Build Failed", str(e)
+                )
+            finally:
+                self.title = old_title
+
+        t = threading.Thread(target=_build, daemon=True)
+        t.start()
 
     def _build_enhance_model_menu(self) -> None:
         """Build or rebuild the AI enhance model submenu."""

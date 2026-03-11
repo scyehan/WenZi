@@ -51,6 +51,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         },
         "thinking": False,
         "timeout": 30,
+        "vocabulary": {
+            "enabled": False,
+            "top_k": 5,
+            "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",
+        },
     },
     "logging": {
         "level": "INFO",
