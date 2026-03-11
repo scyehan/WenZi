@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import logging
+import logging.handlers
 import os
+import subprocess
 import sys
 import threading
+from pathlib import Path
 from typing import Dict, Optional
 
 import rumps
@@ -29,6 +32,9 @@ from .transcriber import create_transcriber
 
 
 logger = logging.getLogger(__name__)
+
+LOG_DIR = Path.home() / "Library" / "Logs" / "VoiceText"
+LOG_FILE = LOG_DIR / "voicetext.log"
 
 # Approximate FunASR total model size in bytes (ASR + VAD + PUNC)
 _FUNASR_APPROX_SIZE = 502 * 1024 * 1024
@@ -103,20 +109,36 @@ class VoiceTextApp(rumps.App):
             self._model_menu_items[preset.id] = item
             self._model_menu.add(item)
 
+        self._copy_log_item = rumps.MenuItem(
+            "Copy Log Path", callback=self._on_copy_log_path
+        )
+
         self.menu = [
             self._status_item,
             self._hotkey_item,
             None,
             self._model_menu,
+            self._copy_log_item,
             None,
         ]
         self.quit_button.set_callback(self._on_quit_click)
 
     def _setup_logging(self) -> None:
         level = self._config["logging"]["level"]
+        log_level = getattr(logging, level, logging.INFO)
+        fmt = "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
+
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.handlers.RotatingFileHandler(
+            LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+        )
+        file_handler.setLevel(log_level)
+        file_handler.setFormatter(logging.Formatter(fmt))
+
         logging.basicConfig(
-            level=getattr(logging, level, logging.INFO),
-            format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+            level=log_level,
+            format=fmt,
+            handlers=[logging.StreamHandler(), file_handler],
         )
 
     def _set_status(self, text: str) -> None:
@@ -166,6 +188,12 @@ class VoiceTextApp(rumps.App):
                 self._busy = False
 
         threading.Thread(target=_do_transcribe, daemon=True).start()
+
+    def _on_copy_log_path(self, _) -> None:
+        """Copy the log file path to clipboard."""
+        path_str = str(LOG_FILE)
+        subprocess.run(["pbcopy"], input=path_str.encode(), check=True)
+        rumps.notification("VoiceText", "Log path copied", path_str)
 
     def _on_model_select(self, sender) -> None:
         """Handle model menu item click."""
