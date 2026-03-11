@@ -128,6 +128,7 @@ class VoiceTextApp(rumps.App):
             "format": "格式化",
             "complete": "智能补全",
             "enhance": "全面增强",
+            "translate_en": "翻译为英文",
         }
         for mode in EnhanceMode:
             label = _mode_labels.get(mode.value, mode.value)
@@ -159,6 +160,14 @@ class VoiceTextApp(rumps.App):
         self._enhance_model_items: Dict[str, rumps.MenuItem] = {}
         self._build_enhance_model_menu()
         self._enhance_menu.add(self._enhance_model_menu)
+
+        # Thinking toggle
+        self._enhance_thinking_item = rumps.MenuItem(
+            "Thinking", callback=self._on_enhance_thinking_toggle
+        )
+        if self._enhancer and self._enhancer.thinking:
+            self._enhance_thinking_item.state = 1
+        self._enhance_menu.add(self._enhance_thinking_item)
 
         # Provider configuration items
         self._enhance_menu.add(rumps.separator)
@@ -334,6 +343,21 @@ class VoiceTextApp(rumps.App):
         self._config["ai_enhance"]["default_model"] = mname
         save_config(self._config, self._config_path)
         logger.info("AI enhance model set to: %s", mname)
+
+    def _on_enhance_thinking_toggle(self, sender) -> None:
+        """Toggle AI thinking mode."""
+        if not self._enhancer:
+            return
+
+        new_value = not self._enhancer.thinking
+        self._enhancer.thinking = new_value
+        sender.state = 1 if new_value else 0
+
+        # Persist to config
+        self._config.setdefault("ai_enhance", {})
+        self._config["ai_enhance"]["thinking"] = new_value
+        save_config(self._config, self._config_path)
+        logger.info("AI thinking set to: %s", new_value)
 
     def _build_enhance_model_menu(self) -> None:
         """Build or rebuild the AI enhance model submenu."""

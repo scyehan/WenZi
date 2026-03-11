@@ -20,9 +20,10 @@ class TestEnhanceMode:
         assert EnhanceMode.FORMAT.value == "format"
         assert EnhanceMode.COMPLETE.value == "complete"
         assert EnhanceMode.ENHANCE.value == "enhance"
+        assert EnhanceMode.TRANSLATE_EN.value == "translate_en"
 
     def test_mode_count(self):
-        assert len(EnhanceMode) == 5
+        assert len(EnhanceMode) == 6
 
     def test_from_string(self):
         assert EnhanceMode("proofread") == EnhanceMode.PROOFREAD
@@ -50,6 +51,7 @@ def _make_config(**overrides):
                 "models": ["qwen2.5:7b"],
             },
         },
+        "thinking": False,
         "timeout": 30,
     }
     cfg.update(overrides)
@@ -581,7 +583,7 @@ class TestTextEnhancerEnhance:
         with patch("voicetext.enhancer.TextEnhancer._init_providers"):
             enhancer = TextEnhancer(_make_config(enabled=True, mode="proofread"))
             enhancer._providers = {
-                "ollama": (MagicMock(), ["qwen2.5:7b"]),
+                "ollama": (MagicMock(), ["qwen2.5:7b"], {}),
             }
             enhancer._active_provider = "ollama"
 
@@ -598,7 +600,7 @@ class TestTextEnhancerEnhance:
         with patch("voicetext.enhancer.TextEnhancer._init_providers"):
             enhancer = TextEnhancer(_make_config(enabled=True, mode="proofread"))
             enhancer._providers = {
-                "ollama": (MagicMock(), ["qwen2.5:7b"]),
+                "ollama": (MagicMock(), ["qwen2.5:7b"], {}),
             }
             enhancer._active_provider = "ollama"
 
@@ -606,6 +608,85 @@ class TestTextEnhancerEnhance:
             enhancer.enhance("original text")
         )
         assert result == "original text"
+
+
+# --- Thinking / extra_body tests ---
+
+
+class TestThinkingAndExtraBody:
+    def test_thinking_defaults_to_false(self):
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(_make_config())
+        assert enhancer.thinking is False
+
+    def test_thinking_can_be_enabled(self):
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(_make_config(thinking=True))
+        assert enhancer.thinking is True
+
+    def test_thinking_setter(self):
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(_make_config())
+        enhancer.thinking = True
+        assert enhancer.thinking is True
+
+    def test_build_extra_body_thinking_off(self):
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(_make_config(thinking=False))
+        result = enhancer._build_extra_body({})
+        assert result == {"chat_template_kwargs": {"enable_thinking": False}}
+
+    def test_build_extra_body_thinking_on(self):
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(_make_config(thinking=True))
+        result = enhancer._build_extra_body({})
+        assert result == {}
+
+    def test_build_extra_body_provider_overrides(self):
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(_make_config(thinking=False))
+        provider_extra = {"chat_template_kwargs": {"enable_thinking": True}}
+        result = enhancer._build_extra_body(provider_extra)
+        # Provider-level extra_body overrides thinking toggle
+        assert result["chat_template_kwargs"]["enable_thinking"] is True
+
+    def test_build_extra_body_merges_provider_fields(self):
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(_make_config(thinking=False))
+        provider_extra = {"custom_field": "value"}
+        result = enhancer._build_extra_body(provider_extra)
+        assert result["chat_template_kwargs"] == {"enable_thinking": False}
+        assert result["custom_field"] == "value"
+
+    def test_enhance_passes_extra_body_when_thinking_off(self):
+        mock_client = _make_mock_client("enhanced")
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(_make_config(enabled=True, thinking=False))
+            enhancer._providers = {
+                "ollama": (mock_client, ["qwen2.5:7b"], {}),
+            }
+            enhancer._active_provider = "ollama"
+            enhancer._active_model = "qwen2.5:7b"
+
+        asyncio.get_event_loop().run_until_complete(enhancer.enhance("hello"))
+        call_kwargs = mock_client.chat.completions.create.call_args
+        assert call_kwargs.kwargs.get("extra_body") == {
+            "chat_template_kwargs": {"enable_thinking": False}
+        }
+
+    def test_enhance_no_extra_body_when_thinking_on(self):
+        mock_client = _make_mock_client("enhanced")
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(_make_config(enabled=True, thinking=True))
+            enhancer._providers = {
+                "ollama": (mock_client, ["qwen2.5:7b"], {}),
+            }
+            enhancer._active_provider = "ollama"
+            enhancer._active_model = "qwen2.5:7b"
+
+        asyncio.get_event_loop().run_until_complete(enhancer.enhance("hello"))
+        call_kwargs = mock_client.chat.completions.create.call_args
+        assert "extra_body" not in call_kwargs.kwargs
 
 
 # --- create_enhancer factory tests ---

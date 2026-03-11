@@ -18,6 +18,7 @@ class EnhanceMode(Enum):
     FORMAT = "format"
     COMPLETE = "complete"
     ENHANCE = "enhance"
+    TRANSLATE_EN = "translate_en"
 
 
 _MODE_PROMPTS: Dict[EnhanceMode, str] = {
@@ -48,6 +49,12 @@ _MODE_PROMPTS: Dict[EnhanceMode, str] = {
         "保持原文的核心语义不变。"
         "直接输出增强后的文本，不要添加任何解释或说明。"
     ),
+    EnhanceMode.TRANSLATE_EN: (
+        "You are a Chinese-to-English translator. "
+        "Translate the user's Chinese input into natural, fluent English. "
+        "Preserve the original meaning and tone. "
+        "Output only the translated text without any explanation."
+    ),
 }
 
 
@@ -58,6 +65,7 @@ class TextEnhancer:
         self._enabled = config.get("enabled", False)
         self._mode = EnhanceMode(config.get("mode", "proofread"))
         self._timeout = config.get("timeout", 30)
+        self._thinking = config.get("thinking", False)
 
         # Multi-provider support: name -> (AsyncOpenAI client, models list, extra_body)
         self._providers: Dict[str, Tuple[Any, List[str], Dict[str, Any]]] = {}
@@ -113,6 +121,15 @@ class TextEnhancer:
     @property
     def is_active(self) -> bool:
         return self._enabled and self._mode != EnhanceMode.OFF
+
+    @property
+    def thinking(self) -> bool:
+        return self._thinking
+
+    @thinking.setter
+    def thinking(self, value: bool) -> None:
+        self._thinking = value
+        logger.info("AI thinking changed to: %s", value)
 
     @property
     def provider_name(self) -> str:
@@ -233,6 +250,18 @@ class TextEnhancer:
         logger.info("Removed AI provider: %s", name)
         return True
 
+    def _build_extra_body(self, provider_extra_body: Dict[str, Any]) -> Dict[str, Any]:
+        """Build the final extra_body by merging thinking control with provider config.
+
+        Provider-level extra_body takes precedence over thinking toggle.
+        """
+        result: Dict[str, Any] = {}
+        if not self._thinking:
+            result["chat_template_kwargs"] = {"enable_thinking": False}
+        if provider_extra_body:
+            result.update(provider_extra_body)
+        return result
+
     async def enhance(self, text: str) -> str:
         """Enhance text using LLM. Returns original text on failure."""
         if not self.is_active or not text or not text.strip():
@@ -247,7 +276,8 @@ class TextEnhancer:
             return text
 
         try:
-            client, _, extra_body = self._providers[self._active_provider]
+            client, _, provider_extra_body = self._providers[self._active_provider]
+            extra_body = self._build_extra_body(provider_extra_body)
             kwargs: Dict[str, Any] = {
                 "model": self._active_model,
                 "messages": [
