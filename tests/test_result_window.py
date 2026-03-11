@@ -44,7 +44,7 @@ class TestResultPreviewPanelCallbacks:
         panel.show(
             asr_text="raw asr",
             show_enhance=False,
-            on_confirm=lambda t: confirmed_text.append(t),
+            on_confirm=lambda t, info=None: confirmed_text.append(t),
             on_cancel=MagicMock(),
         )
 
@@ -111,6 +111,89 @@ class TestResultPreviewPanelCallbacks:
         panel.cancelClicked_(None)
 
         mock_panel.orderOut_.assert_called_once_with(None)
+
+
+class TestResultPreviewPanelCorrectionInfo:
+    """Test correction_info passed via on_confirm callback."""
+
+    def test_correction_info_when_user_edited_with_enhance(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._build_panel = MagicMock()
+        panel._panel = MagicMock()
+        panel._final_text_view = MagicMock()
+        panel._final_text_view.string.return_value = "user corrected"
+        panel._enhance_text_view = MagicMock()
+        panel._enhance_text_view.string.return_value = "ai enhanced"
+
+        results = []
+
+        panel.show(
+            asr_text="raw asr",
+            show_enhance=True,
+            on_confirm=lambda text, info: results.append((text, info)),
+            on_cancel=MagicMock(),
+        )
+
+        # Simulate user editing
+        panel._on_user_edit()
+        panel.confirmClicked_(None)
+
+        assert len(results) == 1
+        text, info = results[0]
+        assert text == "user corrected"
+        assert info is not None
+        assert info["asr_text"] == "raw asr"
+        assert info["enhanced_text"] == "ai enhanced"
+        assert info["final_text"] == "user corrected"
+
+    def test_correction_info_none_when_not_edited(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._build_panel = MagicMock()
+        panel._panel = MagicMock()
+        panel._final_text_view = MagicMock()
+        panel._final_text_view.string.return_value = "text"
+        panel._enhance_text_view = MagicMock()
+
+        results = []
+
+        panel.show(
+            asr_text="raw asr",
+            show_enhance=True,
+            on_confirm=lambda text, info: results.append((text, info)),
+            on_cancel=MagicMock(),
+        )
+
+        # No user edit
+        panel.confirmClicked_(None)
+
+        assert results[0][1] is None
+
+    def test_correction_info_none_when_no_enhance(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._build_panel = MagicMock()
+        panel._panel = MagicMock()
+        panel._final_text_view = MagicMock()
+        panel._final_text_view.string.return_value = "text"
+
+        results = []
+
+        panel.show(
+            asr_text="raw asr",
+            show_enhance=False,
+            on_confirm=lambda text, info: results.append((text, info)),
+            on_cancel=MagicMock(),
+        )
+
+        panel._on_user_edit()
+        panel.confirmClicked_(None)
+
+        assert results[0][1] is None
 
 
 class TestResultPreviewPanelEnhanceUpdate:
@@ -256,7 +339,7 @@ class TestResultPreviewPanelThreading:
         event = threading.Event()
         result_holder = {"text": None}
 
-        def on_confirm(text):
+        def on_confirm(text, correction_info=None):
             result_holder["text"] = text
             event.set()
 
@@ -290,7 +373,7 @@ class TestResultPreviewPanelThreading:
         panel.show(
             asr_text="asr",
             show_enhance=False,
-            on_confirm=lambda t: event.set(),
+            on_confirm=lambda t, info=None: event.set(),
             on_cancel=on_cancel,
         )
 

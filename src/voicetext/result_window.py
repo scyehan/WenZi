@@ -47,17 +47,18 @@ class ResultPreviewPanel:
         self._enhance_scroll = None
         self._enhance_text_view = None
         self._final_text_view = None
-        self._on_confirm: Optional[Callable[[str], None]] = None
+        self._on_confirm: Optional[Callable[[str, Optional[dict]], None]] = None
         self._on_cancel: Optional[Callable[[], None]] = None
         self._user_edited = False
         self._show_enhance = False
+        self._asr_text = ""
         self._delegate = None
 
     def show(
         self,
         asr_text: str,
         show_enhance: bool,
-        on_confirm: Callable[[str], None],
+        on_confirm: Callable[[str, Optional[dict]], None],
         on_cancel: Callable[[], None],
     ) -> None:
         """Show the preview panel with ASR text.
@@ -72,6 +73,7 @@ class ResultPreviewPanel:
         self._on_cancel = on_cancel
         self._user_edited = False
         self._show_enhance = show_enhance
+        self._asr_text = asr_text
 
         self._build_panel(asr_text, show_enhance)
 
@@ -293,8 +295,16 @@ class ResultPreviewPanel:
         """Handle confirm button click."""
         if self._final_text_view is not None and self._on_confirm is not None:
             text = self._final_text_view.string()
+            correction_info = None
+            if self._user_edited and self._show_enhance and self._enhance_text_view is not None:
+                enhanced = self._enhance_text_view.string()
+                correction_info = {
+                    "asr_text": self._asr_text,
+                    "enhanced_text": enhanced,
+                    "final_text": text,
+                }
             self.close()
-            self._on_confirm(text)
+            self._on_confirm(text, correction_info)
 
     def cancelClicked_(self, sender) -> None:
         """Handle cancel button click."""

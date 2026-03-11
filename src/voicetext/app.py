@@ -17,6 +17,7 @@ from ApplicationServices import AXIsProcessTrusted, AXIsProcessTrustedWithOption
 from CoreFoundation import kCFBooleanTrue
 
 from .config import load_config, save_config
+from .correction_log import CorrectionLogger
 from .enhancer import EnhanceMode, TextEnhancer, create_enhancer
 from .result_window import ResultPreviewPanel
 from .hotkey import HoldHotkeyListener
@@ -78,6 +79,7 @@ class VoiceTextApp(rumps.App):
         self._hotkey_listener: Optional[HoldHotkeyListener] = None
         self._busy = False
         self._preview_panel = ResultPreviewPanel()
+        self._correction_logger = CorrectionLogger()
 
         # Resolve current preset
         self._current_preset_id = asr_cfg.get("preset")
@@ -304,9 +306,19 @@ class VoiceTextApp(rumps.App):
         result_event = threading.Event()
         result_holder = {"text": None, "confirmed": False}
 
-        def on_confirm(text: str) -> None:
+        def on_confirm(text: str, correction_info: dict | None = None) -> None:
             result_holder["text"] = text
             result_holder["confirmed"] = True
+            if correction_info is not None:
+                try:
+                    self._correction_logger.log(
+                        asr_text=correction_info["asr_text"],
+                        enhanced_text=correction_info["enhanced_text"],
+                        final_text=correction_info["final_text"],
+                        enhance_mode=self._enhance_mode.value,
+                    )
+                except Exception as e:
+                    logger.error("Failed to log correction: %s", e)
             result_event.set()
 
         def on_cancel() -> None:
