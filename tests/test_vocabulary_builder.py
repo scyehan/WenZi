@@ -491,6 +491,28 @@ class TestBuildWithCancel:
         assert result["new_entries"] == 0
 
 
+class _AsyncStreamMock:
+    """Mock for OpenAI AsyncStream that supports async with and async for."""
+
+    def __init__(self, items):
+        self._items = iter(items)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        pass
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._items)
+        except StopIteration:
+            raise StopAsyncIteration
+
+
 class TestExtractBatchStreaming:
     def test_streaming_collects_chunks(self):
         """on_stream_chunk should be called for each streamed chunk."""
@@ -510,21 +532,7 @@ class TestExtractBatchStreaming:
 
         async def mock_create(**kwargs):
             assert kwargs.get("stream") is True
-            # Return an async iterator
-            class AsyncIter:
-                def __init__(self, items):
-                    self._items = iter(items)
-
-                def __aiter__(self):
-                    return self
-
-                async def __anext__(self):
-                    try:
-                        return next(self._items)
-                    except StopIteration:
-                        raise StopAsyncIteration
-
-            return AsyncIter(chunks)
+            return _AsyncStreamMock(chunks)
 
         mock_client = MagicMock()
         mock_client.chat.completions.create = mock_create
@@ -589,17 +597,7 @@ class TestBuildWithCallbacks:
         stream_chunk.choices[0].delta.content = json_content
 
         async def mock_create(**kwargs):
-            class AsyncIter:
-                def __aiter__(self):
-                    return self
-
-                async def __anext__(self):
-                    if not hasattr(self, '_done'):
-                        self._done = True
-                        return stream_chunk
-                    raise StopAsyncIteration
-
-            return AsyncIter()
+            return _AsyncStreamMock([stream_chunk])
 
         mock_client = MagicMock()
         mock_client.chat.completions.create = mock_create

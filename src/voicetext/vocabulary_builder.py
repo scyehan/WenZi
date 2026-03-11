@@ -209,20 +209,20 @@ class VocabularyBuilder:
         extra_body = {"chat_template_kwargs": {"enable_thinking": False}}
 
         if on_stream_chunk is not None:
-            # Streaming path
+            # Streaming path — use `async with` to ensure the stream is closed
             async with asyncio.timeout(self._batch_timeout):
-                stream = await client.chat.completions.create(
+                async with await client.chat.completions.create(
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
                     stream=True,
                     extra_body=extra_body,
-                )
-                parts: List[str] = []
-                async for chunk in stream:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        delta = chunk.choices[0].delta.content
-                        parts.append(delta)
-                        on_stream_chunk(delta)
+                ) as stream:
+                    parts: List[str] = []
+                    async for chunk in stream:
+                        if chunk.choices and chunk.choices[0].delta.content:
+                            delta = chunk.choices[0].delta.content
+                            parts.append(delta)
+                            on_stream_chunk(delta)
                 content = "".join(parts)
         else:
             # Non-streaming path (backward compatible)

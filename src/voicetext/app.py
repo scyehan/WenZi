@@ -664,6 +664,9 @@ Output only the processed text without any explanation."""
                 summary = loop.run_until_complete(
                     builder.build(cancel_event=cancel_event, callbacks=callbacks)
                 )
+                # Shut down async generators before closing the loop to avoid
+                # "Task was destroyed but it is pending" warnings from streams
+                loop.run_until_complete(loop.shutdown_asyncgens())
                 loop.close()
 
                 # Reload vocabulary index if enhancer has one
