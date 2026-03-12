@@ -24,7 +24,7 @@ from .usage_stats import UsageStats
 from .enhancer import MODE_OFF, TextEnhancer, create_enhancer
 from .result_window import ResultPreviewPanel
 from .hotkey import HoldHotkeyListener, TapHotkeyListener
-from .input import get_clipboard_text, set_clipboard_text, type_text
+from .input import get_clipboard_text, has_clipboard_text, set_clipboard_text, type_text
 from .model_registry import (
     PRESET_BY_ID,
     PRESETS,
@@ -643,18 +643,55 @@ class VoiceTextApp(rumps.App):
             self._set_status("VT")
             logger.info("Preview cancelled by user")
 
+    _CLIPBOARD_MAX_CHARS = 300
+
     def _on_clipboard_enhance(self, _sender=None) -> None:
-        """Handle Enhance Clipboard menu item or hotkey activation."""
+        """Handle Enhance Clipboard menu item or hotkey activation.
+
+        May be called from a background thread (Quartz event tap), so
+        dispatch to the main thread where AppKit UI calls are safe.
+        """
+        from PyObjCTools import AppHelper
+
+        AppHelper.callAfter(self._on_clipboard_enhance_main)
+
+    def _on_clipboard_enhance_main(self) -> None:
+        """Main-thread implementation of clipboard enhance."""
         if self._busy:
             logger.info("Clipboard enhance ignored: busy")
             return
 
+        if not has_clipboard_text():
+            self._topmost_alert(
+                title="Clipboard Content Not Supported",
+                message="The clipboard does not contain text. "
+                "Please copy some text first.",
+            )
+            self._restore_accessory()
+            return
+
         clipboard_text = get_clipboard_text()
         if not clipboard_text or not clipboard_text.strip():
-            rumps.notification("VoiceText", "Clipboard Empty", "No text found in clipboard.")
+            self._topmost_alert(
+                title="Clipboard Empty",
+                message="No text found in clipboard.",
+            )
+            self._restore_accessory()
             return
 
         clipboard_text = clipboard_text.strip()
+
+        if len(clipboard_text) > self._CLIPBOARD_MAX_CHARS:
+            self._topmost_alert(
+                title="Text Too Long",
+                message=(
+                    f"The clipboard contains {len(clipboard_text)} characters "
+                    f"(limit: {self._CLIPBOARD_MAX_CHARS}).\n\n"
+                    "Please copy a shorter text and try again."
+                ),
+            )
+            self._restore_accessory()
+            return
         self._busy = True
         self._set_status("Enhancing...")
 

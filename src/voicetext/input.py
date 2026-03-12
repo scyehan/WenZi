@@ -17,6 +17,12 @@ def get_clipboard_text() -> str | None:
     return _get_pasteboard_string()
 
 
+def has_clipboard_text() -> bool:
+    """Check whether the clipboard contains plain-text content."""
+    pb = NSPasteboard.generalPasteboard()
+    return pb.availableTypeFromArray_([NSPasteboardTypeString]) is not None
+
+
 def set_clipboard_text(text: str) -> None:
     """Write text to the system clipboard (visible in clipboard history)."""
     _set_pasteboard_string(text)
