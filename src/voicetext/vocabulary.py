@@ -143,8 +143,8 @@ class VocabularyIndex:
             from fastembed import TextEmbedding
         except ImportError:
             raise ImportError(
-                "fastembed is required for vocabulary features. "
-                "Install it with: uv add fastembed  (or pip install fastembed)"
+                "fastembed is required for vocabulary features but could not be imported. "
+                "Try reinstalling with: uv sync"
             )
 
         model_id = f"sentence-transformers/{self._model_name}"

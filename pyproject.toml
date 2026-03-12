@@ -15,9 +15,11 @@ dependencies = [
     "pynput>=1.8.0",
     "mlx-whisper>=0.4.3",
     "openai-agents>=0.11.0",
+    "fastembed>=0.7.0",
 ]
-# NOTE: Vocabulary feature requires fastembed (pip install fastembed).
-# Not listed as dependency due to numpy version conflict with funasr-onnx.
+# NOTE: funasr-onnx declares numpy<=1.26.4 while fastembed declares numpy>=2.1.0,
+# but fastembed works fine at runtime with numpy 1.26.4. The override below
+# forces the resolver to accept numpy 1.26.4 for both.
 
 [project.scripts]
 voicetext = "voicetext.app:main"
@@ -32,6 +34,9 @@ packages = ["src/voicetext"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.uv]
+override-dependencies = ["numpy==1.26.4"]
 
 [dependency-groups]
 dev = [

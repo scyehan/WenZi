@@ -22,13 +22,14 @@ block_cipher = None
 # Collect mlx native extensions (.so, .dylib, .metallib) and data files
 mlx_datas, mlx_binaries, mlx_hiddenimports = collect_all('mlx')
 mlx_whisper_datas, mlx_whisper_binaries, mlx_whisper_hiddenimports = collect_all('mlx_whisper')
+fastembed_datas, fastembed_binaries, fastembed_hiddenimports = collect_all('fastembed')
 
 a = Analysis(
     ['src/voicetext/__main__.py'],
     pathex=['src'],
-    binaries=mlx_binaries + mlx_whisper_binaries,
-    datas=mlx_datas + mlx_whisper_datas,
-    hiddenimports=mlx_hiddenimports + mlx_whisper_hiddenimports + [
+    binaries=mlx_binaries + mlx_whisper_binaries + fastembed_binaries,
+    datas=mlx_datas + mlx_whisper_datas + fastembed_datas,
+    hiddenimports=mlx_hiddenimports + mlx_whisper_hiddenimports + fastembed_hiddenimports + [
         'voicetext',
         'voicetext.config',
         'voicetext.hotkey',
@@ -38,6 +39,7 @@ a = Analysis(
         'voicetext.transcriber_mlx',
         'voicetext.model_registry',
         'voicetext.input',
+        'voicetext.vocabulary',
         'rumps',
         'sounddevice',
         'soundfile',
