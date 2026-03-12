@@ -1009,3 +1009,282 @@ class TestResultPreviewPanelPlayback:
 
         # Should not raise
         panel._stop_playback()
+
+
+class TestResultPreviewPanelModelPopups:
+    """Test STT/LLM model popup infrastructure."""
+
+    def test_stt_popup_data_stored_on_show(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = _setup_panel_with_final_field(ResultPreviewPanel())
+        stt_models = ["Whisper Large", "FunASR", "Groq / whisper-large-v3"]
+
+        panel.show(
+            asr_text="hello",
+            show_enhance=False,
+            on_confirm=MagicMock(),
+            on_cancel=MagicMock(),
+            stt_models=stt_models,
+            stt_current_index=1,
+        )
+
+        assert panel._stt_models == stt_models
+        assert panel._stt_current_index == 1
+
+    def test_llm_popup_data_stored_on_show(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = _setup_panel_with_final_field(ResultPreviewPanel())
+        llm_models = ["ollama / qwen2.5:7b", "openai / gpt-4o"]
+
+        panel.show(
+            asr_text="hello",
+            show_enhance=True,
+            on_confirm=MagicMock(),
+            on_cancel=MagicMock(),
+            llm_models=llm_models,
+            llm_current_index=0,
+        )
+
+        assert panel._llm_models == llm_models
+        assert panel._llm_current_index == 0
+
+    def test_stt_popup_callback_invoked(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = _setup_panel_with_final_field(ResultPreviewPanel())
+        changed = []
+
+        panel.show(
+            asr_text="hello",
+            show_enhance=False,
+            on_confirm=MagicMock(),
+            on_cancel=MagicMock(),
+            stt_models=["Model A", "Model B"],
+            on_stt_model_change=lambda idx: changed.append(idx),
+        )
+
+        panel._on_stt_popup_changed(1)
+        assert changed == [1]
+
+    def test_llm_popup_callback_invoked(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = _setup_panel_with_final_field(ResultPreviewPanel())
+        changed = []
+
+        panel.show(
+            asr_text="hello",
+            show_enhance=True,
+            on_confirm=MagicMock(),
+            on_cancel=MagicMock(),
+            llm_models=["ollama / qwen", "openai / gpt-4o"],
+            on_llm_model_change=lambda idx: changed.append(idx),
+        )
+
+        panel._on_llm_popup_changed(0)
+        assert changed == [0]
+
+    def test_backward_compat_no_popups(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = _setup_panel_with_final_field(ResultPreviewPanel())
+
+        panel.show(
+            asr_text="text",
+            show_enhance=False,
+            on_confirm=MagicMock(),
+            on_cancel=MagicMock(),
+        )
+
+        assert panel._stt_models == []
+        assert panel._llm_models == []
+        assert panel._on_stt_model_change is None
+        assert panel._on_llm_model_change is None
+
+    def test_stt_popup_callback_noop_when_no_handler(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._on_stt_model_change = None
+
+        # Should not raise
+        panel._on_stt_popup_changed(0)
+
+    def test_llm_popup_callback_noop_when_no_handler(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._on_llm_model_change = None
+
+        # Should not raise
+        panel._on_llm_popup_changed(0)
+
+    def test_enhance_label_text_without_llm_popup(self):
+        """Without LLM popup, label includes provider info."""
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._enhance_info = "ollama / qwen2.5:7b"
+
+        result = panel._enhance_label_text("Tokens: 100")
+        assert result == "AI (ollama / qwen2.5:7b)  Tokens: 100"
+
+    def test_enhance_label_text_with_llm_popup(self):
+        """With LLM popup, label only shows suffix (status/token info)."""
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._enhance_info = "ollama / qwen2.5:7b"
+        panel._llm_models = ["ollama / qwen2.5:7b"]
+
+        result = panel._enhance_label_text("Tokens: 100")
+        assert result == "Tokens: 100"
+
+    def test_enhance_label_text_with_llm_popup_empty_suffix(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._llm_models = ["model1"]
+
+        result = panel._enhance_label_text("")
+        assert result == ""
+
+
+class TestASRLoadingAndResult:
+    """Test ASR loading/result methods for STT re-transcription."""
+
+    def test_set_asr_loading_increments_request_id(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._asr_text_view = MagicMock()
+        panel._stt_popup = MagicMock()
+
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            panel.set_asr_loading()
+
+        assert panel._asr_request_id == 1
+        panel._asr_text_view.setString_.assert_called_with("\u23f3 Re-transcribing...")
+        panel._stt_popup.setEnabled_.assert_called_with(False)
+
+    def test_set_asr_loading_without_popup(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._asr_text_view = MagicMock()
+        panel._stt_popup = None
+
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            panel.set_asr_loading()
+
+        assert panel._asr_request_id == 1
+        panel._asr_text_view.setString_.assert_called_with("\u23f3 Re-transcribing...")
+
+    def test_set_asr_result_updates_text_and_final(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._asr_request_id = 1
+        panel._user_edited = False
+        panel._asr_text_view = MagicMock()
+        panel._final_text_field = MagicMock()
+        panel._asr_info_label = MagicMock()
+        panel._stt_popup = MagicMock()
+
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            panel.set_asr_result("new text", asr_info="2.5s", request_id=1)
+
+        panel._asr_text_view.setString_.assert_called_with("new text")
+        panel._final_text_field.setStringValue_.assert_called_with("new text")
+        panel._asr_info_label.setStringValue_.assert_called_with("2.5s")
+        assert panel._asr_text == "new text"
+        panel._stt_popup.setEnabled_.assert_called_with(True)
+
+    def test_set_asr_result_skips_final_when_user_edited(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._asr_request_id = 1
+        panel._user_edited = True
+        panel._asr_text_view = MagicMock()
+        panel._final_text_field = MagicMock()
+        panel._stt_popup = MagicMock()
+
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            panel.set_asr_result("new text", request_id=1)
+
+        panel._asr_text_view.setString_.assert_called_with("new text")
+        panel._final_text_field.setStringValue_.assert_not_called()
+
+    def test_set_asr_result_discards_stale_request(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._asr_request_id = 3
+        panel._asr_text_view = MagicMock()
+
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            panel.set_asr_result("stale text", request_id=1)
+
+        panel._asr_text_view.setString_.assert_not_called()
+
+    def test_set_asr_result_accepts_current_request(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._asr_request_id = 3
+        panel._user_edited = False
+        panel._asr_text_view = MagicMock()
+        panel._final_text_field = MagicMock()
+        panel._stt_popup = MagicMock()
+
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            panel.set_asr_result("current text", request_id=3)
+
+        panel._asr_text_view.setString_.assert_called_with("current text")
+
+    def test_set_stt_popup_index_rollback(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._stt_popup = MagicMock()
+        panel._stt_models = ["A", "B", "C"]
+
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            panel.set_stt_popup_index(1)
+
+        panel._stt_popup.selectItemAtIndex_.assert_called_with(1)
+        panel._stt_popup.setEnabled_.assert_called_with(True)
+
+    def test_set_stt_popup_index_out_of_range(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._stt_popup = MagicMock()
+        panel._stt_models = ["A", "B"]
+
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            panel.set_stt_popup_index(5)
+
+        panel._stt_popup.selectItemAtIndex_.assert_not_called()
+        # Should still re-enable
+        panel._stt_popup.setEnabled_.assert_called_with(True)
+
+    def test_asr_request_id_property(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        assert panel.asr_request_id == 0
+
+        panel._asr_request_id = 5
+        assert panel.asr_request_id == 5

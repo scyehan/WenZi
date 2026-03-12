@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +66,23 @@ class ResultPreviewPanel:
         self._asr_sound = None
         self._enhance_info: str = ""
         self._enhance_request_id: int = 0
+        self._asr_request_id: int = 0
         self._system_prompt: str = ""
         self._prompt_button = None
         self._delegate = None
         self._event_monitor = None
+        # STT/LLM popup infrastructure
+        self._stt_popup = None
+        self._llm_popup = None
+        self._stt_popup_target = None
+        self._llm_popup_target = None
+        self._on_stt_model_change: Optional[Callable[[int], None]] = None
+        self._on_llm_model_change: Optional[Callable[[int], None]] = None
+        self._asr_info_label = None
+        self._stt_models: List[str] = []
+        self._llm_models: List[str] = []
+        self._stt_current_index: int = 0
+        self._llm_current_index: int = 0
 
     def show(
         self,
@@ -83,6 +96,12 @@ class ResultPreviewPanel:
         asr_info: str = "",
         asr_wav_data: Optional[bytes] = None,
         enhance_info: str = "",
+        stt_models: Optional[List[str]] = None,
+        stt_current_index: int = 0,
+        on_stt_model_change: Optional[Callable[[int], None]] = None,
+        llm_models: Optional[List[str]] = None,
+        llm_current_index: int = 0,
+        on_llm_model_change: Optional[Callable[[int], None]] = None,
     ) -> None:
         """Show the preview panel with ASR text.
 
@@ -97,10 +116,18 @@ class ResultPreviewPanel:
             asr_info: Model/duration info string to display in ASR label.
             asr_wav_data: Raw WAV audio bytes for playback.
             enhance_info: Provider/model info string to display in enhance label.
+            stt_models: Display name list for STT model popup.
+            stt_current_index: Currently selected STT model index.
+            on_stt_model_change: Callback when user changes STT model popup.
+            llm_models: Display name list for LLM model popup.
+            llm_current_index: Currently selected LLM model index.
+            on_llm_model_change: Callback when user changes LLM model popup.
         """
         self._on_confirm = on_confirm
         self._on_cancel = on_cancel
         self._on_mode_change = on_mode_change
+        self._on_stt_model_change = on_stt_model_change
+        self._on_llm_model_change = on_llm_model_change
         self._user_edited = False
         self._show_enhance = show_enhance
         self._asr_text = asr_text
@@ -110,6 +137,11 @@ class ResultPreviewPanel:
         self._asr_wav_data = asr_wav_data
         self._enhance_info = enhance_info
         self._enhance_request_id = 0
+        self._asr_request_id = 0
+        self._stt_models = stt_models or []
+        self._stt_current_index = stt_current_index
+        self._llm_models = llm_models or []
+        self._llm_current_index = llm_current_index
 
         self._build_panel(asr_text, show_enhance)
 
@@ -208,12 +240,84 @@ class ResultPreviewPanel:
 
     def _enhance_label_text(self, suffix: str = "") -> str:
         """Build the enhance label string with optional provider/model info."""
+        if self._llm_models:
+            # When LLM popup is present, the "AI" label is separate;
+            # this label only shows status/token info
+            return suffix or ""
         base = "AI"
         if self._enhance_info:
             base = f"AI ({self._enhance_info})"
         if suffix:
             return f"{base}  {suffix}"
         return base
+
+    def set_asr_loading(self) -> None:
+        """Show loading state in the ASR section for re-transcription."""
+        from PyObjCTools import AppHelper
+
+        self._asr_request_id += 1
+
+        def _update():
+            if self._asr_text_view is not None:
+                self._asr_text_view.setString_("\u23f3 Re-transcribing...")
+            if self._stt_popup is not None:
+                self._stt_popup.setEnabled_(False)
+
+        AppHelper.callAfter(_update)
+
+    def set_asr_result(self, text: str, asr_info: str = "", request_id: int = 0) -> None:
+        """Update ASR result after re-transcription.
+
+        Stale results (mismatched request_id) are discarded.
+        """
+        from PyObjCTools import AppHelper
+
+        def _update():
+            if self._asr_text_view is None:
+                return
+            if request_id != 0 and request_id != self._asr_request_id:
+                return
+            self._asr_text_view.setString_(text)
+            self._asr_text = text
+            # Update ASR info label if present
+            if self._asr_info_label is not None:
+                self._asr_info_label.setStringValue_(asr_info)
+            self._asr_info = asr_info
+            # Auto-update final text if user hasn't edited
+            if not self._user_edited and self._final_text_field is not None:
+                self._final_text_field.setStringValue_(text)
+            # Re-enable STT popup
+            if self._stt_popup is not None:
+                self._stt_popup.setEnabled_(True)
+
+        AppHelper.callAfter(_update)
+
+    def set_stt_popup_index(self, index: int) -> None:
+        """Set the STT popup selection (for rollback on failure)."""
+        from PyObjCTools import AppHelper
+
+        def _update():
+            if self._stt_popup is not None and 0 <= index < len(self._stt_models):
+                self._stt_popup.selectItemAtIndex_(index)
+            if self._stt_popup is not None:
+                self._stt_popup.setEnabled_(True)
+
+        AppHelper.callAfter(_update)
+
+    def _on_stt_popup_changed(self, index: int) -> None:
+        """Handle STT popup selection change."""
+        if self._on_stt_model_change is not None:
+            self._on_stt_model_change(index)
+
+    def _on_llm_popup_changed(self, index: int) -> None:
+        """Handle LLM popup selection change."""
+        if self._on_llm_model_change is not None:
+            self._on_llm_model_change(index)
+
+    @property
+    def asr_request_id(self) -> int:
+        """Return the current ASR request id."""
+        return self._asr_request_id
 
     @property
     def enhance_request_id(self) -> int:
@@ -309,8 +413,10 @@ class ResultPreviewPanel:
             NSFont,
             NSLineBreakByWordWrapping,
             NSPanel,
+            NSPopUpButton,
             NSScrollView,
             NSSegmentedControl,
+            NSSmallControlSize,
             NSTextField,
             NSTextView,
             NSTitledWindowMask,
@@ -418,24 +524,73 @@ class ResultPreviewPanel:
 
         # AI Enhancement section
         if show_enhance_section:
-            # Determine initial label text
-            if not show_enhance:
-                enhance_label_text = self._enhance_label_text("Off")
-            else:
-                enhance_label_text = self._enhance_label_text("\u23f3 Processing...")
+            has_llm_popup = len(self._llm_models) > 0
+            enhance_label_y = y + self._TEXT_HEIGHT
+            prompt_btn_width = 72
 
-            enhance_label = NSTextField.labelWithString_(enhance_label_text)
-            enhance_label.setFrame_(NSMakeRect(self._PADDING, y + self._TEXT_HEIGHT, inner_width - 80, self._LABEL_HEIGHT))
-            enhance_label.setFont_(NSFont.boldSystemFontOfSize_(12))
-            content_view.addSubview_(enhance_label)
-            self._enhance_label = enhance_label
+            if has_llm_popup:
+                # "AI" fixed label
+                ai_fixed = NSTextField.labelWithString_("AI")
+                ai_fixed.setFrame_(NSMakeRect(self._PADDING, enhance_label_y, 20, self._LABEL_HEIGHT))
+                ai_fixed.setFont_(NSFont.boldSystemFontOfSize_(12))
+                content_view.addSubview_(ai_fixed)
+
+                # LLM model popup button
+                llm_popup_x = self._PADDING + 24
+                llm_popup_width = 200
+                llm_popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
+                    NSMakeRect(llm_popup_x, enhance_label_y - 2, llm_popup_width, self._LABEL_HEIGHT + 2),
+                    False,
+                )
+                llm_popup.cell().setControlSize_(NSSmallControlSize)
+                llm_popup.setFont_(NSFont.systemFontOfSize_(11))
+                for name in self._llm_models:
+                    llm_popup.addItemWithTitle_(name)
+                if self._llm_models:
+                    llm_popup.selectItemAtIndex_(self._llm_current_index)
+
+                self._llm_popup_target = _LlmPopupTarget.alloc().init()
+                self._llm_popup_target._panel_ref = self
+                llm_popup.setTarget_(self._llm_popup_target)
+                llm_popup.setAction_(b"llmModelChanged:")
+                content_view.addSubview_(llm_popup)
+                self._llm_popup = llm_popup
+
+                # Token/status info label (between popup and prompt button)
+                info_x = llm_popup_x + llm_popup_width + 4
+                info_width = self._PANEL_WIDTH - self._PADDING - prompt_btn_width - 4 - info_x
+
+                # Determine initial label text
+                if not show_enhance:
+                    enhance_suffix = "Off"
+                else:
+                    enhance_suffix = "\u23f3 Processing..."
+                enhance_label = NSTextField.labelWithString_(enhance_suffix)
+                enhance_label.setFrame_(NSMakeRect(info_x, enhance_label_y, max(info_width, 40), self._LABEL_HEIGHT))
+                enhance_label.setFont_(NSFont.systemFontOfSize_(10))
+                content_view.addSubview_(enhance_label)
+                self._enhance_label = enhance_label
+            else:
+                # Original layout: AI (provider / model)  status
+                if not show_enhance:
+                    enhance_label_text = self._enhance_label_text("Off")
+                else:
+                    enhance_label_text = self._enhance_label_text("\u23f3 Processing...")
+
+                enhance_label = NSTextField.labelWithString_(enhance_label_text)
+                enhance_label.setFrame_(NSMakeRect(self._PADDING, enhance_label_y, inner_width - 80, self._LABEL_HEIGHT))
+                enhance_label.setFont_(NSFont.boldSystemFontOfSize_(12))
+                content_view.addSubview_(enhance_label)
+                self._enhance_label = enhance_label
+                self._llm_popup = None
+                self._llm_popup_target = None
 
             # "Prompt ⓘ" button to view system prompt
             prompt_btn = NSButton.alloc().initWithFrame_(
                 NSMakeRect(
-                    self._PANEL_WIDTH - self._PADDING - 72,
-                    y + self._TEXT_HEIGHT,
-                    72,
+                    self._PANEL_WIDTH - self._PADDING - prompt_btn_width,
+                    enhance_label_y,
+                    prompt_btn_width,
                     self._LABEL_HEIGHT,
                 )
             )
@@ -463,6 +618,8 @@ class ResultPreviewPanel:
             self._enhance_text_view = None
             self._enhance_scroll = None
             self._prompt_button = None
+            self._llm_popup = None
+            self._llm_popup_target = None
 
         # Mode segmented control
         if has_modes:
@@ -491,23 +648,70 @@ class ResultPreviewPanel:
             self._mode_segment = None
             self._segment_target = None
 
-        # ASR Result label
-        asr_label_text = "ASR"
-        if self._asr_info:
-            asr_label_text = f"ASR ({self._asr_info})"
+        # ASR Result label row
         play_btn_width = 62
-        label_width = inner_width - play_btn_width - 4 if self._asr_wav_data else inner_width
-        asr_label = NSTextField.labelWithString_(asr_label_text)
-        asr_label.setFrame_(NSMakeRect(self._PADDING, y + self._TEXT_HEIGHT, label_width, self._LABEL_HEIGHT))
-        asr_label.setFont_(NSFont.boldSystemFontOfSize_(12))
-        content_view.addSubview_(asr_label)
+        has_stt_popup = len(self._stt_models) > 0
+        label_y = y + self._TEXT_HEIGHT
+        x_cursor = self._PADDING
+
+        if has_stt_popup:
+            # "ASR" fixed label
+            asr_fixed = NSTextField.labelWithString_("ASR")
+            asr_fixed.setFrame_(NSMakeRect(x_cursor, label_y, 30, self._LABEL_HEIGHT))
+            asr_fixed.setFont_(NSFont.boldSystemFontOfSize_(12))
+            content_view.addSubview_(asr_fixed)
+            x_cursor += 34
+
+            # STT model popup button
+            stt_popup_width = 220
+            stt_popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
+                NSMakeRect(x_cursor, label_y - 2, stt_popup_width, self._LABEL_HEIGHT + 2),
+                False,
+            )
+            stt_popup.cell().setControlSize_(NSSmallControlSize)
+            stt_popup.setFont_(NSFont.systemFontOfSize_(11))
+            for name in self._stt_models:
+                stt_popup.addItemWithTitle_(name)
+            if self._stt_models:
+                stt_popup.selectItemAtIndex_(self._stt_current_index)
+
+            self._stt_popup_target = _SttPopupTarget.alloc().init()
+            self._stt_popup_target._panel_ref = self
+            stt_popup.setTarget_(self._stt_popup_target)
+            stt_popup.setAction_(b"sttModelChanged:")
+            content_view.addSubview_(stt_popup)
+            self._stt_popup = stt_popup
+            x_cursor += stt_popup_width + 4
+
+            # ASR info label (duration only, model name is in popup)
+            remaining = self._PANEL_WIDTH - self._PADDING - x_cursor
+            if self._asr_wav_data:
+                remaining -= play_btn_width + 4
+            asr_info_label = NSTextField.labelWithString_(self._asr_info)
+            asr_info_label.setFrame_(NSMakeRect(x_cursor, label_y, max(remaining, 40), self._LABEL_HEIGHT))
+            asr_info_label.setFont_(NSFont.systemFontOfSize_(10))
+            content_view.addSubview_(asr_info_label)
+            self._asr_info_label = asr_info_label
+        else:
+            # Original layout: ASR (model info  duration)
+            asr_label_text = "ASR"
+            if self._asr_info:
+                asr_label_text = f"ASR ({self._asr_info})"
+            label_width = inner_width - play_btn_width - 4 if self._asr_wav_data else inner_width
+            asr_label = NSTextField.labelWithString_(asr_label_text)
+            asr_label.setFrame_(NSMakeRect(self._PADDING, label_y, label_width, self._LABEL_HEIGHT))
+            asr_label.setFont_(NSFont.boldSystemFontOfSize_(12))
+            content_view.addSubview_(asr_label)
+            self._stt_popup = None
+            self._stt_popup_target = None
+            self._asr_info_label = None
 
         # "Play ▶" button to replay recorded audio
         if self._asr_wav_data:
             play_btn = NSButton.alloc().initWithFrame_(
                 NSMakeRect(
                     self._PANEL_WIDTH - self._PADDING - play_btn_width,
-                    y + self._TEXT_HEIGHT,
+                    label_y,
                     play_btn_width,
                     self._LABEL_HEIGHT,
                 )
@@ -714,5 +918,41 @@ def _create_segment_action_target_class():
     return SegmentActionTarget
 
 
+def _create_stt_popup_target_class():
+    """Create an NSObject subclass to handle STT popup actions."""
+    from Foundation import NSObject
+
+    class SttPopupTarget(NSObject):
+        """Action target for STT NSPopUpButton."""
+
+        _panel_ref = None
+
+        def sttModelChanged_(self, sender):
+            if self._panel_ref is not None:
+                selected = sender.indexOfSelectedItem()
+                self._panel_ref._on_stt_popup_changed(selected)
+
+    return SttPopupTarget
+
+
+def _create_llm_popup_target_class():
+    """Create an NSObject subclass to handle LLM popup actions."""
+    from Foundation import NSObject
+
+    class LlmPopupTarget(NSObject):
+        """Action target for LLM NSPopUpButton."""
+
+        _panel_ref = None
+
+        def llmModelChanged_(self, sender):
+            if self._panel_ref is not None:
+                selected = sender.indexOfSelectedItem()
+                self._panel_ref._on_llm_popup_changed(selected)
+
+    return LlmPopupTarget
+
+
 _TextFieldEditDelegate = _create_text_field_delegate_class()
 _SegmentActionTarget = _create_segment_action_target_class()
+_SttPopupTarget = _create_stt_popup_target_class()
+_LlmPopupTarget = _create_llm_popup_target_class()

@@ -503,15 +503,64 @@ class VoiceTextApp(rumps.App):
         if self._enhancer:
             available_modes = [("off", "Off")] + self._enhancer.available_modes
 
-        # Build ASR info string (model name + audio duration)
+        # Build ASR info string (duration only when popup available, else model+duration)
         asr_info_parts = []
-        try:
-            asr_info_parts.append(self._transcriber.model_display_name)
-        except Exception:
-            pass
         if audio_duration > 0:
             asr_info_parts.append(f"{audio_duration:.1f}s")
+        # Store duration for re-transcription info updates
+        self._preview_audio_duration = audio_duration
+
+        # Build STT model list for popup
+        stt_models: List[str] = []
+        stt_model_keys: list = []
+        stt_current_index = 0
+
+        if wav_data:
+            # Local presets (only available backends)
+            for preset in PRESETS:
+                if is_backend_available(preset.backend):
+                    stt_models.append(preset.display_name)
+                    stt_model_keys.append(("preset", preset.id))
+                    if preset.id == self._current_preset_id and not self._current_remote_asr:
+                        stt_current_index = len(stt_models) - 1
+
+            # Remote ASR models
+            asr_cfg = self._config.get("asr", {})
+            providers = asr_cfg.get("providers", {})
+            remote_models = build_remote_asr_models(providers)
+            for rm in remote_models:
+                stt_models.append(rm.display_name)
+                stt_model_keys.append(("remote", (rm.provider, rm.model)))
+                if self._current_remote_asr == (rm.provider, rm.model):
+                    stt_current_index = len(stt_models) - 1
+
+        self._preview_stt_keys = stt_model_keys
+
+        # Add model name to asr_info when no popup (backward compat)
+        if not stt_models:
+            try:
+                asr_info_parts.insert(0, self._transcriber.model_display_name)
+            except Exception:
+                pass
         asr_info = "  ".join(asr_info_parts)
+
+        # Build LLM model list for popup
+        llm_models: List[str] = []
+        llm_model_keys: list = []
+        llm_current_index = 0
+
+        if self._enhancer:
+            providers_with = self._enhancer.providers_with_models
+            current_llm = (self._enhancer.provider_name, self._enhancer.model_name)
+            for pname, models in providers_with.items():
+                for mname in models:
+                    key = (pname, mname)
+                    llm_models.append(f"{pname} / {mname}")
+                    llm_model_keys.append(key)
+                    if key == current_llm:
+                        llm_current_index = len(llm_models) - 1
+
+        self._preview_llm_keys = llm_model_keys
 
         # Build enhance info string
         enhance_info = ""
@@ -537,6 +586,12 @@ class VoiceTextApp(rumps.App):
                 asr_info=asr_info,
                 asr_wav_data=wav_data,
                 enhance_info=enhance_info,
+                stt_models=stt_models if stt_models else None,
+                stt_current_index=stt_current_index,
+                on_stt_model_change=self._on_preview_stt_change if stt_models else None,
+                llm_models=llm_models if llm_models else None,
+                llm_current_index=llm_current_index,
+                on_llm_model_change=self._on_preview_llm_change if llm_models else None,
             )
             # Start enhancement after show() so request_id is not reset
             if use_enhance:
@@ -640,6 +695,167 @@ class VoiceTextApp(rumps.App):
             AppHelper.callAfter(self._preview_panel.set_enhance_off)
         else:
             AppHelper.callAfter(self._preview_panel.set_enhance_loading)
+            self._preview_panel.enhance_request_id += 1
+            asr_text = getattr(self, "_current_preview_asr_text", "")
+            self._run_enhance_in_background(
+                asr_text, self._preview_panel.enhance_request_id
+            )
+
+    def _on_preview_stt_change(self, index: int) -> None:
+        """Handle STT model popup change from the preview panel."""
+        from PyObjCTools import AppHelper
+
+        if index < 0 or index >= len(self._preview_stt_keys):
+            return
+
+        key_type, key_value = self._preview_stt_keys[index]
+
+        # Check if same as current
+        if key_type == "preset":
+            if key_value == self._current_preset_id and not self._current_remote_asr:
+                return
+        elif key_type == "remote":
+            if key_value == self._current_remote_asr:
+                return
+
+        old_index = self._preview_stt_keys.index(
+            ("preset", self._current_preset_id) if not self._current_remote_asr
+            else ("remote", self._current_remote_asr)
+        ) if (
+            ("preset", self._current_preset_id) if not self._current_remote_asr
+            else ("remote", self._current_remote_asr)
+        ) in self._preview_stt_keys else 0
+
+        # Show loading state
+        self._preview_panel.set_asr_loading()
+        request_id = self._preview_panel.asr_request_id
+
+        old_transcriber = self._transcriber
+        wav_data = self._preview_panel._asr_wav_data
+
+        def _do_switch():
+            try:
+                old_transcriber.cleanup()
+
+                asr_cfg = self._config.get("asr", {})
+                if key_type == "preset":
+                    preset = PRESET_BY_ID[key_value]
+                    new_transcriber = create_transcriber(
+                        backend=preset.backend,
+                        use_vad=asr_cfg.get("use_vad", True),
+                        use_punc=asr_cfg.get("use_punc", True),
+                        language=preset.language or asr_cfg.get("language"),
+                        model=preset.model,
+                        temperature=asr_cfg.get("temperature"),
+                    )
+                else:
+                    prov, mod = key_value
+                    providers = asr_cfg.get("providers", {})
+                    pcfg = providers.get(prov, {})
+                    new_transcriber = create_transcriber(
+                        backend="whisper-api",
+                        base_url=pcfg.get("base_url"),
+                        api_key=pcfg.get("api_key"),
+                        model=mod,
+                        language=asr_cfg.get("language"),
+                        temperature=asr_cfg.get("temperature"),
+                    )
+
+                new_transcriber.initialize()
+
+                # Re-transcribe using wav_data
+                new_text = new_transcriber.transcribe(wav_data)
+
+                # Build new ASR info (duration only since model is in popup)
+                audio_duration = getattr(self, "_preview_audio_duration", 0.0)
+                new_asr_info = f"{audio_duration:.1f}s" if audio_duration > 0 else ""
+
+                def _on_success():
+                    self._transcriber = new_transcriber
+                    if key_type == "preset":
+                        self._current_preset_id = key_value
+                        self._current_remote_asr = None
+                        self._config["asr"]["preset"] = key_value
+                        preset = PRESET_BY_ID[key_value]
+                        self._config["asr"]["backend"] = preset.backend
+                        self._config["asr"]["model"] = preset.model
+                        self._config["asr"]["language"] = preset.language
+                        self._config["asr"]["default_provider"] = None
+                        self._config["asr"]["default_model"] = None
+                    else:
+                        prov, mod = key_value
+                        self._current_remote_asr = key_value
+                        self._current_preset_id = None
+                        self._config["asr"]["default_provider"] = prov
+                        self._config["asr"]["default_model"] = mod
+
+                    self._update_model_checkmarks()
+                    save_config(self._config, self._config_path)
+
+                    self._preview_panel.set_asr_result(
+                        new_text, asr_info=new_asr_info, request_id=request_id,
+                    )
+                    self._current_preview_asr_text = new_text
+
+                    # Re-run enhance if mode is not Off
+                    if self._enhance_mode != MODE_OFF and self._enhancer:
+                        self._preview_panel.set_enhance_loading()
+                        self._preview_panel.enhance_request_id += 1
+                        self._run_enhance_in_background(
+                            new_text, self._preview_panel.enhance_request_id
+                        )
+
+                AppHelper.callAfter(_on_success)
+                logger.info("Preview STT switched to index %d", index)
+
+            except Exception as e:
+                logger.error("Preview STT switch failed: %s", e)
+
+                def _on_failure():
+                    # Try to restore old transcriber
+                    self._try_restore_previous_model(
+                        self._current_preset_id if not self._current_remote_asr else None
+                    )
+                    self._preview_panel.set_stt_popup_index(old_index)
+                    # Restore ASR text
+                    asr_text = getattr(self, "_current_preview_asr_text", "")
+                    if self._preview_panel._asr_text_view is not None:
+                        self._preview_panel._asr_text_view.setString_(
+                            asr_text or f"(STT switch error: {e})"
+                        )
+
+                AppHelper.callAfter(_on_failure)
+
+        threading.Thread(target=_do_switch, daemon=True).start()
+
+    def _on_preview_llm_change(self, index: int) -> None:
+        """Handle LLM model popup change from the preview panel."""
+        if not self._enhancer or index < 0 or index >= len(self._preview_llm_keys):
+            return
+
+        pname, mname = self._preview_llm_keys[index]
+        if pname == self._enhancer.provider_name and mname == self._enhancer.model_name:
+            return
+
+        # Update enhancer
+        self._enhancer.provider_name = pname
+        self._enhancer.model_name = mname
+
+        # Update menu checkmarks
+        current_key = (pname, mname)
+        for key, item in self._llm_model_menu_items.items():
+            item.state = 1 if key == current_key else 0
+
+        # Persist
+        self._config.setdefault("ai_enhance", {})
+        self._config["ai_enhance"]["default_provider"] = pname
+        self._config["ai_enhance"]["default_model"] = mname
+        save_config(self._config, self._config_path)
+        logger.info("Preview LLM switched to: %s / %s", pname, mname)
+
+        # Re-run enhance if mode is not Off
+        if self._enhance_mode != MODE_OFF:
+            self._preview_panel.set_enhance_loading()
             self._preview_panel.enhance_request_id += 1
             asr_text = getattr(self, "_current_preview_asr_text", "")
             self._run_enhance_in_background(
