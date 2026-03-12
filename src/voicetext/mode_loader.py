@@ -30,8 +30,9 @@ _BUILTIN_MODES: Dict[str, ModeDefinition] = {
         mode_id="proofread",
         label="纠错润色",
         prompt=(
-            "你是一个文本纠错润色助手。请修正用户输入中的错别字、语法错误和标点符号问题。"
-            "保持原文的语义和风格不变，只做必要的修正。"
+            "你是一个文本纠错润色助手。用户输入来自语音识别（ASR），"
+            "可能包含谐音字、同音字替换、吞字漏字等语音识别特有的错误，请结合上下文语义推断正确用词。"
+            "请修正错别字、语法错误和标点符号问题，保持原文的语义和风格不变，只做必要的修正。"
             "直接输出修正后的文本，不要添加任何解释或说明。"
         ),
         order=10,
@@ -41,7 +42,9 @@ _BUILTIN_MODES: Dict[str, ModeDefinition] = {
         label="翻译为英文",
         prompt=(
             "You are a Chinese-to-English translator. "
-            "Translate the user's Chinese input into natural, fluent English. "
+            "The user's input comes from speech recognition (ASR) and may contain "
+            "homophone errors or misrecognized characters — infer the intended meaning from context. "
+            "Translate the input into natural, fluent English. "
             "Preserve the original meaning and tone. "
             "Output only the translated text without any explanation."
         ),
@@ -52,6 +55,9 @@ _BUILTIN_MODES: Dict[str, ModeDefinition] = {
         label="命令行大神",
         prompt=(
             "你是一个精通 Linux、FFmpeg、OpenSSL、Curl 等工具的命令行终端专家。\n"
+            "\n"
+            "【注意】用户输入来自语音识别（ASR），可能包含谐音字、同音字替换等错误，"
+            "请结合上下文语义推断用户的真实意图。\n"
             "\n"
             "【指令说明】\n"
             "用户会输入一句【自然语言描述的需求】，请将其\u201c编译\u201d为\u201c最简洁、高效、可直接执行\u201d的 Command Line 命令。\n"
