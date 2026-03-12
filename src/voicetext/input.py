@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import threading
 import time
 
 
 logger = logging.getLogger(__name__)
+
+# Ensure subprocess calls use UTF-8 regardless of the app's launch environment.
+# When launched from Finder, LANG may not be set, causing pbcopy to misinterpret UTF-8.
+_UTF8_ENV = {**os.environ, "LANG": "en_US.UTF-8"}
 
 
 def type_text(text: str, append_newline: bool = False, method: str = "auto") -> None:
@@ -47,13 +52,17 @@ def _type_via_clipboard(payload: str) -> bool:
     """Copy to clipboard then simulate Cmd+V."""
     try:
         old_clip = subprocess.run(
-            ["pbpaste"], capture_output=True, text=True, timeout=2
+            ["pbpaste"], capture_output=True, encoding="utf-8",
+            env=_UTF8_ENV, timeout=2,
         ).stdout
     except Exception:
         old_clip = None
 
     try:
-        proc = subprocess.run(["pbcopy"], input=payload, text=True, timeout=2)
+        proc = subprocess.run(
+            ["pbcopy"], input=payload, encoding="utf-8",
+            env=_UTF8_ENV, timeout=2,
+        )
         if proc.returncode != 0:
             logger.warning("pbcopy failed with returncode %d", proc.returncode)
             return False
@@ -81,7 +90,10 @@ def _type_via_clipboard(payload: str) -> bool:
             def _restore():
                 time.sleep(1.0)
                 try:
-                    subprocess.run(["pbcopy"], input=old_clip, text=True, timeout=2)
+                    subprocess.run(
+                        ["pbcopy"], input=old_clip, encoding="utf-8",
+                        env=_UTF8_ENV, timeout=2,
+                    )
                 except Exception:
                     pass
             threading.Thread(target=_restore, daemon=True).start()

@@ -74,12 +74,23 @@ jobs:
         run: |
           uv run pyinstaller VoiceText.spec --clean --noconfirm
 
-      - name: Create DMG
+      - name: Re-sign app bundle
         run: |
           APP_PATH="dist/VoiceText.app"
+          echo "==> Re-signing app bundle..."
+          codesign --force --deep --sign "$CODESIGN_IDENTITY" "$APP_PATH"
+          echo "==> Verifying signature..."
+          codesign --verify --verbose "$APP_PATH"
+
+      - name: Create DMG
+        run: |
+          DMG_DIR="$RUNNER_TEMP/dmg_contents"
           DMG_PATH="dist/VoiceText-${{ steps.version.outputs.VERSION }}-arm64.dmg"
+          mkdir -p "$DMG_DIR"
+          cp -R dist/VoiceText.app "$DMG_DIR/"
+          ln -s /Applications "$DMG_DIR/Applications"
           hdiutil create -volname "VoiceText" \
-            -srcfolder "$APP_PATH" \
+            -srcfolder "$DMG_DIR" \
             -ov -format UDZO \
             "$DMG_PATH"
 
