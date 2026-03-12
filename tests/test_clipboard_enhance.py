@@ -340,7 +340,7 @@ class TestClipboardEnhanceConfig:
 
         assert "clipboard_enhance" in DEFAULT_CONFIG
         assert DEFAULT_CONFIG["clipboard_enhance"]["hotkey"] == "ctrl+cmd+v"
-        assert DEFAULT_CONFIG["clipboard_enhance"]["output"] == "clipboard"
+        assert "output" not in DEFAULT_CONFIG["clipboard_enhance"]
 
     def test_config_merge_preserves_clipboard_enhance(self):
         from voicetext.config import _merge_dict, DEFAULT_CONFIG
@@ -348,9 +348,7 @@ class TestClipboardEnhanceConfig:
         overrides = {
             "clipboard_enhance": {
                 "hotkey": "ctrl+shift+v",
-                "output": "type_text",
             }
         }
         result = _merge_dict(DEFAULT_CONFIG, overrides)
         assert result["clipboard_enhance"]["hotkey"] == "ctrl+shift+v"
-        assert result["clipboard_enhance"]["output"] == "type_text"

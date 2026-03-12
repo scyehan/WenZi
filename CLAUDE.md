@@ -11,7 +11,7 @@ self._topmost_alert(title="...", message="...")
 self._restore_accessory()
 ```
 
-`rumps.notification()` only works when macOS notification permissions are granted and may be silenced by Focus modes — avoid relying on it for important feedback.
+`rumps.notification()` will crash with `Info.plist` / `CFBundleIdentifier` errors when running directly from the terminal (`uv run`) without app bundling. This is expected during development — wrap calls in try/except and log the error instead of crashing. In a packaged app `rumps.notification()` works normally, so it is fine to use for non-critical user feedback.
 
 ## Release Process
 

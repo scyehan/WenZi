@@ -921,23 +921,17 @@ class VoiceTextApp(rumps.App):
         AppHelper.callAfter(self._restore_accessory)
         time.sleep(0.1)
 
-        clip_cfg = self._config.get("clipboard_enhance", {})
-        output_mode = clip_cfg.get("output", "clipboard")
-
         if result_holder["confirmed"] and result_holder["text"]:
             final_text = result_holder["text"].strip()
             if result_holder.get("copy_to_clipboard"):
                 set_clipboard_text(final_text)
                 logger.info("Text copied to clipboard (%d chars)", len(final_text))
-            elif output_mode == "type_text":
+            else:
                 type_text(
                     final_text,
                     append_newline=self._append_newline,
                     method=self._output_method,
                 )
-            else:
-                set_clipboard_text(final_text)
-                logger.info("Clipboard updated (%d chars)", len(final_text))
             self._set_status("VT")
         else:
             self._set_status("VT")
