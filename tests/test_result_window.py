@@ -448,3 +448,151 @@ class TestResultPreviewPanelThreading:
 
         assert event.wait(timeout=1)
         assert cancelled == [True]
+
+
+class TestResultPreviewPanelModeSwitch:
+    """Test mode switcher (NSSegmentedControl) in preview panel."""
+
+    def test_show_stores_available_modes(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = _setup_panel_with_final_field(ResultPreviewPanel())
+        modes = [("off", "Off"), ("proofread", "Proofread"), ("format", "Format")]
+
+        panel.show(
+            asr_text="text",
+            show_enhance=True,
+            on_confirm=MagicMock(),
+            on_cancel=MagicMock(),
+            available_modes=modes,
+            current_mode="proofread",
+        )
+
+        assert panel._available_modes == modes
+        assert panel._current_mode == "proofread"
+
+    def test_mode_change_callback_invoked(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = _setup_panel_with_final_field(ResultPreviewPanel())
+        modes = [("off", "Off"), ("proofread", "Proofread"), ("format", "Format")]
+        changed_modes = []
+
+        panel.show(
+            asr_text="text",
+            show_enhance=True,
+            on_confirm=MagicMock(),
+            on_cancel=MagicMock(),
+            available_modes=modes,
+            current_mode="off",
+            on_mode_change=lambda m: changed_modes.append(m),
+        )
+
+        # Simulate selecting segment index 2 ("format")
+        panel._on_segment_changed(2)
+
+        assert changed_modes == ["format"]
+        assert panel._current_mode == "format"
+
+    def test_set_enhance_loading_resets_user_edited(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._user_edited = True
+        panel._enhance_label = MagicMock()
+        panel._enhance_text_view = MagicMock()
+
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            panel.set_enhance_loading()
+
+        assert panel._user_edited is False
+
+    def test_set_enhance_loading_shows_spinner_label(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._enhance_label = MagicMock()
+        panel._enhance_text_view = MagicMock()
+
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            panel.set_enhance_loading()
+
+        panel._enhance_label.setStringValue_.assert_called_with(
+            "AI Enhancement  \u23f3 Processing..."
+        )
+        panel._enhance_text_view.setString_.assert_called_with("")
+
+    def test_set_enhance_off_clears_and_restores_asr(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._asr_text = "original asr"
+        panel._user_edited = False
+        panel._enhance_label = MagicMock()
+        panel._enhance_text_view = MagicMock()
+        panel._final_text_field = MagicMock()
+
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            panel.set_enhance_off()
+
+        panel._enhance_label.setStringValue_.assert_called_with(
+            "AI Enhancement (Off)"
+        )
+        panel._enhance_text_view.setString_.assert_called_with("")
+        panel._final_text_field.setStringValue_.assert_called_with("original asr")
+        assert panel._show_enhance is False
+
+    def test_set_enhance_result_ignores_stale_request_id(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._enhance_request_id = 3
+        panel._enhance_text_view = MagicMock()
+        panel._enhance_label = MagicMock()
+        panel._final_text_field = MagicMock()
+
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            # Send result with stale request_id=1
+            panel.set_enhance_result("stale result", request_id=1)
+
+        # Should not update anything because request_id is stale
+        panel._enhance_text_view.setString_.assert_not_called()
+
+    def test_set_enhance_result_accepts_current_request_id(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._enhance_request_id = 3
+        panel._user_edited = False
+        panel._enhance_text_view = MagicMock()
+        panel._enhance_label = MagicMock()
+        panel._final_text_field = MagicMock()
+
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            panel.set_enhance_result("current result", request_id=3)
+
+        panel._enhance_text_view.setString_.assert_called_with("current result")
+        panel._final_text_field.setStringValue_.assert_called_with("current result")
+
+    def test_backward_compat_show_without_modes(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = _setup_panel_with_final_field(ResultPreviewPanel())
+
+        # Call show() without the new parameters — should work as before
+        panel.show(
+            asr_text="text",
+            show_enhance=False,
+            on_confirm=MagicMock(),
+            on_cancel=MagicMock(),
+        )
+
+        assert panel._available_modes == []
+        assert panel._current_mode == "off"
+        assert panel._on_mode_change is None
+        assert panel._mode_segment is None
