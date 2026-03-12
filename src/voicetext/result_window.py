@@ -34,14 +34,15 @@ class ResultPreviewPanel:
     """
 
     # Panel dimensions
-    _PANEL_WIDTH = 560
-    _TEXT_HEIGHT = 70
-    _EDIT_HEIGHT = 96
-    _LABEL_HEIGHT = 20
-    _BUTTON_HEIGHT = 32
-    _PADDING = 14
-    _BUTTON_WIDTH = 105
-    _SEGMENT_HEIGHT = 32
+    _PANEL_WIDTH = 640
+    _TEXT_HEIGHT = 80
+    _EDIT_HEIGHT = 108
+    _LABEL_HEIGHT = 22
+    _BUTTON_HEIGHT = 34
+    _PADDING = 18
+    _BUTTON_WIDTH = 110
+    _SEGMENT_HEIGHT = 34
+    _SEPARATOR_TOTAL = 21  # 10px gap + 1px line + 10px gap
 
     def __init__(self) -> None:
         self._panel = None
@@ -741,10 +742,12 @@ class ResultPreviewPanel:
 
         y += self._BUTTON_HEIGHT + self._PADDING
 
-        # Final result label
+        # Final result label — prominent blue to highlight the primary editing area
+        from AppKit import NSColor as _NSColor
         final_label = NSTextField.labelWithString_("Final Result (editable)")
         final_label.setFrame_(NSMakeRect(self._PADDING, y + self._EDIT_HEIGHT, inner_width, self._LABEL_HEIGHT))
-        final_label.setFont_(NSFont.boldSystemFontOfSize_(12))
+        final_label.setFont_(NSFont.boldSystemFontOfSize_(13))
+        final_label.setTextColor_(_NSColor.systemBlueColor())
         content_view.addSubview_(final_label)
 
         # Final result editable text field (NSTextField with wrapping)
@@ -754,6 +757,7 @@ class ResultPreviewPanel:
         final_field.setEditable_(True)
         final_field.setBezeled_(True)
         final_field.setFont_(NSFont.userFixedPitchFontOfSize_(12.0))
+        final_field.setBackgroundColor_(_NSColor.whiteColor())
         final_field.setStringValue_(asr_text)
         final_field.setUsesSingleLineMode_(False)
         final_field.cell().setWraps_(True)
@@ -774,22 +778,29 @@ class ResultPreviewPanel:
         if show_enhance_section:
             has_llm_popup = len(self._llm_models) > 0
             enhance_label_y = y + self._TEXT_HEIGHT
+            # Popup frame
+            _popup_h = self._LABEL_HEIGHT + 4
+            _popup_y = enhance_label_y - 3
+            # Text labels are top-aligned in NSTextField; lower them to match
+            # the popup's visually-centered text baseline
+            _lbl_y = enhance_label_y - 2
             prompt_btn_width = 72
             thinking_btn_width = 24
             thinking_cb_width = 22
 
             if has_llm_popup:
-                # "AI" fixed label
+                # "AI" fixed label — same row frame as popup for baseline alignment
                 ai_fixed = NSTextField.labelWithString_("AI")
-                ai_fixed.setFrame_(NSMakeRect(self._PADDING, enhance_label_y, 20, self._LABEL_HEIGHT))
-                ai_fixed.setFont_(NSFont.boldSystemFontOfSize_(12))
+                ai_fixed.setFrame_(NSMakeRect(self._PADDING, _lbl_y, 20, self._LABEL_HEIGHT))
+                ai_fixed.setFont_(NSFont.boldSystemFontOfSize_(13))
+                ai_fixed.setTextColor_(_NSColor.labelColor())
                 content_view.addSubview_(ai_fixed)
 
                 # LLM model popup button
                 llm_popup_x = self._PADDING + 24
                 llm_popup_width = 200
                 llm_popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
-                    NSMakeRect(llm_popup_x, enhance_label_y - 2, llm_popup_width, self._LABEL_HEIGHT + 2),
+                    NSMakeRect(llm_popup_x, _popup_y, llm_popup_width, _popup_h),
                     False,
                 )
                 llm_popup.cell().setControlSize_(NSSmallControlSize)
@@ -820,8 +831,9 @@ class ResultPreviewPanel:
                 else:
                     enhance_suffix = "\u23f3 Processing..."
                 enhance_label = NSTextField.labelWithString_(enhance_suffix)
-                enhance_label.setFrame_(NSMakeRect(info_x, enhance_label_y, max(info_width, 40), self._LABEL_HEIGHT))
+                enhance_label.setFrame_(NSMakeRect(info_x, _lbl_y, max(info_width, 40), self._LABEL_HEIGHT))
                 enhance_label.setFont_(NSFont.systemFontOfSize_(10))
+                enhance_label.setTextColor_(_NSColor.secondaryLabelColor())
                 content_view.addSubview_(enhance_label)
                 self._enhance_label = enhance_label
             else:
@@ -832,8 +844,9 @@ class ResultPreviewPanel:
                     enhance_label_text = self._enhance_label_text("\u23f3 Processing...")
 
                 enhance_label = NSTextField.labelWithString_(enhance_label_text)
-                enhance_label.setFrame_(NSMakeRect(self._PADDING, enhance_label_y, inner_width - 80, self._LABEL_HEIGHT))
-                enhance_label.setFont_(NSFont.boldSystemFontOfSize_(12))
+                enhance_label.setFrame_(NSMakeRect(self._PADDING, _lbl_y, inner_width - 80, self._LABEL_HEIGHT))
+                enhance_label.setFont_(NSFont.boldSystemFontOfSize_(13))
+                enhance_label.setTextColor_(_NSColor.labelColor())
                 content_view.addSubview_(enhance_label)
                 self._enhance_label = enhance_label
                 self._llm_popup = None
@@ -849,9 +862,9 @@ class ResultPreviewPanel:
             thinking_cb = NSButton.alloc().initWithFrame_(
                 NSMakeRect(
                     thinking_group_x,
-                    enhance_label_y,
+                    _popup_y,
                     thinking_cb_width,
-                    self._LABEL_HEIGHT,
+                    _popup_h,
                 )
             )
             thinking_cb.setButtonType_(NSSwitchButton)
@@ -869,9 +882,9 @@ class ResultPreviewPanel:
             thinking_btn = NSButton.alloc().initWithFrame_(
                 NSMakeRect(
                     thinking_group_x + thinking_cb_width,
-                    enhance_label_y,
+                    _popup_y,
                     thinking_btn_width,
-                    self._LABEL_HEIGHT,
+                    _popup_h,
                 )
             )
             thinking_btn.setTitle_("\U0001f9e0")
@@ -889,9 +902,9 @@ class ResultPreviewPanel:
             prompt_btn = NSButton.alloc().initWithFrame_(
                 NSMakeRect(
                     self._PANEL_WIDTH - self._PADDING - prompt_btn_width,
-                    enhance_label_y,
+                    _popup_y,
                     prompt_btn_width,
-                    self._LABEL_HEIGHT,
+                    _popup_h,
                 )
             )
             prompt_btn.setTitle_("Prompt \u24d8")
@@ -906,6 +919,7 @@ class ResultPreviewPanel:
 
             enhance_scroll, enhance_tv = self._make_text_view(
                 NSMakeRect(self._PADDING, y, inner_width, self._TEXT_HEIGHT),
+                bg_color=(0.93, 0.95, 0.98),
             )
             enhance_tv.setString_("")
             content_view.addSubview_(enhance_scroll)
@@ -936,6 +950,7 @@ class ResultPreviewPanel:
                 if mode_id == self._current_mode:
                     selected_index = i
             segment.setSelectedSegment_(selected_index)
+            segment.setSegmentStyle_(5)  # NSSegmentStyleCapsule
 
             # Create action target for segment changes
             self._segment_target = _SegmentActionTarget.alloc().init()
@@ -957,6 +972,11 @@ class ResultPreviewPanel:
         audio_btns_width = play_btn_width + 2 + save_btn_width  # Play + gap + Save
         has_stt_popup = len(self._stt_models) > 0
         label_y = y + self._TEXT_HEIGHT
+        # Popup frame
+        _asr_popup_h = self._LABEL_HEIGHT + 4
+        _asr_popup_y = label_y - 3
+        # Text labels: lower y to match popup's visual text baseline
+        _asr_lbl_y = label_y - 2
         x_cursor = self._PADDING
 
         asr_section_title = "Clipboard Text" if self._source == "clipboard" else "ASR"
@@ -964,15 +984,16 @@ class ResultPreviewPanel:
         if has_stt_popup and self._source != "clipboard":
             # "ASR" fixed label
             asr_fixed = NSTextField.labelWithString_(asr_section_title)
-            asr_fixed.setFrame_(NSMakeRect(x_cursor, label_y, 30, self._LABEL_HEIGHT))
-            asr_fixed.setFont_(NSFont.boldSystemFontOfSize_(12))
+            asr_fixed.setFrame_(NSMakeRect(x_cursor, _asr_lbl_y, 30, self._LABEL_HEIGHT))
+            asr_fixed.setFont_(NSFont.boldSystemFontOfSize_(13))
+            asr_fixed.setTextColor_(_NSColor.labelColor())
             content_view.addSubview_(asr_fixed)
             x_cursor += 34
 
             # STT model popup button
             stt_popup_width = 220
             stt_popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
-                NSMakeRect(x_cursor, label_y - 2, stt_popup_width, self._LABEL_HEIGHT + 2),
+                NSMakeRect(x_cursor, _asr_popup_y, stt_popup_width, _asr_popup_h),
                 False,
             )
             stt_popup.cell().setControlSize_(NSSmallControlSize)
@@ -995,8 +1016,9 @@ class ResultPreviewPanel:
             if self._asr_wav_data:
                 remaining -= audio_btns_width + 4
             asr_info_label = NSTextField.labelWithString_(self._asr_info)
-            asr_info_label.setFrame_(NSMakeRect(x_cursor, label_y, max(remaining, 40), self._LABEL_HEIGHT))
+            asr_info_label.setFrame_(NSMakeRect(x_cursor, _asr_lbl_y, max(remaining, 40), self._LABEL_HEIGHT))
             asr_info_label.setFont_(NSFont.systemFontOfSize_(10))
+            asr_info_label.setTextColor_(_NSColor.secondaryLabelColor())
             content_view.addSubview_(asr_info_label)
             self._asr_info_label = asr_info_label
         else:
@@ -1006,8 +1028,9 @@ class ResultPreviewPanel:
                 asr_label_text = f"{asr_section_title} ({self._asr_info})"
             label_width = inner_width - audio_btns_width - 4 if self._asr_wav_data else inner_width
             asr_label = NSTextField.labelWithString_(asr_label_text)
-            asr_label.setFrame_(NSMakeRect(self._PADDING, label_y, label_width, self._LABEL_HEIGHT))
-            asr_label.setFont_(NSFont.boldSystemFontOfSize_(12))
+            asr_label.setFrame_(NSMakeRect(self._PADDING, _asr_lbl_y, label_width, self._LABEL_HEIGHT))
+            asr_label.setFont_(NSFont.boldSystemFontOfSize_(13))
+            asr_label.setTextColor_(_NSColor.labelColor())
             content_view.addSubview_(asr_label)
             self._stt_popup = None
             self._stt_popup_target = None
@@ -1022,9 +1045,9 @@ class ResultPreviewPanel:
             punc_cb = NSButton.alloc().initWithFrame_(
                 NSMakeRect(
                     punc_cb_right - punc_cb_width,
-                    label_y,
+                    _asr_popup_y,
                     punc_cb_width,
-                    self._LABEL_HEIGHT,
+                    _asr_popup_h,
                 )
             )
             punc_cb.setButtonType_(NSSwitchButton)
@@ -1049,9 +1072,9 @@ class ResultPreviewPanel:
             save_btn = NSButton.alloc().initWithFrame_(
                 NSMakeRect(
                     btn_right - save_btn_width,
-                    label_y,
+                    _asr_popup_y,
                     save_btn_width,
-                    self._LABEL_HEIGHT,
+                    _asr_popup_h,
                 )
             )
             save_btn.setTitle_("Save")
@@ -1066,9 +1089,9 @@ class ResultPreviewPanel:
             play_btn = NSButton.alloc().initWithFrame_(
                 NSMakeRect(
                     btn_right - save_btn_width - 2 - play_btn_width,
-                    label_y,
+                    _asr_popup_y,
                     play_btn_width,
-                    self._LABEL_HEIGHT,
+                    _asr_popup_h,
                 )
             )
             play_btn.setTitle_("Play \u25b6")
@@ -1094,8 +1117,14 @@ class ResultPreviewPanel:
         self._panel = panel
 
     @staticmethod
-    def _make_text_view(frame):
-        """Create a read-only NSScrollView + NSTextView pair."""
+    def _make_text_view(frame, bg_color=None):
+        """Create a read-only NSScrollView + NSTextView pair.
+
+        Args:
+            frame: The frame rect for the scroll view.
+            bg_color: Optional (r, g, b) tuple for background color.
+                      Defaults to light gray (0.95, 0.95, 0.95).
+        """
         from AppKit import NSBezelBorder, NSColor, NSFont, NSScrollView, NSTextView
         from Foundation import NSMakeRect
 
@@ -1113,14 +1142,29 @@ class ResultPreviewPanel:
         tv.textContainer().setWidthTracksTextView_(True)
         tv.setFont_(NSFont.userFixedPitchFontOfSize_(12.0))
         tv.setEditable_(False)
+        r, g, b = bg_color if bg_color else (0.95, 0.95, 0.95)
         tv.setBackgroundColor_(
-            NSColor.colorWithCalibratedRed_green_blue_alpha_(
-                0.95, 0.95, 0.95, 1.0
-            )
+            NSColor.colorWithCalibratedRed_green_blue_alpha_(r, g, b, 1.0)
         )
 
         scroll.setDocumentView_(tv)
         return scroll, tv
+
+    @staticmethod
+    def _make_separator(y: float, width: float, padding: float):
+        """Create a horizontal separator line using NSBox."""
+        from AppKit import NSBox, NSColor
+        from Foundation import NSMakeRect
+
+        box = NSBox.alloc().initWithFrame_(
+            NSMakeRect(padding, y + 10, width - 2 * padding, 1)
+        )
+        box.setBoxType_(1)  # NSBoxSeparator
+        box.setTitlePosition_(0)  # NSNoTitle — hide the default "Title" label
+        box.setBorderColor_(
+            NSColor.colorWithCalibratedRed_green_blue_alpha_(0.85, 0.85, 0.85, 1.0)
+        )
+        return box
 
     def _on_user_edit(self) -> None:
         """Called when user edits the final text field."""
