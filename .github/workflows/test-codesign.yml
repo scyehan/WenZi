@@ -18,16 +18,11 @@ jobs:
           set -x
 
           CERT_FILE="$RUNNER_TEMP/certificate.p12"
-          CERT_PEM="$RUNNER_TEMP/certificate.pem"
           KEYCHAIN_FILE="$RUNNER_TEMP/build.keychain-db"
           KEYCHAIN_PWD="build-keychain-pwd"
 
           echo "$MACOS_CERTIFICATE" | base64 --decode > "$CERT_FILE"
           echo "p12 file size: $(wc -c < "$CERT_FILE") bytes"
-
-          echo "=== Extract certificate PEM for trust ==="
-          openssl pkcs12 -in "$CERT_FILE" -passin pass:"$MACOS_CERTIFICATE_PWD" \
-            -nokeys -out "$CERT_PEM" 2>&1 || true
 
           echo "=== Keychain setup ==="
           security delete-keychain "$KEYCHAIN_FILE" 2>/dev/null || true
@@ -39,22 +34,20 @@ jobs:
           security import "$CERT_FILE" -P "$MACOS_CERTIFICATE_PWD" \
             -A -t cert -f pkcs12 -k "$KEYCHAIN_FILE" 2>&1
 
-          echo "=== Add trust for self-signed cert ==="
-          security add-trusted-cert -d -r trustRoot \
-            -k "$KEYCHAIN_FILE" "$CERT_PEM" 2>&1 || true
-
           security set-key-partition-list -S apple-tool:,apple: \
             -k "$KEYCHAIN_PWD" "$KEYCHAIN_FILE"
 
           security list-keychains -d user -s "$KEYCHAIN_FILE" login.keychain-db
 
-          echo "=== Keychain identities ==="
+          echo "=== Keychain identities (all) ==="
           security find-identity "$KEYCHAIN_FILE" 2>&1
+          echo "=== Keychain identities (valid only) ==="
           security find-identity -v "$KEYCHAIN_FILE" 2>&1
+          echo "=== Keychain identities (valid codesigning) ==="
           security find-identity -v -p codesigning "$KEYCHAIN_FILE" 2>&1
 
-          echo "=== Try signing a test binary ==="
-          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_FILE" \
+          echo "=== Extract identity (without -v, trust not required) ==="
+          IDENTITY=$(security find-identity -p codesigning "$KEYCHAIN_FILE" \
             | grep -m1 '"' | sed 's/.*"\(.*\)"/\1/')
           echo "Extracted identity: '$IDENTITY'"
 
@@ -70,4 +63,4 @@ jobs:
             exit 1
           fi
 
-          rm -f "$CERT_FILE" "$CERT_PEM"
+          rm -f "$CERT_FILE"
