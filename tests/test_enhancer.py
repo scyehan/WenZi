@@ -503,12 +503,18 @@ extra_body: not-json"""
         assert isinstance(result, str)
 
 
-def _make_mock_client(content="enhanced text"):
+def _make_mock_client(content="enhanced text", usage=None):
     """Create a mock AsyncOpenAI client that returns given content."""
     mock_choice = MagicMock()
     mock_choice.message.content = content
     mock_response = MagicMock()
     mock_response.choices = [mock_choice]
+    if usage is not None:
+        mock_response.usage.prompt_tokens = usage.get("prompt_tokens", 0)
+        mock_response.usage.completion_tokens = usage.get("completion_tokens", 0)
+        mock_response.usage.total_tokens = usage.get("total_tokens", 0)
+    else:
+        mock_response.usage = None
 
     mock_client = MagicMock()
     mock_create = AsyncMock(return_value=mock_response)
@@ -520,31 +526,35 @@ class TestTextEnhancerEnhance:
     def test_returns_original_when_inactive(self):
         with patch("voicetext.enhancer.TextEnhancer._init_providers"):
             enhancer = TextEnhancer(_make_config(enabled=False))
-        result = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.get_event_loop().run_until_complete(
             enhancer.enhance("hello")
         )
-        assert result == "hello"
+        assert text == "hello"
+        assert usage is None
 
     def test_returns_original_when_empty_input(self):
         with patch("voicetext.enhancer.TextEnhancer._init_providers"):
             enhancer = TextEnhancer(_make_config(enabled=True))
-        result = asyncio.get_event_loop().run_until_complete(enhancer.enhance(""))
-        assert result == ""
+        text, usage = asyncio.get_event_loop().run_until_complete(enhancer.enhance(""))
+        assert text == ""
+        assert usage is None
 
     def test_returns_original_when_whitespace_input(self):
         with patch("voicetext.enhancer.TextEnhancer._init_providers"):
             enhancer = TextEnhancer(_make_config(enabled=True))
-        result = asyncio.get_event_loop().run_until_complete(enhancer.enhance("   "))
-        assert result == "   "
+        text, usage = asyncio.get_event_loop().run_until_complete(enhancer.enhance("   "))
+        assert text == "   "
+        assert usage is None
 
     def test_returns_original_when_no_providers(self):
         with patch("voicetext.enhancer.TextEnhancer._init_providers"):
             enhancer = TextEnhancer(_make_config(enabled=True, mode="proofread"))
             enhancer._providers = {}
-        result = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.get_event_loop().run_until_complete(
             enhancer.enhance("hello")
         )
-        assert result == "hello"
+        assert text == "hello"
+        assert usage is None
 
     def test_successful_enhancement(self):
         mock_client = _make_mock_client("enhanced text")
@@ -556,10 +566,28 @@ class TestTextEnhancerEnhance:
             enhancer._active_provider = "ollama"
             enhancer._active_model = "qwen2.5:7b"
 
-        result = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.get_event_loop().run_until_complete(
             enhancer.enhance("original text")
         )
-        assert result == "enhanced text"
+        assert text == "enhanced text"
+        assert usage is None
+
+    def test_successful_enhancement_with_usage(self):
+        mock_usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        mock_client = _make_mock_client("enhanced text", usage=mock_usage)
+        with patch("voicetext.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(_make_config(enabled=True, mode="proofread"))
+            enhancer._providers = {
+                "ollama": (mock_client, ["qwen2.5:7b"], {}),
+            }
+            enhancer._active_provider = "ollama"
+            enhancer._active_model = "qwen2.5:7b"
+
+        text, usage = asyncio.get_event_loop().run_until_complete(
+            enhancer.enhance("original text")
+        )
+        assert text == "enhanced text"
+        assert usage == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
 
     def test_fallback_on_empty_llm_response(self):
         mock_client = _make_mock_client("")
@@ -570,10 +598,10 @@ class TestTextEnhancerEnhance:
             }
             enhancer._active_provider = "ollama"
 
-        result = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.get_event_loop().run_until_complete(
             enhancer.enhance("original text")
         )
-        assert result == "original text"
+        assert text == "original text"
 
     def test_fallback_on_none_llm_response(self):
         mock_client = _make_mock_client(None)
@@ -584,10 +612,10 @@ class TestTextEnhancerEnhance:
             }
             enhancer._active_provider = "ollama"
 
-        result = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.get_event_loop().run_until_complete(
             enhancer.enhance("original text")
         )
-        assert result == "original text"
+        assert text == "original text"
 
     @patch("voicetext.enhancer.asyncio.wait_for", side_effect=Exception("LLM error"))
     def test_fallback_on_exception(self, mock_wait_for):
@@ -598,10 +626,11 @@ class TestTextEnhancerEnhance:
             }
             enhancer._active_provider = "ollama"
 
-        result = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.get_event_loop().run_until_complete(
             enhancer.enhance("original text")
         )
-        assert result == "original text"
+        assert text == "original text"
+        assert usage is None
 
     @patch(
         "voicetext.enhancer.asyncio.wait_for",
@@ -615,10 +644,11 @@ class TestTextEnhancerEnhance:
             }
             enhancer._active_provider = "ollama"
 
-        result = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.get_event_loop().run_until_complete(
             enhancer.enhance("original text")
         )
-        assert result == "original text"
+        assert text == "original text"
+        assert usage is None
 
 
 # --- Thinking / extra_body tests ---
@@ -864,11 +894,11 @@ class TestVocabularyIntegration:
             enhancer._active_model = "qwen2.5:7b"
             enhancer._vocab_index = mock_vocab
 
-        result = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.get_event_loop().run_until_complete(
             enhancer.enhance("hello")
         )
         # Should still enhance successfully
-        assert result == "enhanced text"
+        assert text == "enhanced text"
 
     def test_enhance_vocab_empty_results_no_injection(self):
         mock_client = _make_mock_client("enhanced text")
@@ -1073,10 +1103,10 @@ class TestConversationHistoryIntegration:
             enhancer._active_model = "qwen2.5:7b"
             enhancer._conversation_history = mock_history
 
-        result = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.get_event_loop().run_until_complete(
             enhancer.enhance("hello")
         )
-        assert result == "enhanced text"
+        assert text == "enhanced text"
 
     def test_enhance_history_empty_results_no_injection(self):
         mock_client = _make_mock_client("enhanced text")

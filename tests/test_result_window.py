@@ -244,6 +244,43 @@ class TestResultPreviewPanelEnhanceUpdate:
 
         panel._enhance_label.setStringValue_.assert_called_with("AI")
 
+    def test_set_enhance_result_shows_token_usage(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._user_edited = False
+        panel._enhance_text_view = MagicMock()
+        panel._enhance_label = MagicMock()
+        panel._final_text_field = MagicMock()
+        panel._enhance_info = "ollama / qwen2.5:7b"
+
+        usage = {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            panel.set_enhance_result("done", usage=usage)
+
+        panel._enhance_label.setStringValue_.assert_called_with(
+            "AI (ollama / qwen2.5:7b)  Tokens: 120 (\u2191100 \u219320)"
+        )
+
+    def test_set_enhance_result_no_usage_no_suffix(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._user_edited = False
+        panel._enhance_text_view = MagicMock()
+        panel._enhance_label = MagicMock()
+        panel._final_text_field = MagicMock()
+        panel._enhance_info = "ollama / qwen2.5:7b"
+
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            panel.set_enhance_result("done", usage=None)
+
+        panel._enhance_label.setStringValue_.assert_called_with(
+            "AI (ollama / qwen2.5:7b)"
+        )
+
     def test_set_enhance_result_noop_when_no_enhance_view(self):
         from voicetext.result_window import ResultPreviewPanel
 

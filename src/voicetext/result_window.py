@@ -115,11 +115,21 @@ class ResultPreviewPanel:
 
         NSApp.activateIgnoringOtherApps_(True)
 
-    def set_enhance_result(self, text: str, request_id: int = 0) -> None:
+    def set_enhance_result(
+        self,
+        text: str,
+        request_id: int = 0,
+        usage: dict | None = None,
+    ) -> None:
         """Update the AI enhancement result.
 
         If the user has not manually edited the final text, update it too.
         Stale results (mismatched request_id) are discarded.
+
+        Args:
+            text: The enhanced text.
+            request_id: Request id to discard stale results.
+            usage: Token usage dict with prompt_tokens, completion_tokens, total_tokens.
         """
         if self._enhance_text_view is None:
             return
@@ -133,9 +143,15 @@ class ResultPreviewPanel:
             if request_id != 0 and request_id != self._enhance_request_id:
                 return
             self._enhance_text_view.setString_(text)
-            # Update label to remove spinner
+            # Update label to remove spinner, include token usage
             if self._enhance_label is not None:
-                self._enhance_label.setStringValue_(self._enhance_label_text())
+                suffix = ""
+                if usage and usage.get("total_tokens"):
+                    total = usage["total_tokens"]
+                    prompt = usage.get("prompt_tokens", 0)
+                    completion = usage.get("completion_tokens", 0)
+                    suffix = f"Tokens: {total:,} (\u2191{prompt:,} \u2193{completion:,})"
+                self._enhance_label.setStringValue_(self._enhance_label_text(suffix))
             # Auto-update final text if user hasn't edited
             if not self._user_edited and self._final_text_field is not None:
                 self._final_text_field.setStringValue_(text)

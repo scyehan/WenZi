@@ -321,18 +321,23 @@ class TextEnhancer:
             result.update(provider_extra_body)
         return result
 
-    async def enhance(self, text: str) -> str:
-        """Enhance text using LLM. Returns original text on failure."""
+    async def enhance(self, text: str) -> Tuple[str, Optional[Dict[str, int]]]:
+        """Enhance text using LLM.
+
+        Returns (enhanced_text, usage) where usage is a dict with
+        prompt_tokens, completion_tokens, total_tokens or None.
+        Falls back to original text on failure.
+        """
         if not self.is_active or not text or not text.strip():
-            return text
+            return text, None
 
         if not self._providers or self._active_provider not in self._providers:
             logger.warning("AI enhancer not available, returning original text")
-            return text
+            return text, None
 
         mode_def = self._modes.get(self._mode)
         if not mode_def:
-            return text
+            return text, None
 
         try:
             # Retrieve vocabulary context if enabled
@@ -403,22 +408,32 @@ class TextEnhancer:
                 timeout=self._timeout,
             )
             enhanced = response.choices[0].message.content
+
+            # Extract token usage
+            usage = None
+            if response.usage is not None:
+                usage = {
+                    "prompt_tokens": response.usage.prompt_tokens or 0,
+                    "completion_tokens": response.usage.completion_tokens or 0,
+                    "total_tokens": response.usage.total_tokens or 0,
+                }
+
             if enhanced and enhanced.strip():
                 logger.info(
                     "Text enhanced: '%s' -> '%s'",
                     text.strip()[:50],
                     enhanced.strip()[:50],
                 )
-                return enhanced.strip()
+                return enhanced.strip(), usage
             else:
                 logger.warning("LLM returned empty text, using original")
-                return text
+                return text, usage
         except asyncio.TimeoutError:
             logger.error("AI enhancement timed out after %ds", self._timeout)
-            return text
+            return text, None
         except Exception as e:
             logger.error("AI enhancement failed: %s", e)
-            return text
+            return text, None
 
 
 def create_enhancer(config: Dict[str, Any]) -> Optional[TextEnhancer]:

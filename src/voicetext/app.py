@@ -368,7 +368,7 @@ class VoiceTextApp(rumps.App):
             self._set_status("Enhancing...")
             try:
                 loop = asyncio.new_event_loop()
-                text = loop.run_until_complete(self._enhancer.enhance(text))
+                text, _usage = loop.run_until_complete(self._enhancer.enhance(text))
                 loop.close()
                 enhanced_text = text
             except Exception as e:
@@ -497,13 +497,15 @@ class VoiceTextApp(rumps.App):
         def _enhance():
             try:
                 loop = asyncio.new_event_loop()
-                enhanced = loop.run_until_complete(
+                enhanced, usage = loop.run_until_complete(
                     self._enhancer.enhance(asr_text)
                 )
                 loop.close()
                 if result_holder is not None:
                     result_holder["enhanced_text"] = enhanced
-                self._preview_panel.set_enhance_result(enhanced, request_id=request_id)
+                self._preview_panel.set_enhance_result(
+                    enhanced, request_id=request_id, usage=usage
+                )
             except Exception as e:
                 logger.error("AI enhancement failed: %s", e)
                 self._preview_panel.set_enhance_result(
