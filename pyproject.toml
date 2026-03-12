@@ -2,7 +2,7 @@
 name = "voicetext"
 version = "0.0.4"
 description = "macOS menubar app: hold hotkey to record, release to transcribe and type"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 dependencies = [
     "rumps>=0.4.0",
     "sounddevice>=0.5.0",

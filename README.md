@@ -12,24 +12,33 @@ A macOS menubar speech-to-text application. Hold a hotkey to record, release to 
 
 ## Quick Start
 
-### Option 1: Build as macOS App (Recommended)
+### Option 1: Download Release (Recommended)
 
-For daily use, build VoiceText as a native macOS app bundle — no terminal needed after installation.
+Download the latest `VoiceText.app` from the [Releases](https://github.com/Airead/VoiceText/releases) page, drag it to `/Applications`, and double-click to launch.
+
+> **First launch note:** Since VoiceText is not signed with an Apple Developer certificate, macOS will block the first launch. Go to **System Settings → Privacy & Security**, scroll down to find the VoiceText blocked message, and click **Open Anyway**.
+
+### Option 2: Build from Source
+
+If you prefer to build the app yourself, the project provides build scripts:
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/Airead/VoiceText
 cd VoiceText
 uv sync
-uv run pyinstaller VoiceText.spec
+
+# Build VoiceText.app only
+./scripts/build.sh
+
+# Or build VoiceText.app + DMG installer
+./scripts/build-dmg.sh
 ```
 
-The built `VoiceText.app` will be in the `dist/` directory. Drag it to `/Applications` and launch like any other app.
+The built `VoiceText.app` will be in the `dist/` directory. The DMG build also produces a `VoiceText-<version>-arm64.dmg` with an Applications shortcut for drag-and-drop installation.
 
-> Alternatively, build with py2app: `uv run python setup.py py2app`
+### Option 3: Run from Source (Development)
 
-### Option 2: Run from Source (Development)
-
-If you want to modify the code or debug, run directly with `uv`:
+If you want to modify the code or debug, run directly from the terminal:
 
 ```bash
 git clone https://github.com/Airead/VoiceText
@@ -46,8 +55,8 @@ uv run python -m voicetext path/to/config.json
 ### Requirements
 
 - macOS (Apple Silicon recommended for MLX-Whisper)
-- Python 3.10+
-- [uv](https://github.com/astral-sh/uv) (recommended package manager)
+- Option 1: no additional requirements
+- Options 2 & 3: Python 3.13+ and [uv](https://github.com/astral-sh/uv)
 
 ASR models will be downloaded automatically on first launch (FunASR ~500 MB cached in `~/.cache/modelscope/`, MLX-Whisper models cached in `~/.cache/huggingface/`).
 
