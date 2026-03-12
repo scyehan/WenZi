@@ -122,8 +122,8 @@ class VocabularyIndex:
 
         lines = [
             "---",
-            "以下是从用户个人词库中检索到的、与本次输入相关的专有名词和术语。",
-            "语音识别常将这些词汇误写为同音或近音的错误形式，请在纠错时优先参考这些正确写法：",
+            "以下是用户词库中与本次输入相关的专有名词，ASR 常将其误写为同音近音词。",
+            "仅当输入中确实存在对应误写时才替换，不要强行套用：",
             "",
         ]
         for entry in entries:
@@ -131,8 +131,6 @@ class VocabularyIndex:
                 lines.append(f"- {entry.term}（{entry.context}）")
             else:
                 lines.append(f"- {entry.term}")
-        lines.append("")
-        lines.append("请注意：仅当输入文本中确实存在对应的误写时才进行替换，不要强行套用。")
         lines.append("---")
         return "\n".join(lines)
 

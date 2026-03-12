@@ -838,9 +838,9 @@ class TestVocabularyIntegration:
             VocabularyEntry(term="Python", context="编程语言"),
         ]
         mock_vocab.format_for_prompt.return_value = (
-            "---\n以下是从用户个人词库中检索到的、与本次输入相关的专有名词和术语。\n"
-            "语音识别常将这些词汇误写为同音或近音的错误形式，请在纠错时优先参考这些正确写法：\n\n"
-            "- Python（编程语言）\n\n请注意：仅当输入文本中确实存在对应的误写时才进行替换，不要强行套用。\n---"
+            "---\n用户词库中与本次输入相关的专有名词，ASR 常将其误写为同音近音词。\n"
+            "仅当输入中确实存在对应误写时才替换，不要强行套用：\n\n"
+            "- Python（编程语言）\n---"
         )
 
         cfg = _make_config(enabled=True, vocabulary={"enabled": True, "top_k": 5})
@@ -1045,7 +1045,8 @@ class TestConversationHistoryIntegration:
             {"asr_text": "你好", "enhanced_text": "你好。", "final_text": "你好。"},
         ]
         mock_history.format_for_prompt.return_value = (
-            "---\n以下是用户近期的对话历史记录\n- 你好\n---"
+            "---\n以下是用户近期的对话记录，用于学习纠错偏好和话题上下文。\n"
+            "若 ASR 识别与最终确认不同则用→分隔（识别→确认），相同则表示无需纠错：\n\n- 你好 → 你好。\n---"
         )
 
         cfg = _make_config(
@@ -1065,7 +1066,7 @@ class TestConversationHistoryIntegration:
 
         call_kwargs = mock_client.chat.completions.create.call_args
         system_msg = call_kwargs.kwargs["messages"][0]["content"]
-        assert "以下是用户近期的对话历史记录" in system_msg
+        assert "对话记录" in system_msg
 
     def test_enhance_without_history_no_injection(self):
         mock_client = _make_mock_client("enhanced text")
