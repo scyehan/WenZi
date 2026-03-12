@@ -165,20 +165,27 @@ class TestExtractBatch:
         builder = VocabularyBuilder(_make_config())
         batch = [{"asr_text": "派森", "final_text": "Python"}]
 
+        mock_usage = MagicMock()
+        mock_usage.prompt_tokens = 10
+        mock_usage.completion_tokens = 5
+        mock_usage.total_tokens = 15
+
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = _PIPE_RESPONSE_ONE
+        mock_response.usage = mock_usage
 
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
         with patch("openai.AsyncOpenAI", return_value=mock_client):
-            result = asyncio.get_event_loop().run_until_complete(
+            entries, usage = asyncio.get_event_loop().run_until_complete(
                 builder._extract_batch(batch)
             )
 
-        assert len(result) == 1
-        assert result[0]["term"] == "Python"
+        assert len(entries) == 1
+        assert entries[0]["term"] == "Python"
+        assert usage["total_tokens"] == 15
 
     def test_empty_llm_response(self):
         builder = VocabularyBuilder(_make_config())
@@ -187,25 +194,27 @@ class TestExtractBatch:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = ""
+        mock_response.usage = None
 
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
         with patch("openai.AsyncOpenAI", return_value=mock_client):
-            result = asyncio.get_event_loop().run_until_complete(
+            entries, usage = asyncio.get_event_loop().run_until_complete(
                 builder._extract_batch(batch)
             )
 
-        assert result == []
+        assert entries == []
 
     def test_no_provider_config(self):
         builder = VocabularyBuilder({"providers": {}})
         batch = [{"asr_text": "test", "final_text": "test"}]
 
-        result = asyncio.get_event_loop().run_until_complete(
+        entries, usage = asyncio.get_event_loop().run_until_complete(
             builder._extract_batch(batch)
         )
-        assert result == []
+        assert entries == []
+        assert usage == {}
 
     def test_timeout(self):
         cfg = _make_config()
@@ -395,6 +404,7 @@ class TestBuild:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = _PIPE_RESPONSE_TWO
+        mock_response.usage = None
 
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
@@ -432,6 +442,7 @@ class TestBuild:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = _PIPE_RESPONSE_K8S
+        mock_response.usage = None
 
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
@@ -466,6 +477,7 @@ class TestBuild:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = _PIPE_RESPONSE_ONE
+        mock_response.usage = None
 
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
@@ -501,6 +513,7 @@ class TestBuildWithCancel:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = _PIPE_RESPONSE_TEST
+        mock_response.usage = None
 
         cancel_event = threading.Event()
         call_count = 0
@@ -582,6 +595,7 @@ class TestExtractBatchStreaming:
             chunk = MagicMock()
             chunk.choices = [MagicMock()]
             chunk.choices[0].delta.content = part
+            chunk.usage = None
             chunks.append(chunk)
 
         async def mock_create(**kwargs):
@@ -595,13 +609,13 @@ class TestExtractBatchStreaming:
         on_chunk = lambda c: collected_chunks.append(c)
 
         with patch("openai.AsyncOpenAI", return_value=mock_client):
-            result = asyncio.get_event_loop().run_until_complete(
+            entries, usage = asyncio.get_event_loop().run_until_complete(
                 builder._extract_batch(batch, on_stream_chunk=on_chunk)
             )
 
         assert collected_chunks == pipe_parts
-        assert len(result) == 1
-        assert result[0]["term"] == "Python"
+        assert len(entries) == 1
+        assert entries[0]["term"] == "Python"
 
     def test_no_callback_uses_non_streaming(self):
         """Without on_stream_chunk, the non-streaming path is used."""
@@ -611,12 +625,13 @@ class TestExtractBatchStreaming:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = _PIPE_RESPONSE_ONE
+        mock_response.usage = None
 
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
         with patch("openai.AsyncOpenAI", return_value=mock_client):
-            result = asyncio.get_event_loop().run_until_complete(
+            entries, usage = asyncio.get_event_loop().run_until_complete(
                 builder._extract_batch(batch)
             )
 
@@ -625,8 +640,8 @@ class TestExtractBatchStreaming:
         call_kwargs = create_call.call_args[1]
         assert "stream" not in call_kwargs
 
-        assert len(result) == 1
-        assert result[0]["term"] == "Python"
+        assert len(entries) == 1
+        assert entries[0]["term"] == "Python"
 
 
 class TestBuildWithCallbacks:
@@ -643,6 +658,7 @@ class TestBuildWithCallbacks:
         stream_chunk = MagicMock()
         stream_chunk.choices = [MagicMock()]
         stream_chunk.choices[0].delta.content = pipe_content
+        stream_chunk.usage = None
 
         async def mock_create(**kwargs):
             return _AsyncStreamMock([stream_chunk])

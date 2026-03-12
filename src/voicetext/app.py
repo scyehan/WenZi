@@ -426,6 +426,16 @@ class VoiceTextApp(rumps.App):
         if self._enhancer:
             available_modes = [("off", "Off")] + self._enhancer.available_modes
 
+        # Build enhance info string
+        enhance_info = ""
+        if self._enhancer:
+            parts = []
+            if self._enhancer.provider_name:
+                parts.append(self._enhancer.provider_name)
+            if self._enhancer.model_name:
+                parts.append(self._enhancer.model_name)
+            enhance_info = " / ".join(parts)
+
         # Show panel on main thread, then start enhancement after panel is built
         def _show():
             self._activate_for_dialog()
@@ -437,6 +447,7 @@ class VoiceTextApp(rumps.App):
                 available_modes=available_modes,
                 current_mode=self._enhance_mode,
                 on_mode_change=self._on_preview_mode_change,
+                enhance_info=enhance_info,
             )
             # Start enhancement after show() so request_id is not reset
             if use_enhance:
@@ -791,9 +802,22 @@ Output only the processed text without any explanation."""
 
         from .vocab_build_window import VocabBuildProgressPanel
 
+        # Build enhance info string for the progress panel
+        enhance_info = ""
+        if self._enhancer:
+            parts = []
+            if self._enhancer.provider_name:
+                parts.append(self._enhancer.provider_name)
+            if self._enhancer.model_name:
+                parts.append(self._enhancer.model_name)
+            enhance_info = " / ".join(parts)
+
         progress_panel = VocabBuildProgressPanel()
         # _on_vocab_build runs on the main thread (rumps callback), so show directly
-        progress_panel.show(on_cancel=lambda: cancel_event.set())
+        progress_panel.show(
+            on_cancel=lambda: cancel_event.set(),
+            enhance_info=enhance_info,
+        )
 
         def _build():
             import asyncio as _asyncio
@@ -813,6 +837,7 @@ Output only the processed text without any explanation."""
                 on_batch_done=lambda i, t, c: progress_panel.update_status(
                     f"Batch {i}/{t} done — {c} entries found"
                 ),
+                on_usage_update=lambda p, c, t: progress_panel.update_token_usage(p, c, t),
             )
 
             old_title = self.title

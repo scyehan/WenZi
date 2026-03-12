@@ -60,6 +60,7 @@ class ResultPreviewPanel:
         self._asr_text = ""
         self._available_modes: List[Tuple[str, str]] = []
         self._current_mode: str = "off"
+        self._enhance_info: str = ""
         self._enhance_request_id: int = 0
         self._delegate = None
         self._event_monitor = None
@@ -73,6 +74,7 @@ class ResultPreviewPanel:
         available_modes: Optional[List[Tuple[str, str]]] = None,
         current_mode: Optional[str] = None,
         on_mode_change: Optional[Callable[[str], None]] = None,
+        enhance_info: str = "",
     ) -> None:
         """Show the preview panel with ASR text.
 
@@ -84,6 +86,7 @@ class ResultPreviewPanel:
             available_modes: List of (mode_id, label) pairs for mode switcher.
             current_mode: Currently selected mode_id.
             on_mode_change: Callback when user switches mode in the segmented control.
+            enhance_info: Provider/model info string to display in enhance label.
         """
         self._on_confirm = on_confirm
         self._on_cancel = on_cancel
@@ -93,6 +96,7 @@ class ResultPreviewPanel:
         self._asr_text = asr_text
         self._available_modes = available_modes or []
         self._current_mode = current_mode or "off"
+        self._enhance_info = enhance_info
         self._enhance_request_id = 0
 
         self._build_panel(asr_text, show_enhance)
@@ -131,7 +135,7 @@ class ResultPreviewPanel:
             self._enhance_text_view.setString_(text)
             # Update label to remove spinner
             if self._enhance_label is not None:
-                self._enhance_label.setStringValue_("AI Enhancement")
+                self._enhance_label.setStringValue_(self._enhance_label_text())
             # Auto-update final text if user hasn't edited
             if not self._user_edited and self._final_text_field is not None:
                 self._final_text_field.setStringValue_(text)
@@ -144,7 +148,7 @@ class ResultPreviewPanel:
 
         def _update():
             if self._enhance_label is not None:
-                self._enhance_label.setStringValue_("AI Enhancement  \u23f3 Processing...")
+                self._enhance_label.setStringValue_(self._enhance_label_text("\u23f3 Processing..."))
             if self._enhance_text_view is not None:
                 self._enhance_text_view.setString_("")
             self._user_edited = False
@@ -158,7 +162,7 @@ class ResultPreviewPanel:
 
         def _update():
             if self._enhance_label is not None:
-                self._enhance_label.setStringValue_("AI Enhancement (Off)")
+                self._enhance_label.setStringValue_(self._enhance_label_text("Off"))
             if self._enhance_text_view is not None:
                 self._enhance_text_view.setString_("")
             if not self._user_edited and self._final_text_field is not None:
@@ -166,6 +170,15 @@ class ResultPreviewPanel:
             self._show_enhance = False
 
         AppHelper.callAfter(_update)
+
+    def _enhance_label_text(self, suffix: str = "") -> str:
+        """Build the enhance label string with optional provider/model info."""
+        base = "AI"
+        if self._enhance_info:
+            base = f"AI ({self._enhance_info})"
+        if suffix:
+            return f"{base}  {suffix}"
+        return base
 
     @property
     def enhance_request_id(self) -> int:
@@ -371,9 +384,9 @@ class ResultPreviewPanel:
         if show_enhance_section:
             # Determine initial label text
             if not show_enhance:
-                enhance_label_text = "AI Enhancement (Off)"
+                enhance_label_text = self._enhance_label_text("Off")
             else:
-                enhance_label_text = "AI Enhancement  \u23f3 Processing..."
+                enhance_label_text = self._enhance_label_text("\u23f3 Processing...")
 
             enhance_label = NSTextField.labelWithString_(enhance_label_text)
             enhance_label.setFrame_(NSMakeRect(self._PADDING, y + self._TEXT_HEIGHT, inner_width, self._LABEL_HEIGHT))

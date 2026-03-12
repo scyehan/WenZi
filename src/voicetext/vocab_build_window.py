@@ -33,19 +33,32 @@ class VocabBuildProgressPanel:
 
     def __init__(self) -> None:
         self._panel = None
+        self._info_label = None
         self._status_label = None
+        self._token_label = None
         self._stream_text_view = None
         self._stream_font = None
         self._on_cancel: Optional[Callable[[], None]] = None
+        self._confirmed_tokens: int = 0
+        self._stream_chars: int = 0
 
-    def show(self, on_cancel: Callable[[], None]) -> None:
-        """Show the progress panel. Must be called on the main thread."""
+    def show(
+        self,
+        on_cancel: Callable[[], None],
+        enhance_info: str = "",
+    ) -> None:
+        """Show the progress panel. Must be called on the main thread.
+
+        Args:
+            on_cancel: Callback when cancel is clicked.
+            enhance_info: Provider/model info string to display.
+        """
         from AppKit import NSApp
 
         self._on_cancel = on_cancel
         # Switch to regular activation policy so panel is visible from menubar app
         NSApp.setActivationPolicy_(0)  # NSApplicationActivationPolicyRegular
-        self._build_panel()
+        self._build_panel(enhance_info)
         self._panel.makeKeyAndOrderFront_(None)
         NSApp.activateIgnoringOtherApps_(True)
 
@@ -60,8 +73,15 @@ class VocabBuildProgressPanel:
         AppHelper.callAfter(_update)
 
     def append_stream_text(self, chunk: str) -> None:
-        """Append text to the streaming output view and auto-scroll. Thread-safe."""
+        """Append text to the streaming output view and auto-scroll. Thread-safe.
+
+        Also updates the token label with a real-time streaming character count.
+        """
+        self._stream_chars += len(chunk)
         from PyObjCTools import AppHelper
+
+        stream_chars = self._stream_chars
+        confirmed = self._confirmed_tokens
 
         def _append():
             tv = self._stream_text_view
@@ -84,10 +104,39 @@ class VocabBuildProgressPanel:
             # Auto-scroll to bottom
             tv.scrollRangeToVisible_((storage.length(), 0))
 
+            # Update token label with streaming progress
+            if self._token_label is not None:
+                if confirmed > 0:
+                    self._token_label.setStringValue_(
+                        f"Tokens: {confirmed:,}+  |  streaming... {stream_chars:,} chars received"
+                    )
+                else:
+                    self._token_label.setStringValue_(
+                        f"Tokens: streaming... {stream_chars:,} chars received"
+                    )
+
         AppHelper.callAfter(_append)
 
+    def update_token_usage(self, prompt: int, completion: int, total: int) -> None:
+        """Update the token usage label with confirmed totals. Thread-safe.
+
+        Resets the streaming character counter since the batch is done.
+        """
+        self._confirmed_tokens = total
+        self._stream_chars = 0
+        from PyObjCTools import AppHelper
+
+        def _update():
+            if self._token_label is not None:
+                self._token_label.setStringValue_(
+                    f"Tokens: {total:,}  (prompt {prompt:,} + completion {completion:,})"
+                )
+
+        AppHelper.callAfter(_update)
+
     def clear_stream_text(self) -> None:
-        """Clear the streaming output view. Thread-safe."""
+        """Clear the streaming output view and reset stream char counter. Thread-safe."""
+        self._stream_chars = 0
         from PyObjCTools import AppHelper
 
         def _clear():
@@ -110,7 +159,7 @@ class VocabBuildProgressPanel:
 
         AppHelper.callAfter(_close)
 
-    def _build_panel(self) -> None:
+    def _build_panel(self, enhance_info: str = "") -> None:
         """Build the NSPanel and all subviews."""
         from AppKit import (
             NSBackingStoreBuffered,
@@ -131,8 +180,10 @@ class VocabBuildProgressPanel:
         content_height = (
             self._PADDING  # bottom
             + self._BUTTON_HEIGHT + self._PADDING  # buttons
+            + self._LABEL_HEIGHT + self._PADDING  # token label
             + self._STREAM_HEIGHT + self._PADDING  # stream view
             + self._LABEL_HEIGHT  # status label
+            + self._LABEL_HEIGHT  # info label
             + self._PADDING  # top
         )
 
@@ -197,12 +248,37 @@ class VocabBuildProgressPanel:
 
         y += self._STREAM_HEIGHT + self._PADDING
 
+        # Token usage label (below stream)
+        token_label = NSTextField.labelWithString_("Tokens: 0")
+        token_label.setFrame_(NSMakeRect(self._PADDING, y, inner_width, self._LABEL_HEIGHT))
+        token_label.setFont_(NSFont.systemFontOfSize_(11))
+        token_label.setTextColor_(
+            NSColor.colorWithCalibratedRed_green_blue_alpha_(0.4, 0.4, 0.4, 1.0)
+        )
+        content_view.addSubview_(token_label)
+        self._token_label = token_label
+
+        y += self._LABEL_HEIGHT + self._PADDING
+
         # Status label
         status_label = NSTextField.labelWithString_("Preparing...")
         status_label.setFrame_(NSMakeRect(self._PADDING, y, inner_width, self._LABEL_HEIGHT))
         status_label.setFont_(NSFont.boldSystemFontOfSize_(12))
         content_view.addSubview_(status_label)
         self._status_label = status_label
+
+        y += self._LABEL_HEIGHT
+
+        # Info label (provider / model)
+        info_text = f"Provider: {enhance_info}" if enhance_info else ""
+        info_label = NSTextField.labelWithString_(info_text)
+        info_label.setFrame_(NSMakeRect(self._PADDING, y, inner_width, self._LABEL_HEIGHT))
+        info_label.setFont_(NSFont.systemFontOfSize_(11))
+        info_label.setTextColor_(
+            NSColor.colorWithCalibratedRed_green_blue_alpha_(0.4, 0.4, 0.4, 1.0)
+        )
+        content_view.addSubview_(info_label)
+        self._info_label = info_label
 
         self._panel = panel
 

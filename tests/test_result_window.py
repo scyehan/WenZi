@@ -242,7 +242,7 @@ class TestResultPreviewPanelEnhanceUpdate:
             mock_helper.callAfter.side_effect = lambda fn: fn()
             panel.set_enhance_result("done")
 
-        panel._enhance_label.setStringValue_.assert_called_with("AI Enhancement")
+        panel._enhance_label.setStringValue_.assert_called_with("AI")
 
     def test_set_enhance_result_noop_when_no_enhance_view(self):
         from voicetext.result_window import ResultPreviewPanel
@@ -527,7 +527,7 @@ class TestResultPreviewPanelModeSwitch:
             panel.set_enhance_loading()
 
         panel._enhance_label.setStringValue_.assert_called_with(
-            "AI Enhancement  \u23f3 Processing..."
+            "AI  \u23f3 Processing..."
         )
         panel._enhance_text_view.setString_.assert_called_with("")
 
@@ -546,11 +546,38 @@ class TestResultPreviewPanelModeSwitch:
             panel.set_enhance_off()
 
         panel._enhance_label.setStringValue_.assert_called_with(
-            "AI Enhancement (Off)"
+            "AI  Off"
         )
         panel._enhance_text_view.setString_.assert_called_with("")
         panel._final_text_field.setStringValue_.assert_called_with("original asr")
         assert panel._show_enhance is False
+
+    def test_enhance_label_includes_provider_info(self):
+        from voicetext.result_window import ResultPreviewPanel
+
+        panel = ResultPreviewPanel()
+        panel._enhance_info = "zai / glm-5"
+        panel._enhance_label = MagicMock()
+        panel._enhance_text_view = MagicMock()
+        panel._final_text_field = MagicMock()
+        panel._user_edited = False
+        panel._asr_text = "test"
+
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            panel.set_enhance_loading()
+
+        panel._enhance_label.setStringValue_.assert_called_with(
+            "AI (zai / glm-5)  \u23f3 Processing..."
+        )
+
+        with patch("PyObjCTools.AppHelper") as mock_helper:
+            mock_helper.callAfter.side_effect = lambda fn: fn()
+            panel.set_enhance_off()
+
+        panel._enhance_label.setStringValue_.assert_called_with(
+            "AI (zai / glm-5)  Off"
+        )
 
     def test_set_enhance_result_ignores_stale_request_id(self):
         from voicetext.result_window import ResultPreviewPanel

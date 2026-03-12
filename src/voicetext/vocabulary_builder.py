@@ -24,6 +24,7 @@ class BuildCallbacks:
     on_batch_start: Optional[Callable[[int, int], None]] = None  # (batch_idx, total)
     on_stream_chunk: Optional[Callable[[str], None]] = None  # (chunk_text)
     on_batch_done: Optional[Callable[[int, int, int], None]] = None  # (batch_idx, total, entries_count)
+    on_usage_update: Optional[Callable[[int, int, int], None]] = None  # (prompt, completion, total)
 
 
 class VocabularyBuilder:
@@ -75,6 +76,7 @@ class VocabularyBuilder:
         batches = self._batch_records(records, self._batch_size)
         logger.info("Processing %d records in %d batches", len(records), len(batches))
         all_new_entries: List[Dict[str, Any]] = []
+        total_usage: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         cancelled = False
 
         for i, batch in enumerate(batches, 1):
@@ -89,7 +91,15 @@ class VocabularyBuilder:
 
                 logger.info("Extracting batch %d/%d (%d records)...", i, len(batches), len(batch))
                 on_chunk = callbacks.on_stream_chunk if callbacks else None
-                extracted = await self._extract_batch(batch, on_stream_chunk=on_chunk)
+                extracted, usage = await self._extract_batch(batch, on_stream_chunk=on_chunk)
+                for key in total_usage:
+                    total_usage[key] += usage.get(key, 0)
+                if callbacks and callbacks.on_usage_update:
+                    callbacks.on_usage_update(
+                        total_usage["prompt_tokens"],
+                        total_usage["completion_tokens"],
+                        total_usage["total_tokens"],
+                    )
                 logger.info("Batch %d/%d: extracted %d entries", i, len(batches), len(extracted))
                 all_new_entries.extend(extracted)
 
@@ -104,9 +114,15 @@ class VocabularyBuilder:
         # Determine the latest timestamp from processed records
         last_ts = records[-1].get("timestamp", datetime.now(timezone.utc).isoformat())
 
+        provider_cfg = self._get_provider_config()
         vocabulary = {
             "last_processed_timestamp": last_ts,
             "built_at": datetime.now(timezone.utc).isoformat(),
+            "built_with": {
+                "provider": self._get_active_provider_name(),
+                "model": provider_cfg["model"] if provider_cfg else "N/A",
+                "usage": total_usage,
+            },
             "entries": merged,
         }
         self._save_vocabulary(vocabulary)
@@ -115,15 +131,18 @@ class VocabularyBuilder:
             "new_records": len(records),
             "new_entries": len(all_new_entries),
             "total_entries": len(merged),
+            "usage": total_usage,
         }
         if cancelled:
             summary["cancelled"] = True
 
         logger.info(
-            "Vocabulary built: %d new records, %d new entries, %d total entries%s",
+            "Vocabulary built: %d new records, %d new entries, %d total entries, "
+            "%d tokens used%s",
             summary["new_records"],
             summary["new_entries"],
             summary["total_entries"],
+            total_usage["total_tokens"],
             " (cancelled)" if cancelled else "",
         )
         return summary
@@ -194,20 +213,24 @@ class VocabularyBuilder:
         self,
         batch: List[Dict[str, Any]],
         on_stream_chunk: Optional[Callable[[str], None]] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], Dict[str, int]]:
         """Call LLM to extract vocabulary entries from a batch of records.
 
         Args:
             batch: Records to process.
             on_stream_chunk: If provided, use streaming mode and call this
                 with each text chunk as it arrives.
+
+        Returns:
+            A tuple of (entries, usage) where usage has prompt_tokens,
+            completion_tokens, total_tokens.
         """
         from openai import AsyncOpenAI
 
         provider_cfg = self._get_provider_config()
         if not provider_cfg:
             logger.warning("No AI provider configured for vocabulary extraction")
-            return []
+            return [], {}
 
         client = AsyncOpenAI(
             base_url=provider_cfg["base_url"],
@@ -216,14 +239,17 @@ class VocabularyBuilder:
         model = provider_cfg["model"]
         prompt = self._build_extraction_prompt(batch)
         extra_body = build_disable_thinking_body(model)
+        usage: Dict[str, int] = {}
 
         if on_stream_chunk is not None:
-            # Streaming path — use `async with` to ensure the stream is closed
+            # Streaming path — request usage in final chunk
+            stream_options = {"include_usage": True}
             async with asyncio.timeout(self._batch_timeout):
                 async with await client.chat.completions.create(
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
                     stream=True,
+                    stream_options=stream_options,
                     extra_body=extra_body,
                 ) as stream:
                     parts: List[str] = []
@@ -232,6 +258,12 @@ class VocabularyBuilder:
                             delta = chunk.choices[0].delta.content
                             parts.append(delta)
                             on_stream_chunk(delta)
+                        if chunk.usage is not None:
+                            usage = {
+                                "prompt_tokens": chunk.usage.prompt_tokens or 0,
+                                "completion_tokens": chunk.usage.completion_tokens or 0,
+                                "total_tokens": chunk.usage.total_tokens or 0,
+                            }
                 content = "".join(parts)
         else:
             # Non-streaming path (backward compatible)
@@ -244,11 +276,27 @@ class VocabularyBuilder:
                 timeout=self._batch_timeout,
             )
             content = response.choices[0].message.content
+            if response.usage is not None:
+                usage = {
+                    "prompt_tokens": response.usage.prompt_tokens or 0,
+                    "completion_tokens": response.usage.completion_tokens or 0,
+                    "total_tokens": response.usage.total_tokens or 0,
+                }
 
         if not content:
-            return []
+            return [], usage
 
-        return self._parse_llm_response(content)
+        return self._parse_llm_response(content), usage
+
+    def _get_active_provider_name(self) -> str:
+        """Get the name of the active provider."""
+        provider_name = self._config.get("default_provider", "")
+        providers = self._config.get("providers", {})
+        if provider_name and provider_name in providers:
+            return provider_name
+        if providers:
+            return next(iter(providers))
+        return "N/A"
 
     def _get_provider_config(self) -> Optional[Dict[str, Any]]:
         """Get the active provider config for LLM calls."""
