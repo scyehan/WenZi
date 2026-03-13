@@ -234,6 +234,7 @@ class TestInitialStateNewCounters:
         assert s["totals"]["output_type_text"] == 0
         assert s["totals"]["output_copy_clipboard"] == 0
         assert s["totals"]["google_translate_opens"] == 0
+        assert s["totals"]["sound_feedback_plays"] == 0
 
 
 class TestRecordClipboardEnhance:
@@ -338,6 +339,25 @@ class TestRecordGoogleTranslateOpen:
         stats.record_google_translate_open()
         today = stats.get_today_stats()
         assert today["totals"]["google_translate_opens"] == 1
+
+
+class TestRecordSoundFeedback:
+    def test_record_sound_feedback(self, stats):
+        stats.record_sound_feedback()
+        s = stats.get_stats()
+        assert s["totals"]["sound_feedback_plays"] == 1
+
+    def test_record_sound_feedback_multiple(self, stats):
+        stats.record_sound_feedback()
+        stats.record_sound_feedback()
+        stats.record_sound_feedback()
+        s = stats.get_stats()
+        assert s["totals"]["sound_feedback_plays"] == 3
+
+    def test_record_sound_feedback_daily(self, stats):
+        stats.record_sound_feedback()
+        today = stats.get_today_stats()
+        assert today["totals"]["sound_feedback_plays"] == 1
 
 
 class TestThreadSafety:

@@ -77,6 +77,49 @@ class TestRecorder:
         r._recording = True
         r.start()  # Should not raise
 
+    def test_current_level_initial_zero(self):
+        r = Recorder()
+        assert r.current_level == 0.0
+
+    @patch("voicetext.recorder.sd.RawInputStream")
+    def test_current_level_after_callback(self, mock_stream_cls):
+        mock_stream = MagicMock()
+        mock_stream_cls.return_value = mock_stream
+
+        r = Recorder(sample_rate=16000, block_ms=20)
+        r.start()
+
+        # Simulate a callback with known RMS
+        # Frame of all 1000s → RMS = 1000 → level = 1000/5000 = 0.2
+        frame_data = np.full(320, 1000, dtype=np.int16).tobytes()
+        r._callback(frame_data, 320, None, None)
+        assert abs(r.current_level - 0.2) < 0.01
+
+    @patch("voicetext.recorder.sd.RawInputStream")
+    def test_current_level_capped_at_one(self, mock_stream_cls):
+        mock_stream = MagicMock()
+        mock_stream_cls.return_value = mock_stream
+
+        r = Recorder(sample_rate=16000, block_ms=20)
+        r.start()
+
+        # Frame of all 10000s → RMS = 10000 → level = min(1.0, 2.0) = 1.0
+        frame_data = np.full(320, 10000, dtype=np.int16).tobytes()
+        r._callback(frame_data, 320, None, None)
+        assert r.current_level == 1.0
+
+    @patch("voicetext.recorder.sd.RawInputStream")
+    def test_rms_calculated_in_callback(self, mock_stream_cls):
+        mock_stream = MagicMock()
+        mock_stream_cls.return_value = mock_stream
+
+        r = Recorder(sample_rate=16000, block_ms=20)
+        r.start()
+
+        frame_data = np.full(320, 500, dtype=np.int16).tobytes()
+        r._callback(frame_data, 320, None, None)
+        assert abs(r._current_rms - 500.0) < 1.0
+
     @patch("voicetext.recorder.sd.RawInputStream")
     def test_max_session_bytes(self, mock_stream_cls):
         mock_stream = MagicMock()

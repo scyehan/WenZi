@@ -72,6 +72,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "clipboard_enhance": {
         "hotkey": "ctrl+cmd+v",
     },
+    "feedback": {
+        "sound_enabled": True,
+        "sound_volume": 0.4,
+        "visual_indicator": True,
+    },
     "logging": {
         "level": "INFO",
     },

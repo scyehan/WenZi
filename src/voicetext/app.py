@@ -44,6 +44,8 @@ from .model_registry import (
     resolve_preset_from_config,
 )
 from .recorder import Recorder
+from .recording_indicator import RecordingIndicatorPanel
+from .sound_manager import SoundManager
 from .transcriber import create_transcriber
 
 
@@ -129,6 +131,16 @@ class VoiceTextApp(rumps.App):
         self._correction_logger = CorrectionLogger()
         self._conversation_history = ConversationHistory()
         self._usage_stats = UsageStats()
+
+        # Feedback: sound + visual indicator
+        fb_cfg = self._config.get("feedback", {})
+        self._sound_manager = SoundManager(
+            enabled=fb_cfg.get("sound_enabled", True),
+            volume=fb_cfg.get("sound_volume", 0.4),
+        )
+        self._recording_indicator = RecordingIndicatorPanel()
+        self._recording_indicator.enabled = fb_cfg.get("visual_indicator", True)
+        self._level_poll_stop: threading.Event | None = None
 
         # Resolve current preset (None if using remote)
         self._current_preset_id: Optional[str] = None
@@ -274,6 +286,17 @@ class VoiceTextApp(rumps.App):
             "Enhance Clipboard", callback=self._on_clipboard_enhance
         )
 
+        # Feedback toggle items
+        self._sound_feedback_item = rumps.MenuItem(
+            "Sound Feedback", callback=self._on_sound_feedback_toggle
+        )
+        self._sound_feedback_item.state = 1 if self._sound_manager.enabled else 0
+
+        self._visual_indicator_item = rumps.MenuItem(
+            "Visual Indicator", callback=self._on_visual_indicator_toggle
+        )
+        self._visual_indicator_item.state = 1 if self._recording_indicator.enabled else 0
+
         # View Logs top-level item (replaces Debug submenu)
         self._view_logs_item = rumps.MenuItem(
             "View Logs...", callback=self._on_view_logs
@@ -305,6 +328,8 @@ class VoiceTextApp(rumps.App):
             None,
             self._clipboard_enhance_item,
             self._preview_item,
+            self._sound_feedback_item,
+            self._visual_indicator_item,
             self._enhance_vocab_item,
             self._enhance_history_item,
             None,
@@ -346,19 +371,83 @@ class VoiceTextApp(rumps.App):
         self.title = text
         self._status_item.title = text
 
+    def _start_recording_indicator(self) -> None:
+        """Show visual indicator and start polling audio level."""
+        from PyObjCTools import AppHelper
+
+        AppHelper.callAfter(self._recording_indicator.show)
+
+        # Stop any existing poll thread
+        if self._level_poll_stop is not None:
+            self._level_poll_stop.set()
+
+        stop_event = threading.Event()
+        self._level_poll_stop = stop_event
+
+        def _poll_level():
+            while not stop_event.is_set():
+                level = self._recorder.current_level
+                AppHelper.callAfter(self._recording_indicator.update_level, level)
+                stop_event.wait(0.05)
+
+        threading.Thread(target=_poll_level, daemon=True).start()
+
+    def _stop_recording_indicator(self) -> None:
+        """Hide visual indicator and stop polling."""
+        from PyObjCTools import AppHelper
+
+        if self._level_poll_stop is not None:
+            self._level_poll_stop.set()
+            self._level_poll_stop = None
+        AppHelper.callAfter(self._recording_indicator.hide)
+
+    def _on_sound_feedback_toggle(self, sender) -> None:
+        """Toggle sound feedback on/off."""
+        self._sound_manager.enabled = not self._sound_manager.enabled
+        sender.state = 1 if self._sound_manager.enabled else 0
+
+        fb_cfg = self._config.setdefault("feedback", {})
+        fb_cfg["sound_enabled"] = self._sound_manager.enabled
+        save_config(self._config, self._config_path)
+
+    def _on_visual_indicator_toggle(self, sender) -> None:
+        """Toggle visual recording indicator on/off."""
+        self._recording_indicator.enabled = not self._recording_indicator.enabled
+        sender.state = 1 if self._recording_indicator.enabled else 0
+
+        fb_cfg = self._config.setdefault("feedback", {})
+        fb_cfg["visual_indicator"] = self._recording_indicator.enabled
+        save_config(self._config, self._config_path)
+
     def _on_hotkey_press(self) -> None:
         """Called when hotkey is pressed down - start recording."""
         if self._busy:
             return
         logger.info("Hotkey pressed, starting recording")
         self._set_status("Recording...")
-        self._recorder.start()
+        self._sound_manager.play("start")
+        if self._sound_manager.enabled:
+            self._usage_stats.record_sound_feedback()
+
+        def _delayed_start():
+            import time
+            time.sleep(0.35)
+            if not self._busy:
+                self._recorder.start()
+                self._start_recording_indicator()
+
+        if self._sound_manager.enabled:
+            threading.Thread(target=_delayed_start, daemon=True).start()
+        else:
+            self._recorder.start()
+            self._start_recording_indicator()
 
     def _on_hotkey_release(self) -> None:
         """Called when hotkey is released - stop recording and transcribe."""
         if not self._recorder.is_recording:
             return
         logger.info("Hotkey released, stopping recording")
+        self._stop_recording_indicator()
         wav_data = self._recorder.stop()
         if not wav_data:
             self._set_status("VT")
@@ -3494,6 +3583,15 @@ models:
                 for key, item in self._llm_model_menu_items.items():
                     item.state = 1 if key == current_key else 0
 
+        # Feedback settings
+        fb_cfg = new_config.get("feedback", {})
+        self._sound_manager.enabled = fb_cfg.get("sound_enabled", True)
+        self._sound_manager._volume = fb_cfg.get("sound_volume", 0.4)
+        self._sound_feedback_item.state = 1 if self._sound_manager.enabled else 0
+
+        self._recording_indicator.enabled = fb_cfg.get("visual_indicator", True)
+        self._visual_indicator_item.state = 1 if self._recording_indicator.enabled else 0
+
         # Clipboard enhance hotkey
         clip_cfg = new_config.get("clipboard_enhance", {})
         new_clip_hotkey = clip_cfg.get("hotkey", "")
@@ -3573,6 +3671,10 @@ models:
             gt = t.get("google_translate_opens", 0)
             if gt:
                 lines.append(f"Google Translate: {gt}")
+
+            sf = t.get("sound_feedback_plays", 0)
+            if sf:
+                lines.append(f"Sound Feedback: {sf}")
 
             if em:
                 lines.append("Enhance modes:")

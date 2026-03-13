@@ -28,6 +28,7 @@ def _empty_totals() -> Dict[str, int]:
         "output_type_text": 0,
         "output_copy_clipboard": 0,
         "google_translate_opens": 0,
+        "sound_feedback_plays": 0,
     }
 
 
@@ -276,6 +277,23 @@ class UsageStats:
 
             for data in (cum, daily):
                 data["totals"]["google_translate_opens"] += 1
+
+            cum["last_updated"] = now
+
+            self._write_json(self._cumulative_path, cum)
+            self._write_json(self._daily_path(day), daily)
+
+    def record_sound_feedback(self) -> None:
+        """Record a sound feedback play event."""
+        with self._lock:
+            now = self._now_iso()
+            day = self._today()
+
+            cum = self._load_cumulative()
+            daily = self._load_daily(day)
+
+            for data in (cum, daily):
+                data["totals"]["sound_feedback_plays"] += 1
 
             cum["last_updated"] = now
 

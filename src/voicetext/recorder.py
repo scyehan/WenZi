@@ -43,10 +43,16 @@ class Recorder:
         self._lock = threading.Lock()
         self._recording = False
         self._total_bytes = 0
+        self._current_rms: float = 0.0
 
     @property
     def is_recording(self) -> bool:
         return self._recording
+
+    @property
+    def current_level(self) -> float:
+        """Return current audio level normalized to 0.0-1.0."""
+        return min(1.0, self._current_rms / 5000.0)
 
     def start(self) -> None:
         """Start recording."""
@@ -134,6 +140,7 @@ class Recorder:
             logger.warning("Max session size reached, dropping frames")
             return
 
+        self._current_rms = float(np.sqrt(np.mean(frame.astype(np.float64) ** 2)))
         self._total_bytes += frame_bytes
         try:
             self._queue.put_nowait(frame.copy())
