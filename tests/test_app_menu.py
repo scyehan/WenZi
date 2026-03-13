@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from voicetext.app import VoiceTextApp
+from voicetext.config_controller import ConfigController
 from voicetext.enhancer import MODE_OFF
 
 
@@ -38,9 +38,10 @@ def _make_mock_app():
 
 
 def _get_info(app):
-    """Call _build_config_info with PRESET_BY_ID patched."""
-    with patch("voicetext.app.PRESET_BY_ID", {"funasr-zh": MagicMock(display_name="FunASR 中文")}):
-        return VoiceTextApp._build_config_info(app)
+    """Call build_config_info via ConfigController with PRESET_BY_ID patched."""
+    ctrl = ConfigController(app)
+    with patch("voicetext.config_controller.PRESET_BY_ID", {"funasr-zh": MagicMock(display_name="FunASR 中文")}):
+        return ctrl.build_config_info()
 
 
 class TestBuildConfigInfo:
@@ -105,8 +106,9 @@ class TestBuildConfigInfo:
         app._current_remote_asr = None
         app._current_preset_id = "unknown-preset"
 
-        with patch("voicetext.app.PRESET_BY_ID", {}):
-            info = VoiceTextApp._build_config_info(app)
+        ctrl = ConfigController(app)
+        with patch("voicetext.config_controller.PRESET_BY_ID", {}):
+            info = ctrl.build_config_info()
 
         assert "unknown-preset" in info
 

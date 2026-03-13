@@ -261,9 +261,9 @@ class TestAddModeTemplate:
     """Verify the add-mode template used in the UI is parseable."""
 
     def test_template_is_parseable(self, tmp_path):
-        from voicetext.app import VoiceTextApp
+        from voicetext.enhance_mode_controller import EnhanceModeController
 
-        template = VoiceTextApp._ADD_MODE_TEMPLATE
+        template = EnhanceModeController._ADD_MODE_TEMPLATE
         f = tmp_path / "template.md"
         f.write_text(template, encoding="utf-8")
         result = parse_mode_file(str(f))
