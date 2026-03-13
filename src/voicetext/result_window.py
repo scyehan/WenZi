@@ -125,6 +125,7 @@ class ResultPreviewPanel:
         thinking_enabled: bool = False,
         on_thinking_toggle: Optional[Callable[[bool], None]] = None,
         on_google_translate: Optional[Callable[[], None]] = None,
+        animate_from_frame: object = None,
     ) -> None:
         """Show the preview panel with ASR text.
 
@@ -180,7 +181,24 @@ class ResultPreviewPanel:
 
         self._build_panel(asr_text, show_enhance)
 
-        self._panel.makeKeyAndOrderFront_(None)
+        if animate_from_frame is not None:
+            # Animate: start from indicator position/size, expand to final position
+            from AppKit import NSAnimationContext
+
+            target_frame = self._panel.frame()
+            self._panel.setFrame_display_(animate_from_frame, False)
+            self._panel.setAlphaValue_(0.0)
+            self._panel.makeKeyAndOrderFront_(None)
+
+            NSAnimationContext.beginGrouping()
+            ctx = NSAnimationContext.currentContext()
+            ctx.setDuration_(0.3)
+            self._panel.animator().setFrame_display_(target_frame, True)
+            self._panel.animator().setAlphaValue_(1.0)
+            NSAnimationContext.endGrouping()
+        else:
+            self._panel.makeKeyAndOrderFront_(None)
+
         self._panel.makeFirstResponder_(self._final_text_field)
         # Move cursor to end instead of selecting all text
         editor = self._panel.fieldEditor_forObject_(True, self._final_text_field)
@@ -757,7 +775,17 @@ class ResultPreviewPanel:
         panel.setLevel_(NSStatusWindowLevel)
         panel.setFloatingPanel_(True)
         panel.setHidesOnDeactivate_(False)
-        panel.center()
+        # Position at exact center of main screen
+        from AppKit import NSScreen
+        screen = NSScreen.mainScreen()
+        if screen:
+            sf = screen.visibleFrame()
+            pf = panel.frame()
+            x = sf.origin.x + (sf.size.width - pf.size.width) / 2
+            y = sf.origin.y + (sf.size.height - pf.size.height) / 2
+            panel.setFrameOrigin_((x, y))
+        else:
+            panel.center()
 
         # Set delegate to handle close button (X) as cancel
         self._close_delegate = _PanelCloseDelegate.alloc().init()

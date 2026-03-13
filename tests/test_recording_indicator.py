@@ -93,3 +93,57 @@ class TestRecordingIndicatorPanel:
         mock_timer.invalidate.assert_called_once()
         mock_panel_obj.orderOut_.assert_called_once()
         assert panel._panel is None
+
+    def test_current_frame_returns_none_when_no_panel(self):
+        panel = RecordingIndicatorPanel()
+        assert panel.current_frame is None
+
+    def test_current_frame_returns_panel_frame(self):
+        panel = RecordingIndicatorPanel()
+        mock_panel = MagicMock()
+        mock_frame = MagicMock()
+        mock_panel.frame.return_value = mock_frame
+        panel._panel = mock_panel
+
+        assert panel.current_frame is mock_frame
+        mock_panel.frame.assert_called_once()
+
+    def test_animate_out_calls_completion_when_no_panel(self):
+        panel = RecordingIndicatorPanel()
+        callback = MagicMock()
+        panel.animate_out(completion=callback)
+        callback.assert_called_once()
+
+    def test_animate_out_no_completion_when_no_panel(self):
+        panel = RecordingIndicatorPanel()
+        # Should not raise
+        panel.animate_out()
+
+    def test_animate_out_stops_timer(self):
+        panel = RecordingIndicatorPanel()
+        mock_timer = MagicMock()
+        mock_panel = MagicMock()
+        panel._timer = mock_timer
+        panel._panel = mock_panel
+
+        # animate_out will try to import NSAnimationContext; mock it
+        mock_ctx = MagicMock()
+        mock_animation_context = MagicMock()
+        mock_animation_context.currentContext.return_value = mock_ctx
+
+        with patch(
+            "voicetext.recording_indicator.RecordingIndicatorPanel.animate_out",
+            wraps=panel.animate_out,
+        ):
+            # Just verify the timer gets invalidated
+            # We can't easily test the full animation, so test the fallback path
+            with patch.dict(
+                "sys.modules",
+                {"AppKit": MagicMock(NSAnimationContext=mock_animation_context)},
+            ):
+                try:
+                    panel.animate_out()
+                except Exception:
+                    pass
+                mock_timer.invalidate.assert_called_once()
+                assert panel._timer is None

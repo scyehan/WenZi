@@ -393,14 +393,20 @@ class VoiceTextApp(rumps.App):
 
         threading.Thread(target=_poll_level, daemon=True).start()
 
-    def _stop_recording_indicator(self) -> None:
-        """Hide visual indicator and stop polling."""
+    def _stop_recording_indicator(self, animate: bool = False) -> None:
+        """Hide visual indicator and stop polling.
+
+        Args:
+            animate: If True, only stop level polling but don't hide the panel
+                     (caller will animate it out separately).
+        """
         from PyObjCTools import AppHelper
 
         if self._level_poll_stop is not None:
             self._level_poll_stop.set()
             self._level_poll_stop = None
-        AppHelper.callAfter(self._recording_indicator.hide)
+        if not animate:
+            AppHelper.callAfter(self._recording_indicator.hide)
 
     def _on_sound_feedback_toggle(self, sender) -> None:
         """Toggle sound feedback on/off."""
@@ -455,7 +461,7 @@ class VoiceTextApp(rumps.App):
         if not self._recorder.is_recording:
             return
         logger.info("Hotkey released, stopping recording")
-        self._stop_recording_indicator()
+        self._stop_recording_indicator(animate=self._preview_enabled)
         wav_data = self._recorder.stop()
         if not wav_data:
             self._set_status("VT")
@@ -887,40 +893,51 @@ class VoiceTextApp(rumps.App):
         # Show panel on main thread, then start enhancement/STT after panel is built
         def _show():
             self._activate_for_dialog()
-            self._preview_panel.show(
-                asr_text=display_asr_text,
-                show_enhance=use_enhance,
-                on_confirm=on_confirm,
-                on_cancel=on_cancel,
-                available_modes=available_modes,
-                current_mode=self._enhance_mode,
-                on_mode_change=self._on_preview_mode_change,
-                asr_info=asr_info if not need_stt else "",
-                asr_wav_data=wav_data,
-                enhance_info=enhance_info,
-                stt_models=stt_models if stt_models else None,
-                stt_current_index=stt_current_index,
-                on_stt_model_change=self._on_preview_stt_change if stt_models else None,
-                llm_models=llm_models if llm_models else None,
-                llm_current_index=llm_current_index,
-                on_llm_model_change=self._on_preview_llm_change if llm_models else None,
-                punc_enabled=not self._transcriber.skip_punc,
-                on_punc_toggle=self._on_preview_punc_toggle if wav_data else None,
-                thinking_enabled=self._enhancer.thinking if self._enhancer else False,
-                on_thinking_toggle=self._on_preview_thinking_toggle if self._enhancer else None,
-                on_google_translate=lambda: self._usage_stats.record_google_translate_open(),
-            )
-            if need_stt:
-                # Show loading state and disable STT popup during transcription
-                self._preview_panel.set_asr_loading()
-                if use_enhance:
-                    self._preview_panel.set_enhance_loading()
-            elif use_enhance:
-                # ASR already available, start enhancement immediately
-                self._preview_panel.enhance_request_id += 1
-                self._run_enhance_in_background(
-                    asr_text, self._preview_panel.enhance_request_id, result_holder
+
+            # Get indicator frame for transition animation before animating it out
+            indicator_frame = self._recording_indicator.current_frame
+
+            def _show_preview():
+                self._preview_panel.show(
+                    asr_text=display_asr_text,
+                    show_enhance=use_enhance,
+                    on_confirm=on_confirm,
+                    on_cancel=on_cancel,
+                    available_modes=available_modes,
+                    current_mode=self._enhance_mode,
+                    on_mode_change=self._on_preview_mode_change,
+                    asr_info=asr_info if not need_stt else "",
+                    asr_wav_data=wav_data,
+                    enhance_info=enhance_info,
+                    stt_models=stt_models if stt_models else None,
+                    stt_current_index=stt_current_index,
+                    on_stt_model_change=self._on_preview_stt_change if stt_models else None,
+                    llm_models=llm_models if llm_models else None,
+                    llm_current_index=llm_current_index,
+                    on_llm_model_change=self._on_preview_llm_change if llm_models else None,
+                    punc_enabled=not self._transcriber.skip_punc,
+                    on_punc_toggle=self._on_preview_punc_toggle if wav_data else None,
+                    thinking_enabled=self._enhancer.thinking if self._enhancer else False,
+                    on_thinking_toggle=self._on_preview_thinking_toggle if self._enhancer else None,
+                    on_google_translate=lambda: self._usage_stats.record_google_translate_open(),
+                    animate_from_frame=indicator_frame,
                 )
+                if need_stt:
+                    # Show loading state and disable STT popup during transcription
+                    self._preview_panel.set_asr_loading()
+                    if use_enhance:
+                        self._preview_panel.set_enhance_loading()
+                elif use_enhance:
+                    # ASR already available, start enhancement immediately
+                    self._preview_panel.enhance_request_id += 1
+                    self._run_enhance_in_background(
+                        asr_text, self._preview_panel.enhance_request_id, result_holder
+                    )
+
+            if indicator_frame is not None:
+                self._recording_indicator.animate_out(completion=_show_preview)
+            else:
+                _show_preview()
 
         AppHelper.callAfter(_show)
         self._set_status("Preview...")

@@ -204,12 +204,12 @@ class RecordingIndicatorPanel:
             # canJoinAllSpaces (1<<4) + stationary (1<<4 is same, use just canJoinAllSpaces)
             panel.setCollectionBehavior_(1 << 4)
 
-            # Position at top center of main screen
+            # Position at center of main screen
             screen = NSScreen.mainScreen()
             if screen:
                 screen_frame = screen.visibleFrame()
                 x = screen_frame.origin.x + (screen_frame.size.width - _PANEL_WIDTH) / 2
-                y = screen_frame.origin.y + screen_frame.size.height - _PANEL_HEIGHT - 20
+                y = screen_frame.origin.y + (screen_frame.size.height - _PANEL_HEIGHT) / 2
                 panel.setFrameOrigin_((x, y))
 
             # Set content view
@@ -248,6 +248,55 @@ class RecordingIndicatorPanel:
             logger.debug("Recording indicator hidden")
         except Exception as e:
             logger.warning("Failed to hide recording indicator: %s", e)
+
+    @property
+    def current_frame(self) -> object | None:
+        """Return the current panel frame rect, or None if not visible."""
+        if self._panel is not None:
+            return self._panel.frame()
+        return None
+
+    def animate_out(self, completion: callable = None) -> None:
+        """Fade out the indicator panel, then clean up and call completion.
+
+        Stops the refresh timer immediately, animates alpha to 0 over ~200ms,
+        then calls orderOut and completion callback.
+        """
+        if self._panel is None:
+            if completion:
+                completion()
+            return
+
+        # Stop refresh timer immediately
+        if self._timer is not None:
+            self._timer.invalidate()
+            self._timer = None
+
+        try:
+            from AppKit import NSAnimationContext
+
+            panel = self._panel
+
+            def _on_complete():
+                panel.orderOut_(None)
+                self._panel = None
+                self._indicator_view = None
+                self._smoothed_level = 0.0
+                logger.debug("Recording indicator animated out")
+                if completion:
+                    completion()
+
+            ctx = NSAnimationContext.currentContext()
+            NSAnimationContext.beginGrouping()
+            ctx.setDuration_(0.2)
+            ctx.setCompletionHandler_(_on_complete)
+            panel.animator().setAlphaValue_(0.0)
+            NSAnimationContext.endGrouping()
+        except Exception:
+            logger.error("Failed to animate indicator out", exc_info=True)
+            self.hide()
+            if completion:
+                completion()
 
     def update_level(self, level: float) -> None:
         """Update the displayed audio level with EMA smoothing."""
