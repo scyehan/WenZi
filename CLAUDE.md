@@ -13,6 +13,27 @@ self._restore_accessory()
 
 `rumps.notification()` will crash with `Info.plist` / `CFBundleIdentifier` errors when running directly from the terminal (`uv run`) without app bundling. This is expected during development — wrap calls in try/except and log the error instead of crashing. In a packaged app `rumps.notification()` works normally, so it is fine to use for non-critical user feedback.
 
+## Dark Mode Support
+
+All UI must support macOS dark mode. Follow these rules when writing UI code:
+
+- **Use system semantic colors** (`NSColor.labelColor()`, `NSColor.secondaryLabelColor()`, `NSColor.textBackgroundColor()`, `NSColor.windowBackgroundColor()`, etc.) instead of hardcoded RGB values. System colors adapt automatically to light/dark appearance.
+- **Never use `NSColor.blackColor()` or `NSColor.whiteColor()`** for text or backgrounds — they do not adapt. Use `NSColor.labelColor()` and `NSColor.textBackgroundColor()` instead.
+- **For custom colors that must differ between modes**, use a dynamic color provider:
+  ```python
+  def _dynamic_color(light_rgba, dark_rgba):
+      def provider(appearance):
+          name = appearance.bestMatchFromAppearancesWithNames_([
+              NSAppearanceNameAqua, NSAppearanceNameDarkAqua
+          ])
+          return NSColor.colorWithSRGBRed_green_blue_alpha_(
+              *(dark_rgba if name == NSAppearanceNameDarkAqua else light_rgba)
+          )
+      return NSColor.colorWithName_dynamicProvider_("custom", provider)
+  ```
+- **Avoid deprecated `colorWithCalibratedRed_green_blue_alpha_`** — use `colorWithSRGBRed_green_blue_alpha_` or system semantic colors.
+- See `result_window.py` for a good reference implementation of dark mode support.
+
 ## Usage Statistics
 
 When adding new user-facing behaviors or interactions, always add corresponding tracking to `UsageStats` (`src/voicetext/usage_stats.py`):

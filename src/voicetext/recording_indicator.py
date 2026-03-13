@@ -65,6 +65,21 @@ class RecordingIndicatorView:
     def set_level(self, level: float) -> None:
         self._level = level
 
+    @staticmethod
+    def _dynamic_bg_color():
+        """Create a dynamic background color that adapts to light/dark mode."""
+        from AppKit import NSColor
+
+        def _provider(appearance):
+            name = appearance.bestMatchFromAppearancesWithNames_(
+                ["NSAppearanceNameAqua", "NSAppearanceNameDarkAqua"]
+            )
+            if name and "Dark" in str(name):
+                return NSColor.colorWithSRGBRed_green_blue_alpha_(0.9, 0.9, 0.9, 0.85)
+            return NSColor.colorWithSRGBRed_green_blue_alpha_(0.1, 0.1, 0.1, 0.85)
+
+        return NSColor.colorWithName_dynamicProvider_(None, _provider)
+
     def draw(self, rect: object) -> None:
         """Draw the indicator contents."""
         from AppKit import NSBezierPath, NSColor, NSFont, NSGraphicsContext
@@ -73,8 +88,8 @@ class RecordingIndicatorView:
         width = rect.size.width
         height = rect.size.height
 
-        # Semi-transparent dark rounded background
-        bg_color = NSColor.colorWithCalibratedRed_green_blue_alpha_(0.1, 0.1, 0.1, 0.85)
+        # Semi-transparent rounded background (adapts to light/dark mode)
+        bg_color = self._dynamic_bg_color()
         bg_color.setFill()
         bg_path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
             rect, _BG_CORNER_RADIUS, _BG_CORNER_RADIUS

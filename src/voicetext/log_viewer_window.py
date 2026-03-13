@@ -104,6 +104,20 @@ class LogViewerPanel:
         +--------------------------------------------------------------+
     """
 
+    @staticmethod
+    def _dynamic_color(light_rgb, dark_rgb):
+        """Create an appearance-aware dynamic NSColor from (r, g, b) tuples."""
+        from AppKit import NSColor
+
+        def _provider(appearance):
+            name = appearance.bestMatchFromAppearancesWithNames_(
+                ["NSAppearanceNameAqua", "NSAppearanceNameDarkAqua"]
+            )
+            r, g, b = dark_rgb if name and "Dark" in str(name) else light_rgb
+            return NSColor.colorWithSRGBRed_green_blue_alpha_(r, g, b, 1.0)
+
+        return NSColor.colorWithName_dynamicProvider_(None, _provider)
+
     _PANEL_WIDTH = 720
     _PANEL_HEIGHT = 560
     _PADDING = 12
@@ -347,7 +361,10 @@ class LogViewerPanel:
         tv.setFont_(self._mono_font)
         tv.setEditable_(False)
         tv.setBackgroundColor_(
-            NSColor.colorWithCalibratedRed_green_blue_alpha_(0.97, 0.97, 0.97, 1.0)
+            self._dynamic_color(
+                (0.97, 0.97, 0.97),  # light: near-white
+                (0.15, 0.15, 0.15),  # dark: near-black
+            )
         )
         scroll.setDocumentView_(tv)
         content.addSubview_(scroll)
@@ -476,9 +493,10 @@ class LogViewerPanel:
             NSMutableAttributedString,
         )
 
+        default_color = self._dynamic_color((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
         level_colors = {
-            "DEBUG": NSColor.grayColor(),
-            "INFO": NSColor.blackColor(),
+            "DEBUG": self._dynamic_color((0.5, 0.5, 0.5), (0.6, 0.6, 0.6)),
+            "INFO": default_color,
             "WARNING": NSColor.orangeColor(),
             "ERROR": NSColor.redColor(),
         }
@@ -488,7 +506,7 @@ class LogViewerPanel:
             if i > 0:
                 nl = NSAttributedString.alloc().initWithString_("\n")
                 result.appendAttributedString_(nl)
-            color = level_colors.get(level, NSColor.blackColor())
+            color = level_colors.get(level, default_color)
             attrs = NSDictionary.dictionaryWithObjectsAndKeys_(
                 color,
                 NSForegroundColorAttributeName,
