@@ -391,13 +391,17 @@ class TestTextEnhancerAddRemoveProvider:
 class TestTextEnhancerVerifyProvider:
     """Tests for verify_provider."""
 
+    def _make_mock_openai(self):
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=MagicMock())
+        return MagicMock(return_value=mock_client)
+
     def test_verify_success(self):
         with patch("voicetext.enhancer.TextEnhancer._init_providers"):
             enhancer = TextEnhancer(_make_config())
 
-        mock_resp = MagicMock()
-        with patch("voicetext.enhancer.asyncio.wait_for", return_value=mock_resp):
-            result = asyncio.get_event_loop().run_until_complete(
+        with patch("openai.AsyncOpenAI", self._make_mock_openai()):
+            result = asyncio.run(
                 enhancer.verify_provider(
                     "http://localhost:11434/v1", "ollama", "qwen2.5:7b"
                 )
@@ -408,11 +412,13 @@ class TestTextEnhancerVerifyProvider:
         with patch("voicetext.enhancer.TextEnhancer._init_providers"):
             enhancer = TextEnhancer(_make_config())
 
-        with patch(
-            "voicetext.enhancer.asyncio.wait_for",
-            side_effect=asyncio.TimeoutError(),
-        ):
-            result = asyncio.get_event_loop().run_until_complete(
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(
+            side_effect=asyncio.TimeoutError()
+        )
+        mock_openai = MagicMock(return_value=mock_client)
+        with patch("openai.AsyncOpenAI", mock_openai):
+            result = asyncio.run(
                 enhancer.verify_provider(
                     "http://localhost:11434/v1", "ollama", "qwen2.5:7b", timeout=5
                 )
@@ -423,11 +429,13 @@ class TestTextEnhancerVerifyProvider:
         with patch("voicetext.enhancer.TextEnhancer._init_providers"):
             enhancer = TextEnhancer(_make_config())
 
-        with patch(
-            "voicetext.enhancer.asyncio.wait_for",
-            side_effect=Exception("Connection refused"),
-        ):
-            result = asyncio.get_event_loop().run_until_complete(
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(
+            side_effect=Exception("Connection refused")
+        )
+        mock_openai = MagicMock(return_value=mock_client)
+        with patch("openai.AsyncOpenAI", mock_openai):
+            result = asyncio.run(
                 enhancer.verify_provider(
                     "http://localhost:99999/v1", "bad", "bad-model"
                 )
@@ -552,7 +560,7 @@ class TestTextEnhancerEnhance:
     def test_returns_original_when_inactive(self):
         with patch("voicetext.enhancer.TextEnhancer._init_providers"):
             enhancer = TextEnhancer(_make_config(enabled=False))
-        text, usage = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.run(
             enhancer.enhance("hello")
         )
         assert text == "hello"
@@ -561,14 +569,14 @@ class TestTextEnhancerEnhance:
     def test_returns_original_when_empty_input(self):
         with patch("voicetext.enhancer.TextEnhancer._init_providers"):
             enhancer = TextEnhancer(_make_config(enabled=True))
-        text, usage = asyncio.get_event_loop().run_until_complete(enhancer.enhance(""))
+        text, usage = asyncio.run(enhancer.enhance(""))
         assert text == ""
         assert usage is None
 
     def test_returns_original_when_whitespace_input(self):
         with patch("voicetext.enhancer.TextEnhancer._init_providers"):
             enhancer = TextEnhancer(_make_config(enabled=True))
-        text, usage = asyncio.get_event_loop().run_until_complete(enhancer.enhance("   "))
+        text, usage = asyncio.run(enhancer.enhance("   "))
         assert text == "   "
         assert usage is None
 
@@ -576,7 +584,7 @@ class TestTextEnhancerEnhance:
         with patch("voicetext.enhancer.TextEnhancer._init_providers"):
             enhancer = TextEnhancer(_make_config(enabled=True, mode="proofread"))
             enhancer._providers = {}
-        text, usage = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.run(
             enhancer.enhance("hello")
         )
         assert text == "hello"
@@ -592,7 +600,7 @@ class TestTextEnhancerEnhance:
             enhancer._active_provider = "ollama"
             enhancer._active_model = "qwen2.5:7b"
 
-        text, usage = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.run(
             enhancer.enhance("original text")
         )
         assert text == "enhanced text"
@@ -609,7 +617,7 @@ class TestTextEnhancerEnhance:
             enhancer._active_provider = "ollama"
             enhancer._active_model = "qwen2.5:7b"
 
-        text, usage = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.run(
             enhancer.enhance("original text")
         )
         assert text == "enhanced text"
@@ -624,7 +632,7 @@ class TestTextEnhancerEnhance:
             }
             enhancer._active_provider = "ollama"
 
-        text, usage = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.run(
             enhancer.enhance("original text")
         )
         assert text == "original text"
@@ -638,7 +646,7 @@ class TestTextEnhancerEnhance:
             }
             enhancer._active_provider = "ollama"
 
-        text, usage = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.run(
             enhancer.enhance("original text")
         )
         assert text == "original text"
@@ -652,7 +660,7 @@ class TestTextEnhancerEnhance:
             }
             enhancer._active_provider = "ollama"
 
-        text, usage = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.run(
             enhancer.enhance("original text")
         )
         assert text == "original text"
@@ -670,7 +678,7 @@ class TestTextEnhancerEnhance:
             }
             enhancer._active_provider = "ollama"
 
-        text, usage = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.run(
             enhancer.enhance("original text")
         )
         assert text == "original text"
@@ -868,7 +876,7 @@ class TestThinkingAndExtraBody:
             enhancer._active_provider = "ollama"
             enhancer._active_model = "qwen2.5:7b"
 
-        asyncio.get_event_loop().run_until_complete(enhancer.enhance("hello"))
+        asyncio.run(enhancer.enhance("hello"))
         call_kwargs = mock_client.chat.completions.create.call_args
         assert call_kwargs.kwargs.get("extra_body") == {
             "chat_template_kwargs": {"enable_thinking": False}
@@ -884,7 +892,7 @@ class TestThinkingAndExtraBody:
             enhancer._active_provider = "zhipu"
             enhancer._active_model = "glm-4-flash"
 
-        asyncio.get_event_loop().run_until_complete(enhancer.enhance("hello"))
+        asyncio.run(enhancer.enhance("hello"))
         call_kwargs = mock_client.chat.completions.create.call_args
         assert call_kwargs.kwargs.get("extra_body") == {
             "thinking": {"type": "disabled"}
@@ -900,7 +908,7 @@ class TestThinkingAndExtraBody:
             enhancer._active_provider = "ollama"
             enhancer._active_model = "qwen2.5:7b"
 
-        asyncio.get_event_loop().run_until_complete(enhancer.enhance("hello"))
+        asyncio.run(enhancer.enhance("hello"))
         call_kwargs = mock_client.chat.completions.create.call_args
         assert call_kwargs.kwargs.get("extra_body") == {
             "chat_template_kwargs": {"enable_thinking": True}
@@ -916,7 +924,7 @@ class TestThinkingAndExtraBody:
             enhancer._active_provider = "ollama"
             enhancer._active_model = "llama-3.1:8b"
 
-        asyncio.get_event_loop().run_until_complete(enhancer.enhance("hello"))
+        asyncio.run(enhancer.enhance("hello"))
         call_kwargs = mock_client.chat.completions.create.call_args
         assert "extra_body" not in call_kwargs.kwargs
 
@@ -930,7 +938,7 @@ class TestThinkingAndExtraBody:
             enhancer._active_provider = "ollama"
             enhancer._active_model = "llama-3.1:8b"
 
-        asyncio.get_event_loop().run_until_complete(enhancer.enhance("hello"))
+        asyncio.run(enhancer.enhance("hello"))
         call_kwargs = mock_client.chat.completions.create.call_args
         assert "extra_body" not in call_kwargs.kwargs
 
@@ -1008,7 +1016,7 @@ class TestVocabularyIntegration:
             enhancer._active_model = "qwen2.5:7b"
             enhancer._vocab_index = mock_vocab
 
-        asyncio.get_event_loop().run_until_complete(enhancer.enhance("派森编程"))
+        asyncio.run(enhancer.enhance("派森编程"))
 
         # Verify system prompt includes vocab context
         call_kwargs = mock_client.chat.completions.create.call_args
@@ -1027,7 +1035,7 @@ class TestVocabularyIntegration:
             enhancer._active_provider = "ollama"
             enhancer._active_model = "qwen2.5:7b"
 
-        asyncio.get_event_loop().run_until_complete(enhancer.enhance("hello"))
+        asyncio.run(enhancer.enhance("hello"))
 
         call_kwargs = mock_client.chat.completions.create.call_args
         system_msg = call_kwargs.kwargs["messages"][0]["content"]
@@ -1049,7 +1057,7 @@ class TestVocabularyIntegration:
             enhancer._active_model = "qwen2.5:7b"
             enhancer._vocab_index = mock_vocab
 
-        text, usage = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.run(
             enhancer.enhance("hello")
         )
         # Should still enhance successfully
@@ -1071,7 +1079,7 @@ class TestVocabularyIntegration:
             enhancer._active_model = "qwen2.5:7b"
             enhancer._vocab_index = mock_vocab
 
-        asyncio.get_event_loop().run_until_complete(enhancer.enhance("hello"))
+        asyncio.run(enhancer.enhance("hello"))
 
         call_kwargs = mock_client.chat.completions.create.call_args
         system_msg = call_kwargs.kwargs["messages"][0]["content"]
@@ -1120,7 +1128,7 @@ class TestDebugFlags:
             enhancer.debug_print_prompt = True
 
         with patch("voicetext.enhancer.logger") as mock_logger:
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 enhancer.enhance("test input")
             )
             info_calls = [c for c in mock_logger.info.call_args_list
@@ -1140,7 +1148,7 @@ class TestDebugFlags:
             enhancer.debug_print_request_body = True
 
         with patch("voicetext.enhancer.logger") as mock_logger:
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 enhancer.enhance("test input")
             )
             info_calls = [c for c in mock_logger.info.call_args_list
@@ -1158,7 +1166,7 @@ class TestDebugFlags:
             enhancer._active_model = "qwen2.5:7b"
 
         with patch("voicetext.enhancer.logger") as mock_logger:
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 enhancer.enhance("test input")
             )
             info_calls = [c for c in mock_logger.info.call_args_list
@@ -1217,7 +1225,7 @@ class TestConversationHistoryIntegration:
             enhancer._active_model = "qwen2.5:7b"
             enhancer._conversation_history = mock_history
 
-        asyncio.get_event_loop().run_until_complete(enhancer.enhance("新输入"))
+        asyncio.run(enhancer.enhance("新输入"))
 
         call_kwargs = mock_client.chat.completions.create.call_args
         system_msg = call_kwargs.kwargs["messages"][0]["content"]
@@ -1235,7 +1243,7 @@ class TestConversationHistoryIntegration:
             enhancer._active_provider = "ollama"
             enhancer._active_model = "qwen2.5:7b"
 
-        asyncio.get_event_loop().run_until_complete(enhancer.enhance("hello"))
+        asyncio.run(enhancer.enhance("hello"))
 
         call_kwargs = mock_client.chat.completions.create.call_args
         system_msg = call_kwargs.kwargs["messages"][0]["content"]
@@ -1259,7 +1267,7 @@ class TestConversationHistoryIntegration:
             enhancer._active_model = "qwen2.5:7b"
             enhancer._conversation_history = mock_history
 
-        text, usage = asyncio.get_event_loop().run_until_complete(
+        text, usage = asyncio.run(
             enhancer.enhance("hello")
         )
         assert text == "enhanced text"
@@ -1282,7 +1290,7 @@ class TestConversationHistoryIntegration:
             enhancer._active_model = "qwen2.5:7b"
             enhancer._conversation_history = mock_history
 
-        asyncio.get_event_loop().run_until_complete(enhancer.enhance("hello"))
+        asyncio.run(enhancer.enhance("hello"))
 
         call_kwargs = mock_client.chat.completions.create.call_args
         system_msg = call_kwargs.kwargs["messages"][0]["content"]
@@ -1307,7 +1315,7 @@ class TestLastSystemPrompt:
             enhancer._active_provider = "ollama"
             enhancer._active_model = "qwen2.5:7b"
 
-        asyncio.get_event_loop().run_until_complete(enhancer.enhance("hello"))
+        asyncio.run(enhancer.enhance("hello"))
 
         assert enhancer.last_system_prompt == "proofread prompt"
 
@@ -1331,7 +1339,7 @@ class TestLastSystemPrompt:
             enhancer._active_model = "qwen2.5:7b"
             enhancer._vocab_index = mock_vocab
 
-        asyncio.get_event_loop().run_until_complete(enhancer.enhance("test API"))
+        asyncio.run(enhancer.enhance("test API"))
 
         assert "proofread prompt" in enhancer.last_system_prompt
         assert "Vocabulary" in enhancer.last_system_prompt
@@ -1377,7 +1385,7 @@ class TestTextEnhancerEnhanceStream:
             async for chunk, usage, is_thinking in enhancer.enhance_stream("hello"):
                 results.append((chunk, usage, is_thinking))
 
-        asyncio.get_event_loop().run_until_complete(collect())
+        asyncio.run(collect())
         assert len(results) == 1
         assert results[0] == ("hello", None, False)
 
@@ -1394,7 +1402,7 @@ class TestTextEnhancerEnhanceStream:
             async for chunk, usage, is_thinking in enhancer.enhance_stream(""):
                 results.append((chunk, usage, is_thinking))
 
-        asyncio.get_event_loop().run_until_complete(collect())
+        asyncio.run(collect())
         assert len(results) == 1
         assert results[0] == ("", None, False)
 
@@ -1416,7 +1424,7 @@ class TestTextEnhancerEnhanceStream:
             async for chunk, usage, is_thinking in enhancer.enhance_stream("original text"):
                 results.append((chunk, usage, is_thinking))
 
-        asyncio.get_event_loop().run_until_complete(collect())
+        asyncio.run(collect())
         # 3 content chunks + 1 final empty with usage
         text_chunks = [r[0] for r in results if r[0]]
         assert "".join(text_chunks) == "enhanced text"
@@ -1441,7 +1449,7 @@ class TestTextEnhancerEnhanceStream:
             async for chunk, usage, is_thinking in enhancer.enhance_stream("original text"):
                 results.append((chunk, usage, is_thinking))
 
-        asyncio.get_event_loop().run_until_complete(collect())
+        asyncio.run(collect())
         # Should yield original text as fallback
         text_chunks = [r[0] for r in results if r[0]]
         assert "".join(text_chunks) == "original text"
@@ -1460,7 +1468,7 @@ class TestTextEnhancerEnhanceStream:
             async for chunk, usage, is_thinking in enhancer.enhance_stream("original text"):
                 results.append((chunk, usage, is_thinking))
 
-        asyncio.get_event_loop().run_until_complete(collect())
+        asyncio.run(collect())
         assert len(results) == 1
         assert "(error:" in results[0][0]
 
@@ -1480,7 +1488,7 @@ class TestTextEnhancerEnhanceStream:
             async for chunk, usage, is_thinking in enhancer.enhance_stream("original text"):
                 results.append((chunk, usage, is_thinking))
 
-        asyncio.get_event_loop().run_until_complete(collect())
+        asyncio.run(collect())
         # With max_retries=0, single attempt fails and yields error thinking text
         assert len(results) == 1
         assert results[0][2] == "retry"  # is_thinking
@@ -1542,7 +1550,7 @@ class TestConnectionTimeoutRetry:
             async for chunk, usage, is_thinking in enhancer.enhance_stream("hello"):
                 results.append((chunk, usage, is_thinking))
 
-        asyncio.get_event_loop().run_until_complete(collect())
+        asyncio.run(collect())
 
         # Should have 2 retry yields, then content chunks, then final usage
         retry_results = [r for r in results if r[2] == "retry"]
@@ -1577,7 +1585,7 @@ class TestConnectionTimeoutRetry:
             async for chunk, usage, is_thinking in enhancer.enhance_stream("hello"):
                 results.append((chunk, usage, is_thinking))
 
-        asyncio.get_event_loop().run_until_complete(collect())
+        asyncio.run(collect())
 
         # All yields should be retry (retry status + final error)
         assert all(r[2] == "retry" for r in results)

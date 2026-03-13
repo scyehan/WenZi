@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 from .config import DEFAULT_CONFIG_DIR
-from .enhancer import build_disable_thinking_body
+from .enhancer import build_thinking_body
 
 logger = logging.getLogger(__name__)
 
@@ -238,7 +238,7 @@ class VocabularyBuilder:
         )
         model = provider_cfg["model"]
         prompt = self._build_extraction_prompt(batch)
-        extra_body = build_disable_thinking_body(model)
+        extra_body = build_thinking_body(model, enabled=False)
         usage: Dict[str, int] = {}
 
         if on_stream_chunk is not None:

@@ -179,7 +179,7 @@ class TestExtractBatch:
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
         with patch("openai.AsyncOpenAI", return_value=mock_client):
-            entries, usage = asyncio.get_event_loop().run_until_complete(
+            entries, usage = asyncio.run(
                 builder._extract_batch(batch)
             )
 
@@ -200,7 +200,7 @@ class TestExtractBatch:
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
         with patch("openai.AsyncOpenAI", return_value=mock_client):
-            entries, usage = asyncio.get_event_loop().run_until_complete(
+            entries, usage = asyncio.run(
                 builder._extract_batch(batch)
             )
 
@@ -210,7 +210,7 @@ class TestExtractBatch:
         builder = VocabularyBuilder({"providers": {}})
         batch = [{"asr_text": "test", "final_text": "test"}]
 
-        entries, usage = asyncio.get_event_loop().run_until_complete(
+        entries, usage = asyncio.run(
             builder._extract_batch(batch)
         )
         assert entries == []
@@ -230,7 +230,7 @@ class TestExtractBatch:
 
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             with pytest.raises(asyncio.TimeoutError):
-                asyncio.get_event_loop().run_until_complete(
+                asyncio.run(
                     builder._extract_batch(batch)
                 )
 
@@ -391,7 +391,7 @@ class TestMergeEntries:
 class TestBuild:
     def test_build_no_records(self, tmp_path):
         builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
-        result = asyncio.get_event_loop().run_until_complete(builder.build())
+        result = asyncio.run(builder.build())
         assert result["new_records"] == 0
 
     def test_build_end_to_end(self, tmp_path):
@@ -411,7 +411,7 @@ class TestBuild:
 
         builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
-            result = asyncio.get_event_loop().run_until_complete(builder.build())
+            result = asyncio.run(builder.build())
 
         assert result["new_records"] == 3
         assert result["total_entries"] == 2
@@ -449,7 +449,7 @@ class TestBuild:
 
         builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
-            result = asyncio.get_event_loop().run_until_complete(builder.build())
+            result = asyncio.run(builder.build())
 
         assert result["new_records"] == 2
         assert result["total_entries"] == 2  # Python + Kubernetes
@@ -484,7 +484,7 @@ class TestBuild:
 
         builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 builder.build(full_rebuild=True)
             )
 
@@ -530,7 +530,7 @@ class TestBuildWithCancel:
 
         builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 builder.build(cancel_event=cancel_event)
             )
 
@@ -551,7 +551,7 @@ class TestBuildWithCancel:
         cancel_event.set()
 
         builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             builder.build(cancel_event=cancel_event)
         )
 
@@ -609,7 +609,7 @@ class TestExtractBatchStreaming:
         on_chunk = lambda c: collected_chunks.append(c)
 
         with patch("openai.AsyncOpenAI", return_value=mock_client):
-            entries, usage = asyncio.get_event_loop().run_until_complete(
+            entries, usage = asyncio.run(
                 builder._extract_batch(batch, on_stream_chunk=on_chunk)
             )
 
@@ -631,7 +631,7 @@ class TestExtractBatchStreaming:
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
         with patch("openai.AsyncOpenAI", return_value=mock_client):
-            entries, usage = asyncio.get_event_loop().run_until_complete(
+            entries, usage = asyncio.run(
                 builder._extract_batch(batch)
             )
 
@@ -678,7 +678,7 @@ class TestBuildWithCallbacks:
 
         builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 builder.build(callbacks=callbacks)
             )
 

@@ -217,7 +217,7 @@ class TestClipboardEnhanceValidation:
     def test_long_text_shows_alert_and_aborts(self):
         with patch("voicetext.app.copy_selection_to_clipboard"), \
              patch("voicetext.app.has_clipboard_text", return_value=True), \
-             patch("voicetext.app.get_clipboard_text", return_value="x" * 301):
+             patch("voicetext.app.get_clipboard_text", return_value="x" * 2001):
             app = self._make_app()
             app._topmost_alert = MagicMock()
             app._restore_accessory = MagicMock()
@@ -231,7 +231,7 @@ class TestClipboardEnhanceValidation:
                 app._on_clipboard_enhance_worker()
 
             app._topmost_alert.assert_called_once()
-            assert "301" in app._topmost_alert.call_args[1]["message"]
+            assert "2001" in app._topmost_alert.call_args[1]["message"]
             app._restore_accessory.assert_called_once()
             assert not app._busy
 
