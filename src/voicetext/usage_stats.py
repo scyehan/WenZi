@@ -22,6 +22,11 @@ def _empty_totals() -> Dict[str, int]:
         "direct_accept": 0,
         "user_modification": 0,
         "cancel": 0,
+        "clipboard_enhances": 0,
+        "clipboard_enhance_confirm": 0,
+        "clipboard_enhance_cancel": 0,
+        "output_type_text": 0,
+        "output_copy_clipboard": 0,
     }
 
 
@@ -194,6 +199,83 @@ class UsageStats:
                     val = usage.get(key, 0)
                     if val:
                         data["token_usage"][key] += val
+
+            cum["last_updated"] = now
+
+            self._write_json(self._cumulative_path, cum)
+            self._write_json(self._daily_path(day), daily)
+
+    def record_clipboard_enhance(self, enhance_mode: str = "") -> None:
+        """Record a clipboard enhance trigger."""
+        with self._lock:
+            now = self._now_iso()
+            day = self._today()
+
+            cum = self._load_cumulative()
+            daily = self._load_daily(day)
+
+            for data in (cum, daily):
+                data["totals"]["clipboard_enhances"] += 1
+
+                if enhance_mode and enhance_mode != "off":
+                    data.setdefault("enhance_mode_usage", {})
+                    data["enhance_mode_usage"][enhance_mode] = (
+                        data["enhance_mode_usage"].get(enhance_mode, 0) + 1
+                    )
+
+            if cum.get("first_recorded") is None:
+                cum["first_recorded"] = now
+            cum["last_updated"] = now
+
+            self._write_json(self._cumulative_path, cum)
+            self._write_json(self._daily_path(day), daily)
+
+    def record_clipboard_confirm(self) -> None:
+        """Record clipboard enhance confirmation."""
+        with self._lock:
+            now = self._now_iso()
+            day = self._today()
+
+            cum = self._load_cumulative()
+            daily = self._load_daily(day)
+
+            for data in (cum, daily):
+                data["totals"]["clipboard_enhance_confirm"] += 1
+
+            cum["last_updated"] = now
+
+            self._write_json(self._cumulative_path, cum)
+            self._write_json(self._daily_path(day), daily)
+
+    def record_clipboard_cancel(self) -> None:
+        """Record clipboard enhance cancellation."""
+        with self._lock:
+            now = self._now_iso()
+            day = self._today()
+
+            cum = self._load_cumulative()
+            daily = self._load_daily(day)
+
+            for data in (cum, daily):
+                data["totals"]["clipboard_enhance_cancel"] += 1
+
+            cum["last_updated"] = now
+
+            self._write_json(self._cumulative_path, cum)
+            self._write_json(self._daily_path(day), daily)
+
+    def record_output_method(self, copy_to_clipboard: bool) -> None:
+        """Record output method: copy to clipboard or type text."""
+        with self._lock:
+            now = self._now_iso()
+            day = self._today()
+
+            cum = self._load_cumulative()
+            daily = self._load_daily(day)
+
+            key = "output_copy_clipboard" if copy_to_clipboard else "output_type_text"
+            for data in (cum, daily):
+                data["totals"][key] += 1
 
             cum["last_updated"] = now
 

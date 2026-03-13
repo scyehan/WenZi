@@ -225,6 +225,101 @@ class TestDirectoryCreation:
         assert os.path.exists(os.path.join(deep_dir, "usage_stats.json"))
 
 
+class TestInitialStateNewCounters:
+    def test_new_counters_initial_zero(self, stats):
+        s = stats.get_stats()
+        assert s["totals"]["clipboard_enhances"] == 0
+        assert s["totals"]["clipboard_enhance_confirm"] == 0
+        assert s["totals"]["clipboard_enhance_cancel"] == 0
+        assert s["totals"]["output_type_text"] == 0
+        assert s["totals"]["output_copy_clipboard"] == 0
+
+
+class TestRecordClipboardEnhance:
+    def test_record_clipboard_enhance(self, stats):
+        stats.record_clipboard_enhance(enhance_mode="proofread")
+        s = stats.get_stats()
+        assert s["totals"]["clipboard_enhances"] == 1
+        assert s["enhance_mode_usage"]["proofread"] == 1
+
+    def test_record_clipboard_enhance_off_mode(self, stats):
+        stats.record_clipboard_enhance(enhance_mode="off")
+        s = stats.get_stats()
+        assert s["totals"]["clipboard_enhances"] == 1
+        assert s["enhance_mode_usage"] == {}
+
+    def test_record_clipboard_enhance_empty_mode(self, stats):
+        stats.record_clipboard_enhance(enhance_mode="")
+        s = stats.get_stats()
+        assert s["totals"]["clipboard_enhances"] == 1
+        assert s["enhance_mode_usage"] == {}
+
+    def test_record_clipboard_enhance_sets_first_recorded(self, stats):
+        stats.record_clipboard_enhance(enhance_mode="proofread")
+        s = stats.get_stats()
+        assert s["first_recorded"] is not None
+
+    def test_record_clipboard_enhance_daily(self, stats):
+        stats.record_clipboard_enhance(enhance_mode="translate_en")
+        today = stats.get_today_stats()
+        assert today["totals"]["clipboard_enhances"] == 1
+        assert today["enhance_mode_usage"]["translate_en"] == 1
+
+
+class TestRecordClipboardConfirm:
+    def test_record_clipboard_confirm(self, stats):
+        stats.record_clipboard_confirm()
+        s = stats.get_stats()
+        assert s["totals"]["clipboard_enhance_confirm"] == 1
+
+    def test_record_clipboard_confirm_multiple(self, stats):
+        stats.record_clipboard_confirm()
+        stats.record_clipboard_confirm()
+        stats.record_clipboard_confirm()
+        s = stats.get_stats()
+        assert s["totals"]["clipboard_enhance_confirm"] == 3
+
+
+class TestRecordClipboardCancel:
+    def test_record_clipboard_cancel(self, stats):
+        stats.record_clipboard_cancel()
+        s = stats.get_stats()
+        assert s["totals"]["clipboard_enhance_cancel"] == 1
+
+    def test_record_clipboard_cancel_multiple(self, stats):
+        stats.record_clipboard_cancel()
+        stats.record_clipboard_cancel()
+        s = stats.get_stats()
+        assert s["totals"]["clipboard_enhance_cancel"] == 2
+
+
+class TestRecordOutputMethod:
+    def test_record_output_type_text(self, stats):
+        stats.record_output_method(copy_to_clipboard=False)
+        s = stats.get_stats()
+        assert s["totals"]["output_type_text"] == 1
+        assert s["totals"]["output_copy_clipboard"] == 0
+
+    def test_record_output_copy_clipboard(self, stats):
+        stats.record_output_method(copy_to_clipboard=True)
+        s = stats.get_stats()
+        assert s["totals"]["output_type_text"] == 0
+        assert s["totals"]["output_copy_clipboard"] == 1
+
+    def test_record_output_method_mixed(self, stats):
+        stats.record_output_method(copy_to_clipboard=False)
+        stats.record_output_method(copy_to_clipboard=False)
+        stats.record_output_method(copy_to_clipboard=True)
+        s = stats.get_stats()
+        assert s["totals"]["output_type_text"] == 2
+        assert s["totals"]["output_copy_clipboard"] == 1
+
+    def test_record_output_method_daily(self, stats):
+        stats.record_output_method(copy_to_clipboard=True)
+        today = stats.get_today_stats()
+        assert today["totals"]["output_copy_clipboard"] == 1
+
+
 class TestThreadSafety:
     def test_thread_safety(self, stats):
         n_threads = 10

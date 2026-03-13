@@ -634,6 +634,11 @@ class VoiceTextApp(rumps.App):
             logger.error("Failed to record usage stats: %s", e)
 
         try:
+            self._usage_stats.record_output_method(copy_to_clipboard=False)
+        except Exception as e:
+            logger.error("Failed to record output method: %s", e)
+
+        try:
             self._conversation_history.log(
                 asr_text=asr_text,
                 enhanced_text=enhanced_text,
@@ -890,7 +895,8 @@ class VoiceTextApp(rumps.App):
 
         if result_holder["confirmed"] and result_holder["text"]:
             final_text = result_holder["text"].strip()
-            if result_holder.get("copy_to_clipboard"):
+            copy_to_clip = bool(result_holder.get("copy_to_clipboard"))
+            if copy_to_clip:
                 set_clipboard_text(final_text)
                 logger.info("Text copied to clipboard (%d chars)", len(final_text))
             else:
@@ -900,6 +906,11 @@ class VoiceTextApp(rumps.App):
                     method=self._output_method,
                 )
             self._set_status("VT")
+
+            try:
+                self._usage_stats.record_output_method(copy_to_clipboard=copy_to_clip)
+            except Exception as e:
+                logger.error("Failed to record output method: %s", e)
 
             try:
                 self._conversation_history.log(
@@ -990,6 +1001,11 @@ class VoiceTextApp(rumps.App):
         """Show preview panel for clipboard text enhancement."""
         from PyObjCTools import AppHelper
         import time
+
+        try:
+            self._usage_stats.record_clipboard_enhance(self._enhance_mode)
+        except Exception as e:
+            logger.error("Failed to record clipboard enhance: %s", e)
 
         self._current_preview_asr_text = clipboard_text
 
@@ -1087,7 +1103,8 @@ class VoiceTextApp(rumps.App):
 
         if result_holder["confirmed"] and result_holder["text"]:
             final_text = result_holder["text"].strip()
-            if result_holder.get("copy_to_clipboard"):
+            copy_to_clip = bool(result_holder.get("copy_to_clipboard"))
+            if copy_to_clip:
                 set_clipboard_text(final_text)
                 logger.info("Text copied to clipboard (%d chars)", len(final_text))
             else:
@@ -1097,6 +1114,16 @@ class VoiceTextApp(rumps.App):
                     method=self._output_method,
                 )
             self._set_status("VT")
+
+            try:
+                self._usage_stats.record_clipboard_confirm()
+            except Exception as e:
+                logger.error("Failed to record clipboard confirm: %s", e)
+
+            try:
+                self._usage_stats.record_output_method(copy_to_clipboard=copy_to_clip)
+            except Exception as e:
+                logger.error("Failed to record output method: %s", e)
 
             try:
                 self._conversation_history.log(
@@ -1110,6 +1137,10 @@ class VoiceTextApp(rumps.App):
                 logger.error("Failed to log conversation: %s", e)
         else:
             self._set_status("VT")
+            try:
+                self._usage_stats.record_clipboard_cancel()
+            except Exception as e:
+                logger.error("Failed to record clipboard cancel: %s", e)
             logger.info("Clipboard enhance cancelled by user")
 
     def _run_enhance_in_background(
@@ -3519,6 +3550,23 @@ models:
                 f"Tokens: {total_tk:,} total  "
                 f"(\u2191{prompt_tk:,}  \u2193{comp_tk:,})"
             )
+
+            # Clipboard Enhance section
+            cb = t.get("clipboard_enhances", 0)
+            if cb:
+                lines.append(
+                    f"Clipboard Enhance: {cb}  "
+                    f"(Confirm: {t.get('clipboard_enhance_confirm', 0)}  |  "
+                    f"Cancel: {t.get('clipboard_enhance_cancel', 0)})"
+                )
+
+            # Output Method section
+            ot = t.get("output_type_text", 0)
+            oc = t.get("output_copy_clipboard", 0)
+            if ot or oc:
+                lines.append(
+                    f"Output: Type {ot}  |  Clipboard {oc}"
+                )
 
             if em:
                 lines.append("Enhance modes:")

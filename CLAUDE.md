@@ -13,6 +13,16 @@ self._restore_accessory()
 
 `rumps.notification()` will crash with `Info.plist` / `CFBundleIdentifier` errors when running directly from the terminal (`uv run`) without app bundling. This is expected during development — wrap calls in try/except and log the error instead of crashing. In a packaged app `rumps.notification()` works normally, so it is fine to use for non-critical user feedback.
 
+## Usage Statistics
+
+When adding new user-facing behaviors or interactions, always add corresponding tracking to `UsageStats` (`src/voicetext/usage_stats.py`):
+
+1. Add counter(s) to `_empty_totals()`
+2. Add a `record_*()` method in `UsageStats`
+3. Call the method at the appropriate point in `app.py`
+4. Update the stats display in `_on_show_usage_stats()`
+5. Add tests in `tests/test_usage_stats.py`
+
 ## Release Process
 
 1. Ensure all changes are committed and tests pass (`uv run pytest tests/`)
