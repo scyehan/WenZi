@@ -29,6 +29,8 @@ def _empty_totals() -> Dict[str, int]:
         "output_copy_clipboard": 0,
         "google_translate_opens": 0,
         "sound_feedback_plays": 0,
+        "history_browse_opens": 0,
+        "history_edits": 0,
     }
 
 
@@ -294,6 +296,40 @@ class UsageStats:
 
             for data in (cum, daily):
                 data["totals"]["sound_feedback_plays"] += 1
+
+            cum["last_updated"] = now
+
+            self._write_json(self._cumulative_path, cum)
+            self._write_json(self._daily_path(day), daily)
+
+    def record_history_browse_open(self) -> None:
+        """Record a history browser open event."""
+        with self._lock:
+            now = self._now_iso()
+            day = self._today()
+
+            cum = self._load_cumulative()
+            daily = self._load_daily(day)
+
+            for data in (cum, daily):
+                data["totals"]["history_browse_opens"] += 1
+
+            cum["last_updated"] = now
+
+            self._write_json(self._cumulative_path, cum)
+            self._write_json(self._daily_path(day), daily)
+
+    def record_history_edit(self) -> None:
+        """Record a history edit (final_text update) event."""
+        with self._lock:
+            now = self._now_iso()
+            day = self._today()
+
+            cum = self._load_cumulative()
+            daily = self._load_daily(day)
+
+            for data in (cum, daily):
+                data["totals"]["history_edits"] += 1
 
             cum["last_updated"] = now
 

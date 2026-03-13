@@ -27,6 +27,8 @@ class ConversationHistory:
         final_text: str,
         enhance_mode: str,
         preview_enabled: bool,
+        stt_model: str = "",
+        llm_model: str = "",
     ) -> None:
         """Write a single conversation record to the JSONL file."""
         os.makedirs(self._config_dir, exist_ok=True)
@@ -38,6 +40,8 @@ class ConversationHistory:
             "final_text": final_text,
             "enhance_mode": enhance_mode,
             "preview_enabled": preview_enabled,
+            "stt_model": stt_model,
+            "llm_model": llm_model,
         }
 
         with open(self._history_path, "a", encoding="utf-8") as f:
@@ -106,6 +110,134 @@ class ConversationHistory:
 
         # Return oldest first
         results.reverse()
+        return results
+
+    def get_all(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Return all records (no filtering), newest first.
+
+        Args:
+            limit: Maximum number of records to return.
+
+        Returns:
+            List of record dicts, newest first.
+        """
+        if not os.path.exists(self._history_path):
+            return []
+
+        try:
+            with open(self._history_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception as e:
+            logger.warning("Failed to read conversation history: %s", e)
+            return []
+
+        results: List[Dict[str, Any]] = []
+        for line in reversed(lines):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            results.append(record)
+            if len(results) >= limit:
+                break
+
+        return results
+
+    def update_final_text(self, timestamp: str, new_final_text: str) -> bool:
+        """Update the final_text of a record identified by timestamp.
+
+        Uses atomic file replacement via a temporary file + os.replace().
+
+        Args:
+            timestamp: The ISO timestamp identifying the record.
+            new_final_text: The new final_text value.
+
+        Returns:
+            True if record was found and updated, False otherwise.
+        """
+        if not os.path.exists(self._history_path):
+            return False
+
+        try:
+            with open(self._history_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception as e:
+            logger.warning("Failed to read conversation history: %s", e)
+            return False
+
+        found = False
+        new_lines: List[str] = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                new_lines.append(line)
+                continue
+            try:
+                record = json.loads(stripped)
+            except json.JSONDecodeError:
+                new_lines.append(line)
+                continue
+
+            if record.get("timestamp") == timestamp and not found:
+                record["final_text"] = new_final_text
+                record["edited_at"] = datetime.now(timezone.utc).isoformat()
+                new_lines.append(json.dumps(record, ensure_ascii=False) + "\n")
+                found = True
+            else:
+                new_lines.append(line)
+
+        if not found:
+            return False
+
+        tmp_path = self._history_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+        os.replace(tmp_path, self._history_path)
+        return True
+
+    def search(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Search records by case-insensitive substring match on text fields.
+
+        Args:
+            query: Search string (case-insensitive).
+            limit: Maximum number of results.
+
+        Returns:
+            Matching records, newest first.
+        """
+        if not os.path.exists(self._history_path):
+            return []
+
+        try:
+            with open(self._history_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception as e:
+            logger.warning("Failed to read conversation history: %s", e)
+            return []
+
+        query_lower = query.lower()
+        results: List[Dict[str, Any]] = []
+        for line in reversed(lines):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            searchable = " ".join(
+                str(record.get(k, ""))
+                for k in ("asr_text", "enhanced_text", "final_text")
+            ).lower()
+            if query_lower in searchable:
+                results.append(record)
+                if len(results) >= limit:
+                    break
+
         return results
 
     def format_for_prompt(self, entries: List[Dict[str, Any]]) -> str:

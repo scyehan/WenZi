@@ -141,6 +141,7 @@ class ResultPreviewPanel:
         self._google_translate_button = None
         self._translate_webview = None
         self._on_google_translate: Optional[Callable[[], None]] = None
+        self._on_browse_history: Optional[Callable[[], None]] = None
 
     def show(
         self,
@@ -166,6 +167,7 @@ class ResultPreviewPanel:
         thinking_enabled: bool = False,
         on_thinking_toggle: Optional[Callable[[bool], None]] = None,
         on_google_translate: Optional[Callable[[], None]] = None,
+        on_browse_history: Optional[Callable[[], None]] = None,
         animate_from_frame: object = None,
     ) -> None:
         """Show the preview panel with ASR text.
@@ -193,6 +195,7 @@ class ResultPreviewPanel:
             thinking_enabled: Whether AI thinking mode is enabled.
             on_thinking_toggle: Callback when user toggles the Thinking checkbox.
             on_google_translate: Callback when user opens Google Translate WebView.
+            on_browse_history: Callback when user clicks the History button.
         """
         self._on_confirm = on_confirm
         self._on_cancel = on_cancel
@@ -204,6 +207,7 @@ class ResultPreviewPanel:
         self._on_thinking_toggle = on_thinking_toggle
         self._thinking_enabled = thinking_enabled
         self._on_google_translate = on_google_translate
+        self._on_browse_history = on_browse_history
         self._user_edited = False
         self._show_enhance = show_enhance
         self._asr_text = asr_text
@@ -336,11 +340,7 @@ class ResultPreviewPanel:
                 NSFontAttributeName,
                 NSForegroundColorAttributeName,
             )
-            font = NSFont.systemFontOfSize_(13)
-            italic_font = NSFont.fontWithName_size_(
-                font.fontName().replace("Regular", "Italic") or font.fontName(),
-                13,
-            ) or font
+            font = NSFont.userFixedPitchFontOfSize_(12.0)
             # Use NSFontManager to get a proper italic variant
             from AppKit import NSFontManager
             fm = NSFontManager.sharedFontManager()
@@ -406,7 +406,7 @@ class ResultPreviewPanel:
                 NSAttributedString, NSColor, NSFont,
                 NSFontAttributeName, NSForegroundColorAttributeName,
             )
-            font = NSFont.systemFontOfSize_(13)
+            font = NSFont.userFixedPitchFontOfSize_(12.0)
             attrs = {
                 NSFontAttributeName: font,
                 NSForegroundColorAttributeName: NSColor.labelColor(),
@@ -870,6 +870,17 @@ class ResultPreviewPanel:
         y = self._PADDING
 
         # Buttons row
+        # History button (left-aligned)
+        if self._on_browse_history is not None:
+            history_btn = NSButton.alloc().initWithFrame_(
+                NSMakeRect(self._PADDING, y, self._BUTTON_WIDTH, self._BUTTON_HEIGHT)
+            )
+            history_btn.setTitle_("History")
+            history_btn.setBezelStyle_(1)
+            history_btn.setTarget_(self)
+            history_btn.setAction_(b"historyClicked:")
+            content_view.addSubview_(history_btn)
+
         cancel_btn = NSButton.alloc().initWithFrame_(
             NSMakeRect(
                 self._PANEL_WIDTH - self._PADDING - 2 * self._BUTTON_WIDTH - 8,
@@ -1395,6 +1406,11 @@ class ResultPreviewPanel:
         self.close()
         if callback is not None:
             callback()
+
+    def historyClicked_(self, sender) -> None:
+        """Handle History button click — open history browser."""
+        if self._on_browse_history is not None:
+            self._on_browse_history()
 
     def googleTranslateClicked_(self, sender) -> None:
         """Handle Translate ↗ button click — open Google Translate in a WebView."""

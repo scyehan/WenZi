@@ -22,6 +22,7 @@ from .conversation_history import ConversationHistory
 from .correction_log import CorrectionLogger
 from .usage_stats import UsageStats
 from .enhancer import MODE_OFF, TextEnhancer, create_enhancer
+from .history_browser_window import HistoryBrowserPanel
 from .log_viewer_window import LogViewerPanel
 from .result_window import ResultPreviewPanel
 from .settings_window import SettingsPanel
@@ -266,6 +267,10 @@ class VoiceTextApp(rumps.App):
         )
         self._enhance_history_item.state = 1 if history_enabled else 0
 
+        self._browse_history_item = rumps.MenuItem(
+            "Browse History...", callback=self._on_browse_history
+        )
+
         # LLM Model top-level submenu
         self._llm_model_menu = rumps.MenuItem("LLM Model")
         self._llm_model_menu_items: Dict[Tuple[str, str], rumps.MenuItem] = {}
@@ -347,6 +352,9 @@ class VoiceTextApp(rumps.App):
         # About item
         self._about_item = rumps.MenuItem("About VoiceText", callback=self._on_about)
 
+        # History browser (lazy-created)
+        self._history_browser: Optional[HistoryBrowserPanel] = None
+
         # Settings panel
         self._settings_panel = SettingsPanel()
         self._settings_item = rumps.MenuItem(
@@ -357,6 +365,7 @@ class VoiceTextApp(rumps.App):
             self._status_item,
             None,
             self._clipboard_enhance_item,
+            self._browse_history_item,
             self._settings_item,
             None,
             self._view_logs_item,
@@ -816,9 +825,29 @@ class VoiceTextApp(rumps.App):
                 final_text=text.strip(),
                 enhance_mode=self._enhance_mode,
                 preview_enabled=False,
+                stt_model=self._current_stt_model(),
+                llm_model=self._current_llm_model(),
             )
         except Exception as e:
             logger.error("Failed to log conversation: %s", e)
+
+    def _current_stt_model(self) -> str:
+        """Return display name of the current STT model."""
+        try:
+            return self._transcriber.model_display_name
+        except Exception:
+            return ""
+
+    def _current_llm_model(self) -> str:
+        """Return display name of the current LLM model."""
+        if not self._enhancer:
+            return ""
+        parts = []
+        if self._enhancer.provider_name:
+            parts.append(self._enhancer.provider_name)
+        if self._enhancer.model_name:
+            parts.append(self._enhancer.model_name)
+        return " / ".join(parts)
 
     def _do_transcribe_with_preview(
         self, asr_text: str | None, use_enhance: bool,
@@ -988,6 +1017,7 @@ class VoiceTextApp(rumps.App):
                     thinking_enabled=self._enhancer.thinking if self._enhancer else False,
                     on_thinking_toggle=self._on_preview_thinking_toggle if self._enhancer else None,
                     on_google_translate=lambda: self._usage_stats.record_google_translate_open(),
+                    on_browse_history=self._on_browse_history,
                     animate_from_frame=indicator_frame,
                 )
                 if need_stt:
@@ -1100,6 +1130,8 @@ class VoiceTextApp(rumps.App):
                     final_text=final_text,
                     enhance_mode=self._enhance_mode,
                     preview_enabled=True,
+                    stt_model=self._current_stt_model(),
+                    llm_model=self._current_llm_model(),
                 )
             except Exception as e:
                 logger.error("Failed to log conversation: %s", e)
@@ -1268,6 +1300,7 @@ class VoiceTextApp(rumps.App):
                 thinking_enabled=self._enhancer.thinking if self._enhancer else False,
                 on_thinking_toggle=self._on_preview_thinking_toggle if self._enhancer else None,
                 on_google_translate=lambda: self._usage_stats.record_google_translate_open(),
+                on_browse_history=self._on_browse_history,
             )
             if use_enhance:
                 self._preview_panel.enhance_request_id += 1
@@ -1314,6 +1347,8 @@ class VoiceTextApp(rumps.App):
                     final_text=final_text,
                     enhance_mode=self._enhance_mode,
                     preview_enabled=True,
+                    stt_model=self._current_stt_model(),
+                    llm_model=self._current_llm_model(),
                 )
             except Exception as e:
                 logger.error("Failed to log conversation: %s", e)
@@ -3708,6 +3743,20 @@ models:
         logger.info("Configuration reloaded successfully")
         rumps.notification("VoiceText", "Config Reloaded", "Configuration has been reloaded.")
 
+    def _on_browse_history(self, _=None) -> None:
+        """Open the conversation history browser panel."""
+        if self._history_browser is None:
+            self._history_browser = HistoryBrowserPanel()
+
+        def _on_history_save(timestamp: str, new_final_text: str) -> None:
+            self._usage_stats.record_history_edit()
+
+        self._usage_stats.record_history_browse_open()
+        self._history_browser.show(
+            conversation_history=self._conversation_history,
+            on_save=_on_history_save,
+        )
+
     def _on_show_usage_stats(self, _) -> None:
         """Show usage statistics in a large dialog with today + cumulative stats."""
         from AppKit import NSAlert, NSFont, NSStatusWindowLevel, NSTextField
@@ -3771,6 +3820,11 @@ models:
             sf = t.get("sound_feedback_plays", 0)
             if sf:
                 lines.append(f"Sound Feedback: {sf}")
+
+            hb = t.get("history_browse_opens", 0)
+            he = t.get("history_edits", 0)
+            if hb or he:
+                lines.append(f"History: Browse {hb}  |  Edit {he}")
 
             if em:
                 lines.append("Enhance modes:")

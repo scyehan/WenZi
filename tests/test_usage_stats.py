@@ -360,6 +360,43 @@ class TestRecordSoundFeedback:
         assert today["totals"]["sound_feedback_plays"] == 1
 
 
+class TestRecordHistoryBrowseOpen:
+    def test_record_history_browse_open(self, stats):
+        stats.record_history_browse_open()
+        s = stats.get_stats()
+        assert s["totals"]["history_browse_opens"] == 1
+
+    def test_record_history_browse_open_multiple(self, stats):
+        stats.record_history_browse_open()
+        stats.record_history_browse_open()
+        stats.record_history_browse_open()
+        s = stats.get_stats()
+        assert s["totals"]["history_browse_opens"] == 3
+
+    def test_record_history_browse_open_daily(self, stats):
+        stats.record_history_browse_open()
+        today = stats.get_today_stats()
+        assert today["totals"]["history_browse_opens"] == 1
+
+
+class TestRecordHistoryEdit:
+    def test_record_history_edit(self, stats):
+        stats.record_history_edit()
+        s = stats.get_stats()
+        assert s["totals"]["history_edits"] == 1
+
+    def test_record_history_edit_multiple(self, stats):
+        stats.record_history_edit()
+        stats.record_history_edit()
+        s = stats.get_stats()
+        assert s["totals"]["history_edits"] == 2
+
+    def test_record_history_edit_daily(self, stats):
+        stats.record_history_edit()
+        today = stats.get_today_stats()
+        assert today["totals"]["history_edits"] == 1
+
+
 class TestThreadSafety:
     def test_thread_safety(self, stats):
         n_threads = 10

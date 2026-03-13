@@ -235,6 +235,156 @@ class TestConversationHistoryFormatForPrompt:
         assert "a\u23ceb → a\u23cec" in result
 
 
+class TestConversationHistoryGetAll:
+    def test_get_all_returns_newest_first(self, history):
+        history.log("first", "First", "First", "proofread", True)
+        history.log("second", "Second", "Second", "proofread", True)
+        history.log("third", "Third", "Third", "proofread", True)
+
+        results = history.get_all()
+        assert len(results) == 3
+        assert results[0]["asr_text"] == "third"
+        assert results[2]["asr_text"] == "first"
+
+    def test_get_all_includes_all_records(self, history):
+        """get_all should include records regardless of preview_enabled or text length."""
+        history.log("a", None, "a", "off", False)
+        history.log("b", "B", "x" * 600, "proofread", True)
+        history.log("c", "C", "C", "proofread", True)
+
+        results = history.get_all()
+        assert len(results) == 3
+
+    def test_get_all_respects_limit(self, history):
+        for i in range(10):
+            history.log(f"text{i}", f"Text{i}", f"Text{i}", "proofread", True)
+
+        results = history.get_all(limit=3)
+        assert len(results) == 3
+        # Should be newest first
+        assert results[0]["asr_text"] == "text9"
+        assert results[2]["asr_text"] == "text7"
+
+    def test_get_all_empty_file(self, history):
+        results = history.get_all()
+        assert results == []
+
+    def test_get_all_skips_malformed_lines(self, history, history_dir):
+        path = os.path.join(history_dir, "conversation_history.jsonl")
+        os.makedirs(history_dir, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write('{"asr_text": "good"}\n')
+            f.write("not json\n")
+            f.write('{"asr_text": "also good"}\n')
+
+        results = history.get_all()
+        assert len(results) == 2
+
+
+class TestConversationHistoryUpdateFinalText:
+    def test_update_final_text(self, history, history_dir):
+        history.log("hello", "Hello.", "Hello.", "proofread", True)
+
+        # Get the timestamp
+        path = os.path.join(history_dir, "conversation_history.jsonl")
+        with open(path, "r", encoding="utf-8") as f:
+            record = json.loads(f.readline())
+        ts = record["timestamp"]
+
+        result = history.update_final_text(ts, "Hello World!")
+        assert result is True
+
+        # Verify the update
+        with open(path, "r", encoding="utf-8") as f:
+            updated = json.loads(f.readline())
+        assert updated["final_text"] == "Hello World!"
+        assert "edited_at" in updated
+
+    def test_update_final_text_not_found(self, history):
+        history.log("hello", "Hello.", "Hello.", "proofread", True)
+
+        result = history.update_final_text("nonexistent-timestamp", "new text")
+        assert result is False
+
+    def test_update_final_text_no_file(self, history):
+        result = history.update_final_text("any-timestamp", "new text")
+        assert result is False
+
+    def test_update_final_text_preserves_other_records(self, history, history_dir):
+        history.log("first", "First", "First", "proofread", True)
+        history.log("second", "Second", "Second", "proofread", True)
+
+        path = os.path.join(history_dir, "conversation_history.jsonl")
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        ts2 = json.loads(lines[1])["timestamp"]
+
+        history.update_final_text(ts2, "Modified")
+
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        r1 = json.loads(lines[0])
+        r2 = json.loads(lines[1])
+        assert r1["final_text"] == "First"
+        assert r2["final_text"] == "Modified"
+
+
+class TestConversationHistorySearch:
+    def test_search_basic(self, history):
+        history.log("hello world", None, "hello world", "off", True)
+        history.log("goodbye", None, "goodbye", "off", True)
+
+        results = history.search("hello")
+        assert len(results) == 1
+        assert results[0]["asr_text"] == "hello world"
+
+    def test_search_case_insensitive(self, history):
+        history.log("Hello World", None, "Hello World", "off", True)
+
+        results = history.search("hello world")
+        assert len(results) == 1
+
+    def test_search_chinese(self, history):
+        history.log("你好世界", "你好，世界", "你好，世界", "proofread", True)
+        history.log("goodbye", None, "goodbye", "off", True)
+
+        results = history.search("你好")
+        assert len(results) == 1
+        assert results[0]["asr_text"] == "你好世界"
+
+    def test_search_empty_result(self, history):
+        history.log("hello", None, "hello", "off", True)
+
+        results = history.search("nonexistent")
+        assert results == []
+
+    def test_search_newest_first(self, history):
+        history.log("first hello", None, "first hello", "off", True)
+        history.log("second hello", None, "second hello", "off", True)
+
+        results = history.search("hello")
+        assert len(results) == 2
+        assert results[0]["asr_text"] == "second hello"
+        assert results[1]["asr_text"] == "first hello"
+
+    def test_search_in_enhanced_text(self, history):
+        history.log("asr", "enhanced special", "final", "proofread", True)
+
+        results = history.search("special")
+        assert len(results) == 1
+
+    def test_search_no_file(self, history):
+        results = history.search("anything")
+        assert results == []
+
+    def test_search_respects_limit(self, history):
+        for i in range(10):
+            history.log(f"hello {i}", None, f"hello {i}", "off", True)
+
+        results = history.search("hello", limit=3)
+        assert len(results) == 3
+
+
 class TestConversationHistoryCount:
     def test_count_no_file(self, history):
         assert history.count() == 0
