@@ -193,6 +193,7 @@ class LogViewerPanel:
             NSOnState,
             NSPanel,
             NSPopUpButton,
+            NSResizableWindowMask,
             NSScrollView,
             NSSearchField,
             NSSegmentedControl,
@@ -202,15 +203,21 @@ class LogViewerPanel:
             NSTextView,
             NSTitledWindowMask,
             NSSwitchButton,
+            NSViewWidthSizable,
+            NSViewHeightSizable,
+            NSViewMaxYMargin,
+            NSViewMinXMargin,
+            NSViewMinYMargin,
         )
-        from Foundation import NSMakeRect, NSObject
+        from Foundation import NSMakeRect, NSMakeSize, NSObject
 
         panel = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
             NSMakeRect(0, 0, self._PANEL_WIDTH, self._PANEL_HEIGHT),
-            NSTitledWindowMask | NSClosableWindowMask,
+            NSTitledWindowMask | NSClosableWindowMask | NSResizableWindowMask,
             NSBackingStoreBuffered,
             False,
         )
+        panel.setMinSize_(NSMakeSize(600, 400))
         panel.setTitle_("VoiceText Logs")
         panel.setLevel_(NSStatusWindowLevel)
         panel.setFloatingPanel_(True)
@@ -326,6 +333,7 @@ class LogViewerPanel:
         scroll = NSScrollView.alloc().initWithFrame_(scroll_frame)
         scroll.setHasVerticalScroller_(True)
         scroll.setBorderType_(NSBezelBorder)
+        scroll.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
 
         tv = NSTextView.alloc().initWithFrame_(
             NSMakeRect(0, 0, inner_w, text_height)
@@ -358,6 +366,7 @@ class LogViewerPanel:
         search.setPlaceholderString_("Search logs...")
         search.setTarget_(self)
         search.setAction_(b"searchChanged:")
+        search.setAutoresizingMask_(NSViewWidthSizable | NSViewMinYMargin)
         content.addSubview_(search)
         self._search_field = search
 
@@ -367,6 +376,7 @@ class LogViewerPanel:
         )
         filter_label.setFont_(small_font)
         filter_label.setTextColor_(label_color)
+        filter_label.setAutoresizingMask_(NSViewMinXMargin | NSViewMinYMargin)
         content.addSubview_(filter_label)
 
         seg = NSSegmentedControl.alloc().initWithFrame_(
@@ -388,6 +398,7 @@ class LogViewerPanel:
             seg.setWidth_forSegment_(seg_width / 4, idx)
         seg.setTarget_(self)
         seg.setAction_(b"levelFilterChanged:")
+        seg.setAutoresizingMask_(NSViewMinXMargin | NSViewMinYMargin)
         content.addSubview_(seg)
         self._segment_control = seg
 

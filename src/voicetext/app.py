@@ -3329,6 +3329,10 @@ def _get_multiline_panel_target_class():
 
 def main() -> None:
     """Entry point."""
+    import signal
+
+    signal.signal(signal.SIGINT, lambda *_: rumps.quit_application())
+
     config_path = sys.argv[1] if len(sys.argv) > 1 else None
     app = VoiceTextApp(config_path=config_path)  # None uses default path
     app.run()
