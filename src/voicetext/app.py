@@ -24,6 +24,7 @@ from .usage_stats import UsageStats
 from .enhancer import MODE_OFF, TextEnhancer, create_enhancer
 from .log_viewer_window import LogViewerPanel
 from .result_window import ResultPreviewPanel
+from .settings_window import SettingsPanel
 from .hotkey import MultiHotkeyListener, TapHotkeyListener, _is_fn_key
 from .input import (
     copy_selection_to_clipboard,
@@ -319,26 +320,19 @@ class VoiceTextApp(rumps.App):
         # About item
         self._about_item = rumps.MenuItem("About VoiceText", callback=self._on_about)
 
+        # Settings panel
+        self._settings_panel = SettingsPanel()
+        self._settings_item = rumps.MenuItem(
+            "Settings...", callback=self._on_open_settings
+        )
+
         self.menu = [
             self._status_item,
-            self._hotkey_menu,
-            None,
-            self._model_menu,
-            self._llm_model_menu,
-            self._enhance_menu,
             None,
             self._clipboard_enhance_item,
-            self._preview_item,
-            self._sound_feedback_item,
-            self._visual_indicator_item,
-            self._enhance_vocab_item,
-            self._enhance_history_item,
+            self._settings_item,
             None,
-            self._ai_settings_menu,
             self._view_logs_item,
-            None,
-            self._show_config_item,
-            self._reload_config_item,
             self._usage_stats_item,
             self._about_item,
         ]
@@ -928,6 +922,9 @@ class VoiceTextApp(rumps.App):
                     self._preview_panel.set_asr_loading()
                     if use_enhance:
                         self._preview_panel.set_enhance_loading()
+                    # Start STT thread AFTER panel is built to avoid race condition
+                    # where fast models (e.g. FunASR) complete before panel exists
+                    threading.Thread(target=_do_stt, daemon=True).start()
                 elif use_enhance:
                     # ASR already available, start enhancement immediately
                     self._preview_panel.enhance_request_id += 1
@@ -940,66 +937,61 @@ class VoiceTextApp(rumps.App):
             else:
                 _show_preview()
 
+        # Define STT background task (started inside _show_preview after panel is built)
+        def _do_stt():
+            try:
+                from .transcriber import BaseTranscriber
+
+                audio_dur = BaseTranscriber.wav_duration_seconds(wav_data)
+                self._preview_audio_duration = audio_dur
+                self._transcriber.skip_punc = bool(
+                    self._enhancer and self._enhancer.is_active
+                )
+                text = self._transcriber.transcribe(wav_data)
+                if text and text.strip():
+                    stt_text = text.strip()
+                else:
+                    stt_text = "(empty)"
+                    logger.warning("Transcription returned empty text")
+
+                self._current_preview_asr_text = stt_text
+
+                # Build ASR info
+                parts = []
+                if not stt_models:
+                    try:
+                        parts.insert(0, self._transcriber.model_display_name)
+                    except Exception:
+                        pass
+                if audio_dur > 0:
+                    parts.append(f"{audio_dur:.1f}s")
+                new_asr_info = "  ".join(parts)
+
+                def _on_stt_done():
+                    self._preview_panel.set_asr_result(
+                        stt_text, asr_info=new_asr_info, request_id=0,
+                    )
+                    # Start enhancement now that ASR is ready
+                    if use_enhance and stt_text != "(empty)":
+                        self._preview_panel.enhance_request_id += 1
+                        self._run_enhance_in_background(
+                            stt_text, self._preview_panel.enhance_request_id,
+                            result_holder,
+                        )
+                    elif use_enhance:
+                        # Empty text — clear enhance loading
+                        self._preview_panel.set_enhance_off()
+
+                AppHelper.callAfter(_on_stt_done)
+            except Exception as e:
+                logger.error("Background STT failed: %s", e)
+                self._preview_panel.set_asr_result(
+                    f"(error: {e})",
+                    request_id=0,
+                )
+
         AppHelper.callAfter(_show)
         self._set_status("Preview...")
-
-        # Run STT in background if needed
-        if need_stt:
-            def _do_stt():
-                try:
-                    from .transcriber import BaseTranscriber
-
-                    audio_dur = BaseTranscriber.wav_duration_seconds(wav_data)
-                    self._preview_audio_duration = audio_dur
-                    self._transcriber.skip_punc = bool(
-                        self._enhancer and self._enhancer.is_active
-                    )
-                    text = self._transcriber.transcribe(wav_data)
-                    if text and text.strip():
-                        stt_text = text.strip()
-                    else:
-                        stt_text = "(empty)"
-                        logger.warning("Transcription returned empty text")
-
-                    self._current_preview_asr_text = stt_text
-
-                    # Build ASR info
-                    parts = []
-                    if not stt_models:
-                        try:
-                            parts.insert(0, self._transcriber.model_display_name)
-                        except Exception:
-                            pass
-                    if audio_dur > 0:
-                        parts.append(f"{audio_dur:.1f}s")
-                    new_asr_info = "  ".join(parts)
-
-                    request_id = self._preview_panel._asr_request_id
-
-                    def _on_stt_done():
-                        self._preview_panel.set_asr_result(
-                            stt_text, asr_info=new_asr_info, request_id=request_id,
-                        )
-                        # Start enhancement now that ASR is ready
-                        if use_enhance and stt_text != "(empty)":
-                            self._preview_panel.enhance_request_id += 1
-                            self._run_enhance_in_background(
-                                stt_text, self._preview_panel.enhance_request_id,
-                                result_holder,
-                            )
-                        elif use_enhance:
-                            # Empty text — clear enhance loading
-                            self._preview_panel.set_enhance_off()
-
-                    AppHelper.callAfter(_on_stt_done)
-                except Exception as e:
-                    logger.error("Background STT failed: %s", e)
-                    self._preview_panel.set_asr_result(
-                        f"(error: {e})",
-                        request_id=self._preview_panel._asr_request_id,
-                    )
-
-            threading.Thread(target=_do_stt, daemon=True).start()
 
         # Wait for user decision
         result_event.wait()
@@ -3569,8 +3561,7 @@ models:
         logging.getLogger().setLevel(log_level)
         for handler in logging.getLogger().handlers:
             handler.setLevel(log_level)
-        for item in self._debug_level_items.values():
-            item.state = 1 if item._log_level == level_name else 0
+        # _debug_level_items removed in settings migration
 
         # AI enhance settings
         ai_cfg = new_config.get("ai_enhance", {})
@@ -3767,11 +3758,416 @@ models:
         self._topmost_alert(title="VoiceText", message=message)
         self._restore_accessory()
 
+    # ── Settings panel ────────────────────────────────────────────────
+
+    def _on_open_settings(self, _) -> None:
+        """Open the Settings panel with current state and callbacks."""
+        from .vocabulary import get_vocab_entry_count
+
+        # Collect current state
+        hotkeys = self._config.get("hotkeys", {"fn": True})
+
+        # STT presets
+        stt_presets = []
+        for preset in PRESETS:
+            available = is_backend_available(preset.backend)
+            stt_presets.append((preset.id, preset.display_name, available))
+
+        # STT remote models
+        asr_cfg = self._config.get("asr", {})
+        providers = asr_cfg.get("providers", {})
+        remote_models = build_remote_asr_models(providers)
+        stt_remote = [
+            (rm.provider, rm.model, rm.display_name) for rm in remote_models
+        ]
+
+        # LLM models
+        llm_models = []
+        current_llm = None
+        if self._enhancer:
+            for pname, models in self._enhancer.providers_with_models.items():
+                for mname in models:
+                    llm_models.append((pname, mname, f"{pname} / {mname}"))
+            current_llm = (self._enhancer.provider_name, self._enhancer.model_name)
+
+        # Enhance modes (excluding "off")
+        enhance_modes = []
+        if self._enhancer:
+            enhance_modes = list(self._enhancer.available_modes)
+
+        # Vocabulary count
+        vocab_count = 0
+        if self._enhancer and self._enhancer.vocab_index is not None:
+            vocab_count = self._enhancer.vocab_index.entry_count
+        if vocab_count == 0:
+            vocab_count = get_vocab_entry_count()
+
+        ai_cfg = self._config.get("ai_enhance", {})
+        vocab_cfg = ai_cfg.get("vocabulary", {})
+
+        state = {
+            "hotkeys": hotkeys,
+            "sound_enabled": self._sound_manager.enabled,
+            "visual_indicator": self._recording_indicator.enabled,
+            "preview": self._preview_enabled,
+            "current_preset_id": self._current_preset_id,
+            "current_remote_asr": self._current_remote_asr,
+            "stt_presets": stt_presets,
+            "stt_remote_models": stt_remote,
+            "llm_models": llm_models,
+            "current_llm": current_llm,
+            "enhance_modes": enhance_modes,
+            "current_enhance_mode": self._enhance_mode,
+            "thinking": bool(self._enhancer and self._enhancer.thinking),
+            "vocab_enabled": bool(self._enhancer and self._enhancer.vocab_enabled),
+            "vocab_count": vocab_count,
+            "auto_build": self._auto_vocab_builder._enabled,
+            "history_enabled": bool(
+                self._enhancer and self._enhancer.history_enabled
+            ),
+        }
+
+        callbacks = {
+            "on_hotkey_toggle": self._settings_hotkey_toggle,
+            "on_record_hotkey": lambda: self._on_record_hotkey(None),
+            "on_sound_toggle": self._settings_sound_toggle,
+            "on_visual_toggle": self._settings_visual_toggle,
+            "on_preview_toggle": self._settings_preview_toggle,
+            "on_stt_select": self._settings_stt_select,
+            "on_stt_remote_select": self._settings_stt_remote_select,
+            "on_stt_add_provider": lambda: self._on_asr_add_provider(None),
+            "on_stt_remove_provider": self._settings_stt_remove_provider,
+            "on_llm_select": self._settings_llm_select,
+            "on_llm_add_provider": lambda: self._on_enhance_add_provider(None),
+            "on_llm_remove_provider": self._settings_llm_remove_provider,
+            "on_enhance_mode_select": self._settings_enhance_mode_select,
+            "on_enhance_add_mode": lambda: self._on_enhance_add_mode(None),
+            "on_thinking_toggle": self._settings_thinking_toggle,
+            "on_vocab_toggle": self._settings_vocab_toggle,
+            "on_auto_build_toggle": self._settings_auto_build_toggle,
+            "on_history_toggle": self._settings_history_toggle,
+            "on_vocab_build": lambda: self._on_vocab_build(None),
+            "on_show_config": lambda: self._on_show_config(None),
+            "on_edit_config": lambda: self._on_enhance_edit_config(None),
+            "on_reload_config": lambda: self._on_reload_config(None),
+        }
+
+        # Call show() directly — do NOT use callAfter, because the menu
+        # callback context keeps the app active; deferring would let the app
+        # fall back to accessory mode before the panel is displayed.
+        self._settings_panel.show(state, callbacks)
+
+    def _settings_hotkey_toggle(self, key_name: str, enabled: bool) -> None:
+        """Handle hotkey toggle from Settings panel."""
+        self._config["hotkeys"][key_name] = enabled
+        save_config(self._config, self._config_path)
+
+        if self._hotkey_listener:
+            if enabled:
+                self._hotkey_listener.enable_key(key_name)
+            else:
+                self._hotkey_listener.disable_key(key_name)
+
+        # Sync menu item if it exists
+        menu_item = self._hotkey_menu_items.get(key_name)
+        if menu_item:
+            menu_item.state = 1 if enabled else 0
+
+    def _settings_sound_toggle(self, enabled: bool) -> None:
+        """Handle sound toggle from Settings panel."""
+        self._sound_manager.enabled = enabled
+        self._sound_feedback_item.state = 1 if enabled else 0
+
+        fb_cfg = self._config.setdefault("feedback", {})
+        fb_cfg["sound_enabled"] = enabled
+        save_config(self._config, self._config_path)
+
+    def _settings_visual_toggle(self, enabled: bool) -> None:
+        """Handle visual indicator toggle from Settings panel."""
+        self._recording_indicator.enabled = enabled
+        self._visual_indicator_item.state = 1 if enabled else 0
+
+        fb_cfg = self._config.setdefault("feedback", {})
+        fb_cfg["visual_indicator"] = enabled
+        save_config(self._config, self._config_path)
+
+    def _settings_preview_toggle(self, enabled: bool) -> None:
+        """Handle preview toggle from Settings panel."""
+        self._preview_enabled = enabled
+        self._preview_item.state = 1 if enabled else 0
+
+        self._config["output"]["preview"] = enabled
+        save_config(self._config, self._config_path)
+        logger.info("Preview set to: %s (from settings)", enabled)
+
+    def _settings_stt_select(self, preset_id: str) -> None:
+        """Handle STT model selection from Settings panel."""
+        if preset_id == self._current_preset_id and not self._current_remote_asr:
+            return
+        if self._busy:
+            self._topmost_alert(
+                "Cannot switch model",
+                "Please wait for current operation to finish.",
+            )
+            self._restore_accessory()
+            return
+
+        preset = PRESET_BY_ID.get(preset_id)
+        if not preset:
+            logger.warning("Unknown preset: %s", preset_id)
+            return
+
+        self._busy = True
+        old_preset_id = self._current_preset_id
+        old_transcriber = self._transcriber
+
+        def _do_switch():
+            stop_event = threading.Event()
+            monitor_thread = None
+            try:
+                self._set_status("Unloading...")
+                old_transcriber.cleanup()
+
+                cached = is_model_cached(preset)
+                if not cached:
+                    monitor_thread = threading.Thread(
+                        target=self._monitor_download_progress,
+                        args=(preset, stop_event),
+                        daemon=True,
+                    )
+                    monitor_thread.start()
+                else:
+                    self._set_status("Loading...")
+
+                asr_cfg = self._config["asr"]
+                new_transcriber = create_transcriber(
+                    backend=preset.backend,
+                    use_vad=asr_cfg.get("use_vad", True),
+                    use_punc=asr_cfg.get("use_punc", True),
+                    language=preset.language or asr_cfg.get("language"),
+                    model=preset.model,
+                    temperature=asr_cfg.get("temperature"),
+                )
+                new_transcriber.initialize()
+
+                stop_event.set()
+                if monitor_thread:
+                    monitor_thread.join(timeout=2)
+
+                self._transcriber = new_transcriber
+                self._current_preset_id = preset_id
+                self._current_remote_asr = None
+                self._update_model_checkmarks()
+
+                self._config["asr"]["preset"] = preset_id
+                self._config["asr"]["backend"] = preset.backend
+                self._config["asr"]["model"] = preset.model
+                self._config["asr"]["language"] = preset.language
+                self._config["asr"]["default_provider"] = None
+                self._config["asr"]["default_model"] = None
+                save_config(self._config, self._config_path)
+
+                self._set_status("VT")
+                logger.info("Switched to model: %s (from settings)", preset.display_name)
+                try:
+                    rumps.notification("VoiceText", "Model switched",
+                                      f"Now using: {preset.display_name}")
+                except Exception:
+                    logger.debug("Notification unavailable, skipping")
+
+            except Exception as e:
+                stop_event.set()
+                if monitor_thread:
+                    monitor_thread.join(timeout=2)
+                logger.error("Model switch failed: %s", e)
+                self._set_status("Error")
+                self._try_restore_previous_model(old_preset_id)
+
+            finally:
+                self._busy = False
+
+        threading.Thread(target=_do_switch, daemon=True).start()
+
+    def _settings_stt_remote_select(self, provider: str, model: str) -> None:
+        """Handle remote STT model selection from Settings panel."""
+        key = (provider, model)
+        if key == self._current_remote_asr:
+            return
+        if self._busy:
+            self._topmost_alert(
+                "Cannot switch model",
+                "Please wait for current operation to finish.",
+            )
+            self._restore_accessory()
+            return
+
+        # Find the RemoteASRModel with connection details
+        asr_cfg = self._config.get("asr", {})
+        providers = asr_cfg.get("providers", {})
+        pcfg = providers.get(provider, {})
+        if not pcfg:
+            logger.warning("Unknown ASR provider: %s", provider)
+            return
+
+        self._busy = True
+        old_transcriber = self._transcriber
+
+        def _do_switch():
+            try:
+                self._set_status("Switching...")
+                old_transcriber.cleanup()
+
+                new_transcriber = create_transcriber(
+                    backend="whisper-api",
+                    base_url=pcfg["base_url"],
+                    api_key=pcfg["api_key"],
+                    model=model,
+                    language=asr_cfg.get("language"),
+                    temperature=asr_cfg.get("temperature"),
+                )
+                new_transcriber.initialize()
+
+                self._transcriber = new_transcriber
+                self._current_remote_asr = key
+                self._current_preset_id = None
+                self._update_model_checkmarks()
+
+                self._config["asr"]["default_provider"] = provider
+                self._config["asr"]["default_model"] = model
+                save_config(self._config, self._config_path)
+
+                self._set_status("VT")
+                logger.info("Switched to remote ASR: %s / %s (from settings)",
+                            provider, model)
+            except Exception as e:
+                logger.error("Remote ASR switch failed: %s", e)
+                self._set_status("Error")
+            finally:
+                self._busy = False
+
+        threading.Thread(target=_do_switch, daemon=True).start()
+
+    def _settings_stt_remove_provider(self) -> None:
+        """Handle STT remove provider from Settings panel."""
+        asr_cfg = self._config.get("asr", {})
+        providers = asr_cfg.get("providers", {})
+        if providers:
+            # Remove the first provider's menu item to trigger existing flow
+            first_name = next(iter(providers))
+            item = self._asr_remove_provider_items.get(first_name)
+            if item:
+                self._on_asr_remove_provider(item)
+
+    def _settings_llm_select(self, provider: str, model: str) -> None:
+        """Handle LLM model selection from Settings panel."""
+        if not self._enhancer:
+            return
+        if provider == self._enhancer.provider_name and model == self._enhancer.model_name:
+            return
+
+        self._enhancer.provider_name = provider
+        self._enhancer.model_name = model
+
+        # Update menu checkmarks
+        current_key = (provider, model)
+        for key, item in self._llm_model_menu_items.items():
+            item.state = 1 if key == current_key else 0
+
+        # Persist to config
+        self._config.setdefault("ai_enhance", {})
+        self._config["ai_enhance"]["default_provider"] = provider
+        self._config["ai_enhance"]["default_model"] = model
+        save_config(self._config, self._config_path)
+        logger.info("LLM model set to: %s / %s (from settings)", provider, model)
+
+    def _settings_llm_remove_provider(self) -> None:
+        """Handle LLM remove provider from Settings panel."""
+        if self._enhancer:
+            providers = self._enhancer.providers_with_models
+            if providers:
+                first_name = next(iter(providers))
+                item = self._llm_remove_provider_items.get(first_name)
+                if item:
+                    self._on_enhance_remove_provider(item)
+
+    def _settings_enhance_mode_select(self, mode_id: str) -> None:
+        """Handle enhance mode selection from Settings panel."""
+        # Update menu checkmarks
+        for m, item in self._enhance_menu_items.items():
+            item.state = 1 if m == mode_id else 0
+
+        self._enhance_mode = mode_id
+
+        if self._enhancer:
+            if mode_id == MODE_OFF:
+                self._enhancer._enabled = False
+            else:
+                self._enhancer._enabled = True
+                self._enhancer.mode = mode_id
+
+        # Persist to config
+        self._config.setdefault("ai_enhance", {})
+        self._config["ai_enhance"]["enabled"] = mode_id != MODE_OFF
+        self._config["ai_enhance"]["mode"] = mode_id
+        save_config(self._config, self._config_path)
+        logger.info("AI enhance mode set to: %s (from settings)", mode_id)
+
+    def _settings_thinking_toggle(self, enabled: bool) -> None:
+        """Handle thinking toggle from Settings panel."""
+        if not self._enhancer:
+            return
+        self._enhancer.thinking = enabled
+        self._enhance_thinking_item.state = 1 if enabled else 0
+
+        self._config.setdefault("ai_enhance", {})
+        self._config["ai_enhance"]["thinking"] = enabled
+        save_config(self._config, self._config_path)
+        logger.info("AI thinking set to: %s (from settings)", enabled)
+
+    def _settings_vocab_toggle(self, enabled: bool) -> None:
+        """Handle vocabulary toggle from Settings panel."""
+        if not self._enhancer:
+            return
+        self._enhancer.vocab_enabled = enabled
+        self._enhance_vocab_item.state = 1 if enabled else 0
+
+        self._config.setdefault("ai_enhance", {})
+        self._config["ai_enhance"].setdefault("vocabulary", {})
+        self._config["ai_enhance"]["vocabulary"]["enabled"] = enabled
+        save_config(self._config, self._config_path)
+        logger.info("Vocabulary set to: %s (from settings)", enabled)
+
+    def _settings_auto_build_toggle(self, enabled: bool) -> None:
+        """Handle auto build toggle from Settings panel."""
+        self._auto_vocab_builder._enabled = enabled
+        self._enhance_auto_build_item.state = 1 if enabled else 0
+
+        self._config.setdefault("ai_enhance", {})
+        self._config["ai_enhance"].setdefault("vocabulary", {})
+        self._config["ai_enhance"]["vocabulary"]["auto_build"] = enabled
+        save_config(self._config, self._config_path)
+        logger.info("Auto vocabulary build set to: %s (from settings)", enabled)
+
+    def _settings_history_toggle(self, enabled: bool) -> None:
+        """Handle history toggle from Settings panel."""
+        if not self._enhancer:
+            return
+        self._enhancer.history_enabled = enabled
+        self._enhance_history_item.state = 1 if enabled else 0
+
+        self._config.setdefault("ai_enhance", {})
+        self._config["ai_enhance"].setdefault("conversation_history", {})
+        self._config["ai_enhance"]["conversation_history"]["enabled"] = enabled
+        save_config(self._config, self._config_path)
+        logger.info("Conversation history set to: %s (from settings)", enabled)
+
     def _on_quit_click(self, _) -> None:
         if self._hotkey_listener:
             self._hotkey_listener.stop()
         if self._clipboard_hotkey_listener:
             self._clipboard_hotkey_listener.stop()
+        if self._settings_panel.is_visible:
+            self._settings_panel.close()
         rumps.quit_application()
 
     @staticmethod

@@ -13,6 +13,52 @@ self._restore_accessory()
 
 `rumps.notification()` will crash with `Info.plist` / `CFBundleIdentifier` errors when running directly from the terminal (`uv run`) without app bundling. This is expected during development — wrap calls in try/except and log the error instead of crashing. In a packaged app `rumps.notification()` works normally, so it is fine to use for non-critical user feedback.
 
+## Showing NSPanel / NSWindow from Menu Callbacks
+
+When showing an NSPanel from a rumps menu callback (e.g. clicking "Settings..."), the window must be created and displayed **synchronously within the callback**. Do NOT use `AppHelper.callAfter()` to defer the `show()` call.
+
+**Why:** In a statusbar app (`NSApplicationActivationPolicyAccessory`), clicking a menu item briefly activates the app for menu tracking. When the menu callback returns, the app falls back to accessory mode. If `show()` is deferred via `callAfter`, it runs after the app has deactivated — the window is created but never appears on screen.
+
+**Correct pattern** (used by `LogViewerPanel`, `SettingsPanel`):
+```python
+def _on_menu_click(self, _):
+    # Call show() directly — it sets activation policy internally
+    self._panel.show(...)
+```
+
+**Inside `show()`**, follow this order:
+1. `NSApp.setActivationPolicy_(0)` — switch to Regular (foreground)
+2. Build/configure the panel
+3. `panel.makeKeyAndOrderFront_(None)` — display the window
+4. `NSApp.activateIgnoringOtherApps_(True)` — bring app to front
+
+**Inside `close()`**, restore:
+1. `panel.orderOut_(None)`
+2. `NSApp.setActivationPolicy_(1)` — back to Accessory (statusbar-only)
+
+## PyObjC Class Name Uniqueness
+
+Objective-C class names are **globally unique** across the entire process. When using PyObjC to define NSObject subclasses (e.g. panel close delegates), each module must use a **distinct class name**. If two modules both define `class PanelCloseDelegate(NSObject)`, the second one will crash with `objc.error: PanelCloseDelegate is overriding existing Objective-C class`.
+
+**Convention:** Prefix with the module/component name: `SettingsPanelCloseDelegate`, `LogViewerPanelCloseDelegate`, etc.
+
+## No Arbitrary Attributes on AppKit Objects
+
+Real AppKit objects (`NSButton`, `NSTextField`, etc.) do **not** allow setting arbitrary Python attributes (e.g. `btn._my_data = "foo"` raises `AttributeError`). This works with `MagicMock` in tests but crashes at runtime.
+
+**Solution:** Use a Python-side `dict` keyed by `id(button)` to store metadata:
+```python
+self._btn_meta: Dict[int, Dict] = {}
+
+def _set_meta(self, btn, **kwargs):
+    self._btn_meta[id(btn)] = kwargs
+
+def _get_meta(self, btn) -> Dict:
+    return self._btn_meta.get(id(btn), {})
+```
+
+See `settings_window.py` for the reference implementation.
+
 ## Dark Mode Support
 
 All UI must support macOS dark mode. Follow these rules when writing UI code:
