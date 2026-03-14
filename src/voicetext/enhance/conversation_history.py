@@ -30,6 +30,7 @@ class ConversationHistory:
         stt_model: str = "",
         llm_model: str = "",
         user_corrected: bool = False,
+        audio_duration: float = 0.0,
     ) -> None:
         """Write a single conversation record to the JSONL file."""
         os.makedirs(self._config_dir, exist_ok=True)
@@ -44,6 +45,7 @@ class ConversationHistory:
             "stt_model": stt_model,
             "llm_model": llm_model,
             "user_corrected": user_corrected,
+            "audio_duration": round(audio_duration, 1),
         }
 
         with open(self._history_path, "a", encoding="utf-8") as f:

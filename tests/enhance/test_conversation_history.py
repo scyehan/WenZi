@@ -522,6 +522,32 @@ class TestUserCorrectedField:
         assert record["user_corrected"] is False
 
 
+class TestAudioDuration:
+    def test_log_audio_duration(self, history, history_dir):
+        history.log("hello", "Hello.", "Hello.", "proofread", True, audio_duration=3.7)
+
+        path = os.path.join(history_dir, "conversation_history.jsonl")
+        with open(path, "r", encoding="utf-8") as f:
+            record = json.loads(f.readline())
+        assert record["audio_duration"] == 3.7
+
+    def test_log_audio_duration_default_zero(self, history, history_dir):
+        history.log("hello", "Hello.", "Hello.", "proofread", True)
+
+        path = os.path.join(history_dir, "conversation_history.jsonl")
+        with open(path, "r", encoding="utf-8") as f:
+            record = json.loads(f.readline())
+        assert record["audio_duration"] == 0.0
+
+    def test_log_audio_duration_rounded(self, history, history_dir):
+        history.log("hello", "Hello.", "Hello.", "proofread", True, audio_duration=5.678)
+
+        path = os.path.join(history_dir, "conversation_history.jsonl")
+        with open(path, "r", encoding="utf-8") as f:
+            record = json.loads(f.readline())
+        assert record["audio_duration"] == 5.7
+
+
 class TestCorrectionCount:
     def test_no_file(self, history):
         assert history.correction_count() == 0

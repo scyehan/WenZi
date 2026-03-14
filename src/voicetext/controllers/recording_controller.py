@@ -148,6 +148,17 @@ class RecordingController:
 
         wav_data = app._recorder.stop()
 
+        # Record audio duration for usage statistics
+        audio_duration = 0.0
+        if wav_data:
+            try:
+                from voicetext.transcription.base import BaseTranscriber
+                audio_duration = BaseTranscriber.wav_duration_seconds(wav_data)
+                app._usage_stats.record_recording_duration(audio_duration)
+            except Exception as e:
+                logger.error("Failed to record recording duration: %s", e)
+        app._last_audio_duration = audio_duration
+
         if streaming_active:
             # Streaming path: get final text from the streaming session
             self._streaming_active = False
@@ -519,6 +530,7 @@ class RecordingController:
                 preview_enabled=False,
                 stt_model=app._current_stt_model(),
                 llm_model=app._current_llm_model(),
+                audio_duration=getattr(app, "_last_audio_duration", 0.0),
             )
         except Exception as e:
             logger.error("Failed to log conversation: %s", e)

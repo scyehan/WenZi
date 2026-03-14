@@ -173,6 +173,8 @@ function renderCards() {
         { label: 'Accept Rate',
           value: calcRate(t.direct_accept, t.direct_accept + t.user_modification + t.cancel),
           sub: `Accept: ${t.direct_accept || 0} | Modified: ${t.user_modification || 0}` },
+        { label: 'Recording Time', value: formatDuration(t.recording_seconds || 0),
+          sub: `Today: ${formatDuration(td.recording_seconds || 0)}` },
         { label: 'Days Active', value: DATA.daily.filter(d => (d.totals||{}).transcriptions > 0).length,
           sub: cum.first_recorded ? `Since ${cum.first_recorded.slice(0, 10)}` : 'No data yet' },
     ];
@@ -189,6 +191,17 @@ function renderCards() {
 
 function formatNum(n) {
     return n.toLocaleString();
+}
+
+function formatDuration(totalSec) {
+    const s = Math.round(totalSec);
+    if (s < 60) return s + 's';
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    if (m < 60) return m + 'm ' + sec + 's';
+    const h = Math.floor(m / 60);
+    const min = m % 60;
+    return h + 'h ' + min + 'm';
 }
 
 function calcRate(num, denom) {
