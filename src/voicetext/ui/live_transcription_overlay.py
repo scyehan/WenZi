@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +154,7 @@ class LiveTranscriptionOverlay:
 
     def _resize_panel(self) -> None:
         """Resize the panel to fit the current text content, up to _PANEL_MAX_HEIGHT."""
-        from Foundation import NSMakeRect, NSMakeSize
+        from Foundation import NSMakeRect
 
         tf = self._text_field
         panel = self._panel
