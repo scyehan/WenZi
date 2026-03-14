@@ -619,6 +619,26 @@ class MultiHotkeyListener:
             self._held.discard(n)
         logger.info("Hotkey %s disabled", n)
 
+    def set_restart_key(self, key_name: str) -> None:
+        """Change the restart key at runtime."""
+        n = key_name.strip().lower()
+        if n == "option":
+            n = "alt"
+        elif n == "command":
+            n = "cmd"
+        self._restart_key = n
+        logger.info("Restart key set to: %s", n)
+
+    def set_cancel_key(self, key_name: str) -> None:
+        """Change the cancel key at runtime."""
+        n = key_name.strip().lower()
+        if n == "option":
+            n = "alt"
+        elif n == "command":
+            n = "cmd"
+        self._cancel_key = n
+        logger.info("Cancel key set to: %s", n)
+
     def _handle_press(self, name: str) -> bool:
         """Handle key press. Returns True if the event should be swallowed."""
         try:

@@ -473,6 +473,79 @@ class TestMultiHotkeyCancelKey:
         assert on_restart.call_count == 1
 
 
+class TestMultiHotkeySetKeys:
+    def test_set_restart_key(self):
+        on_restart = MagicMock()
+        listener = MultiHotkeyListener(
+            ["fn"], MagicMock(), MagicMock(), on_restart=on_restart
+        )
+
+        # Default restart key is cmd
+        listener._handle_press("fn")
+        listener._handle_press("cmd")
+        on_restart.assert_called_once()
+
+        # Change to f5
+        listener.set_restart_key("f5")
+        listener._handle_press("f5")
+        assert on_restart.call_count == 2
+
+        # Old key no longer triggers restart
+        on_restart.reset_mock()
+        listener._handle_press("cmd")
+        on_restart.assert_not_called()
+
+    def test_set_cancel_key(self):
+        import time
+
+        on_cancel = MagicMock()
+        listener = MultiHotkeyListener(
+            ["fn"], MagicMock(), MagicMock(), on_cancel=on_cancel
+        )
+
+        # Default cancel key is space
+        listener._handle_press("fn")
+        listener._handle_press("space")
+        for _ in range(50):
+            if on_cancel.called:
+                break
+            time.sleep(0.01)
+        on_cancel.assert_called_once()
+
+        # Release to reset state, then change cancel key
+        listener._handle_release("fn")
+        on_cancel.reset_mock()
+        listener.set_cancel_key("esc")
+
+        listener._handle_press("fn")
+        listener._handle_press("esc")
+        for _ in range(50):
+            if on_cancel.called:
+                break
+            time.sleep(0.01)
+        on_cancel.assert_called_once()
+
+    def test_set_restart_key_normalizes_aliases(self):
+        listener = MultiHotkeyListener(
+            ["fn"], MagicMock(), MagicMock(), on_restart=MagicMock()
+        )
+        listener.set_restart_key("command")
+        assert listener._restart_key == "cmd"
+
+        listener.set_restart_key("option")
+        assert listener._restart_key == "alt"
+
+    def test_set_cancel_key_normalizes_aliases(self):
+        listener = MultiHotkeyListener(
+            ["fn"], MagicMock(), MagicMock(), on_cancel=MagicMock()
+        )
+        listener.set_cancel_key("command")
+        assert listener._cancel_key == "cmd"
+
+        listener.set_cancel_key("option")
+        assert listener._cancel_key == "alt"
+
+
 class TestHoldHotkeyThreadSafety:
     """Test that _held state is protected by a lock."""
 

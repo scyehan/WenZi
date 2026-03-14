@@ -474,6 +474,9 @@ class VoiceTextApp(StatusBarApp):
 
     def _start_hotkey_listeners(self) -> None:
         hotkeys: Dict[str, bool] = self._config.get("hotkeys", {"fn": True})
+        fb_cfg = self._config.get("feedback", {})
+        restart_key = fb_cfg.get("restart_key", "cmd")
+        cancel_key = fb_cfg.get("cancel_key", "space")
         active_keys = [k for k, v in hotkeys.items() if v]
         if active_keys:
             self._hotkey_listener = MultiHotkeyListener(
@@ -482,6 +485,8 @@ class VoiceTextApp(StatusBarApp):
                 on_release=self._recording_controller.on_hotkey_release,
                 on_restart=self._recording_controller.on_restart_recording,
                 on_cancel=self._recording_controller.on_cancel_recording,
+                restart_key=restart_key,
+                cancel_key=cancel_key,
             )
             self._hotkey_listener.start()
 
