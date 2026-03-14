@@ -19,7 +19,7 @@ from .enhance.conversation_history import ConversationHistory
 from .usage_stats import UsageStats
 from .enhance.enhancer import MODE_OFF, create_enhancer
 from .ui.history_browser_window import HistoryBrowserPanel
-from .ui.result_window import ResultPreviewPanel
+from .ui.result_window_web import ResultPreviewPanel
 from .ui.settings_window import SettingsPanel
 from .hotkey import MultiHotkeyListener, TapHotkeyListener, _is_fn_key
 from .transcription.model_registry import (
