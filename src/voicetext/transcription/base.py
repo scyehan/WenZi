@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import abc
 import logging
-from typing import Optional
+from typing import Callable, Optional
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,33 @@ class BaseTranscriber(abc.ABC):
     def cleanup(self) -> None:
         """Release model resources. After this, initialized should return False."""
 
+    # ── Streaming interface (optional) ──────────────────────────────
+
+    @property
+    def supports_streaming(self) -> bool:
+        """Whether this backend supports real-time streaming transcription."""
+        return False
+
+    def start_streaming(self, on_partial: Callable[[str, bool], None]) -> None:
+        """Begin a streaming recognition session.
+
+        Args:
+            on_partial: Callback invoked with (text, is_final) for each partial result.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support streaming")
+
+    def feed_audio(self, samples: np.ndarray) -> None:
+        """Feed a chunk of int16 audio samples to the streaming session."""
+        raise NotImplementedError(f"{type(self).__name__} does not support streaming")
+
+    def stop_streaming(self) -> str:
+        """End audio input and return the final transcription text."""
+        raise NotImplementedError(f"{type(self).__name__} does not support streaming")
+
+    def cancel_streaming(self) -> None:
+        """Cancel the current streaming session without waiting for a final result."""
+        raise NotImplementedError(f"{type(self).__name__} does not support streaming")
+
     @staticmethod
     def wav_duration_seconds(wav_data: bytes) -> float:
         """Calculate audio duration in seconds from WAV data."""
@@ -63,11 +92,11 @@ def create_transcriber(
     """Create a transcriber for the given backend.
 
     Args:
-        backend: "funasr", "mlx-whisper", "whisper-api", or "apple-speech".
+        backend: "funasr", "mlx-whisper", "whisper-api", "apple", or "sherpa-onnx".
         use_vad: Enable voice activity detection (funasr only).
         use_punc: Enable punctuation restoration.
-        language: Language hint (mlx-whisper / whisper-api / apple-speech, e.g. "zh", "en").
-        model: Override default model name/path. For apple-speech: "on-device" or "server".
+        language: Language hint (mlx-whisper / whisper-api / apple, e.g. "zh", "en").
+        model: Override default model name/path. For apple: "on-device" or "server".
         temperature: Decoding temperature (mlx-whisper / whisper-api).
         base_url: API base URL (whisper-api only).
         api_key: API key (whisper-api only).
@@ -98,7 +127,14 @@ def create_transcriber(
             on_device=(model == "on-device"),
         )
 
+    if backend in ("sherpa", "sherpa-onnx"):
+        from .sherpa import SherpaOnnxTranscriber
+        return SherpaOnnxTranscriber(
+            model=model or "zipformer-zh",
+            language=language,
+        )
+
     raise ValueError(
         f"Unknown ASR backend: {backend!r}. "
-        "Use 'funasr', 'mlx-whisper', 'whisper-api', or 'apple-speech'."
+        "Use 'funasr', 'mlx-whisper', 'whisper-api', 'apple', or 'sherpa-onnx'."
     )

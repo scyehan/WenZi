@@ -31,12 +31,14 @@ def mock_app():
     app._recording_started.set()
     app._level_poll_stop = None
     app._transcriber = MagicMock()
+    app._transcriber.supports_streaming = False  # Default: batch mode
     app._enhancer = MagicMock()
     app._enhancer.is_active = True
     app._enhancer.mode = "proofread"
     app._enhance_mode = "proofread"
     app._preview_enabled = False
     app._streaming_overlay = MagicMock()
+    app._live_overlay = MagicMock()
     app._usage_stats = MagicMock()
     app._conversation_history = MagicMock()
     app._append_newline = False
@@ -131,6 +133,101 @@ class TestFeedbackToggles:
         assert mock_app._recording_indicator.enabled is False
         assert sender.state == 0
         mock_save.assert_called_once()
+
+
+class TestStreamingIntegration:
+    @patch("PyObjCTools.AppHelper")
+    def test_streaming_starts_when_supported(self, mock_apphelper, ctrl, mock_app):
+        mock_apphelper.callAfter = lambda fn, *a, **kw: fn(*a, **kw)
+        mock_app._sound_manager.enabled = False
+        mock_app._transcriber.supports_streaming = True
+
+        ctrl.on_hotkey_press()
+
+        assert ctrl._streaming_active is True
+        mock_app._transcriber.start_streaming.assert_called_once()
+        mock_app._recorder.set_on_audio_chunk.assert_called_once()
+
+    @patch("PyObjCTools.AppHelper")
+    def test_streaming_not_started_when_unsupported(self, mock_apphelper, ctrl, mock_app):
+        mock_apphelper.callAfter = lambda fn, *a, **kw: fn(*a, **kw)
+        mock_app._sound_manager.enabled = False
+        mock_app._transcriber.supports_streaming = False
+
+        ctrl.on_hotkey_press()
+
+        assert ctrl._streaming_active is False
+        mock_app._transcriber.start_streaming.assert_not_called()
+
+    @patch("voicetext.controllers.recording_controller.type_text")
+    @patch("PyObjCTools.AppHelper")
+    def test_streaming_release_calls_stop_streaming(self, mock_apphelper, mock_type_text, ctrl, mock_app):
+        import time
+
+        mock_apphelper.callAfter = lambda fn, *a, **kw: fn(*a, **kw)
+        mock_app._transcriber.supports_streaming = True
+        # Use a descriptive string so if it leaks to terminal output (via un-mocked
+        # type_text or logging), we can immediately identify which test caused it.
+        _mock_text = "[mock from test_recording_controller.py::test_streaming_release_calls_stop_streaming]"
+        mock_app._transcriber.stop_streaming.return_value = _mock_text
+        mock_app._sound_manager.enabled = False
+
+        # Press to start streaming
+        ctrl.on_hotkey_press()
+        assert ctrl._streaming_active is True
+
+        # Release: should use streaming path (runs _do_streaming_stop in background thread)
+        ctrl.on_hotkey_release()
+
+        # Wait for the entire background thread to finish (it sets _busy=False in finally)
+        for _ in range(50):
+            if not mock_app._busy:
+                break
+            time.sleep(0.02)
+
+        mock_app._recorder.clear_on_audio_chunk.assert_called()
+        mock_app._transcriber.stop_streaming.assert_called_once()
+
+    @patch("PyObjCTools.AppHelper")
+    def test_streaming_fallback_on_error(self, mock_apphelper, ctrl, mock_app):
+        mock_apphelper.callAfter = lambda fn, *a, **kw: fn(*a, **kw)
+        mock_app._sound_manager.enabled = False
+        mock_app._transcriber.supports_streaming = True
+        mock_app._transcriber.start_streaming.side_effect = RuntimeError("init fail")
+
+        ctrl.on_hotkey_press()
+
+        # Should fall back to batch mode
+        assert ctrl._streaming_active is False
+
+    @patch("PyObjCTools.AppHelper")
+    def test_streaming_release_with_preview(self, mock_apphelper, ctrl, mock_app):
+        import time
+
+        mock_apphelper.callAfter = lambda fn, *a, **kw: fn(*a, **kw)
+        mock_app._transcriber.supports_streaming = True
+        # Use a descriptive string so if it leaks to terminal output (via un-mocked
+        # type_text or logging), we can immediately identify which test caused it.
+        mock_app._transcriber.stop_streaming.return_value = "[mock from test_recording_controller.py::test_streaming_release_with_preview]"
+        mock_app._sound_manager.enabled = False
+        mock_app._preview_enabled = True
+
+        ctrl.on_hotkey_press()
+        ctrl.on_hotkey_release()
+
+        # _do_streaming_stop runs in a background thread, wait for it
+        for _ in range(50):
+            if mock_app._do_transcribe_with_preview.called:
+                break
+            time.sleep(0.02)
+
+        mock_app._do_transcribe_with_preview.assert_called_once()
+        call_kwargs = mock_app._do_transcribe_with_preview.call_args[1]
+        assert call_kwargs["asr_text"] == "[mock from test_recording_controller.py::test_streaming_release_with_preview]"
+
+    def test_init_streaming_state(self, ctrl):
+        assert ctrl._streaming_active is False
+        assert ctrl._live_overlay is None
 
 
 class TestDoTranscribeDirect:

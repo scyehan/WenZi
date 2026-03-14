@@ -228,11 +228,7 @@ models:
     # ── ASR provider draft management ─────────────────────────────────
 
     def _get_asr_provider_draft_path(self) -> str:
-        from voicetext.config import DEFAULT_CONFIG_DIR
-        app = self._app
-        config_dir = app._config_path or DEFAULT_CONFIG_DIR
-        parent = os.path.dirname(os.path.expanduser(config_dir))
-        return os.path.join(parent, self._ASR_PROVIDER_DRAFT_FILENAME)
+        return os.path.join(self._app._config_dir, self._ASR_PROVIDER_DRAFT_FILENAME)
 
     def _load_asr_provider_draft(self) -> str:
         draft_path = self._get_asr_provider_draft_path()
@@ -268,11 +264,7 @@ models:
     # ── LLM provider draft management ─────────────────────────────────
 
     def _get_provider_draft_path(self) -> str:
-        from voicetext.config import DEFAULT_CONFIG_DIR
-        app = self._app
-        config_dir = app._config_path or DEFAULT_CONFIG_DIR
-        parent = os.path.dirname(os.path.expanduser(config_dir))
-        return os.path.join(parent, self._PROVIDER_DRAFT_FILENAME)
+        return os.path.join(self._app._config_dir, self._PROVIDER_DRAFT_FILENAME)
 
     def _load_provider_draft(self) -> str:
         draft_path = self._get_provider_draft_path()

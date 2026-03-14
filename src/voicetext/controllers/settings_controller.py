@@ -75,7 +75,7 @@ class SettingsController:
         if app._enhancer and app._enhancer.vocab_index is not None:
             vocab_count = app._enhancer.vocab_index.entry_count
         if vocab_count == 0:
-            vocab_count = get_vocab_entry_count()
+            vocab_count = get_vocab_entry_count(app._config_dir)
 
         state = {
             "hotkeys": hotkeys,
@@ -395,9 +395,7 @@ class SettingsController:
     def enhance_mode_edit(self, mode_id: str) -> None:
         """Open the enhance mode markdown file in TextEdit."""
         try:
-            from voicetext.config import DEFAULT_ENHANCE_MODES_DIR
-
-            modes_dir = os.path.expanduser(DEFAULT_ENHANCE_MODES_DIR)
+            modes_dir = os.path.join(self._app._config_dir, "enhance_modes")
             md_path = os.path.join(modes_dir, f"{mode_id}.md")
             logger.info("Opening mode file: %s", md_path)
             subprocess.Popen(["open", "-a", "TextEdit", md_path])

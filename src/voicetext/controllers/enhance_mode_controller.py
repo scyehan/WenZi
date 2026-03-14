@@ -196,7 +196,7 @@ Output only the processed text without any explanation."""
         if app._enhancer and app._enhancer.vocab_index is not None:
             count = app._enhancer.vocab_index.entry_count
         if count == 0:
-            count = get_vocab_entry_count()
+            count = get_vocab_entry_count(app._config_dir)
 
         if count > 0:
             app._enhance_vocab_item.title = f"Vocabulary ({count})"

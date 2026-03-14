@@ -13,6 +13,14 @@ DEFAULT_CONFIG_DIR = os.path.join("~", ".config", "VoiceText")
 DEFAULT_CONFIG_PATH = os.path.join(DEFAULT_CONFIG_DIR, "config.json")
 DEFAULT_ENHANCE_MODES_DIR = os.path.join(DEFAULT_CONFIG_DIR, "enhance_modes")
 
+
+def resolve_config_dir(config_dir: Optional[str] = None) -> str:
+    """Return the expanded absolute config directory path.
+
+    If *config_dir* is ``None``, returns the default ``~/.config/VoiceText``.
+    """
+    return os.path.expanduser(config_dir if config_dir else DEFAULT_CONFIG_DIR)
+
 DEFAULT_CONFIG: Dict[str, Any] = {
     "hotkeys": {"fn": True},
     "audio": {
@@ -23,11 +31,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "silence_rms": 20,
     },
     "asr": {
-        "backend": "funasr",
+        "backend": "apple",
         "use_vad": True,
         "use_punc": True,
         "language": "zh",
-        "model": None,
+        "model": "on-device",
         "preset": None,
         "temperature": 0.0,
         "default_provider": None,
@@ -163,7 +171,8 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
         ("output.append_newline", bool, None, DEFAULT_CONFIG["output"]["append_newline"]),
         ("output.preview_type", str, lambda v: v in {"web", "native"},
          DEFAULT_CONFIG["output"]["preview_type"]),
-        ("asr.backend", str, lambda v: v in {"funasr", "mlx_whisper", "apple", "api"},
+        ("asr.backend", str,
+         lambda v: v in {"funasr", "mlx-whisper", "mlx_whisper", "whisper-api", "apple", "sherpa-onnx"},
          DEFAULT_CONFIG["asr"]["backend"]),
         ("asr.language", str, lambda v: len(v) > 0, DEFAULT_CONFIG["asr"]["language"]),
         ("logging.level", str, lambda v: v in {"DEBUG", "INFO", "WARNING", "ERROR"},

@@ -43,14 +43,14 @@ PRESETS = [
     ModelPreset(
         id="apple-speech-ondevice",
         display_name="Apple Speech (On-Device)",
-        backend="apple-speech",
+        backend="apple",
         model="on-device",
         language=None,
     ),
     ModelPreset(
         id="apple-speech-server",
         display_name="Apple Speech (Server)",
-        backend="apple-speech",
+        backend="apple",
         model="server",
         language=None,
     ),
@@ -67,6 +67,20 @@ PRESETS = [
         backend="mlx-whisper",
         model="mlx-community/whisper-large-v3-turbo",
         language=None,
+    ),
+    ModelPreset(
+        id="sherpa-zipformer-zh",
+        display_name="Zipformer Chinese 14M (Sherpa)",
+        backend="sherpa-onnx",
+        model="zipformer-zh",
+        language="zh",
+    ),
+    ModelPreset(
+        id="sherpa-paraformer-zh",
+        display_name="Paraformer Bilingual (Sherpa)",
+        backend="sherpa-onnx",
+        model="paraformer-zh",
+        language="zh",
     ),
 ]
 
@@ -90,11 +104,12 @@ def is_backend_available(backend: str) -> bool:
     _BACKEND_MODULES = {
         "funasr": "funasr_onnx",
         "mlx-whisper": "mlx_whisper",
-        "apple-speech": "Speech",
+        "apple": "Speech",
+        "sherpa-onnx": "sherpa_onnx",
     }
 
-    # apple-speech requires macOS
-    if backend == "apple-speech":
+    # apple requires macOS
+    if backend == "apple":
         import sys
         if sys.platform != "darwin":
             _backend_available[backend] = False
@@ -123,7 +138,9 @@ def resolve_preset_from_config(
             return preset.id
         if backend_norm == "mlx-whisper" and preset.model == model:
             return preset.id
-        if backend_norm == "apple-speech" and preset.model == model:
+        if backend_norm == "apple" and preset.model == model:
+            return preset.id
+        if backend_norm == "sherpa-onnx" and preset.model == model:
             return preset.id
 
     return None
@@ -148,12 +165,16 @@ def get_model_cache_dir(preset: ModelPreset) -> Path:
         cache_name = "models--" + repo_id.replace("/", "--")
         return home / ".cache" / "huggingface" / "hub" / cache_name
 
+    if preset.backend == "sherpa-onnx" and preset.model:
+        from .sherpa import _get_model_dir
+        return _get_model_dir(preset.model)
+
     return home / ".cache" / "voicetext" / preset.id
 
 
 def is_model_cached(preset: ModelPreset) -> bool:
     """Check if a preset's model files are already downloaded."""
-    if preset.backend == "apple-speech":
+    if preset.backend == "apple":
         return True  # No model download needed
 
     if preset.backend == "mlx-whisper" and preset.model:
@@ -175,7 +196,25 @@ def is_model_cached(preset: ModelPreset) -> bool:
             cache_dir / "model.onnx"
         ).exists()
 
+    if preset.backend == "sherpa-onnx" and preset.model:
+        cache_dir = get_model_cache_dir(preset)
+        return cache_dir.exists() and any(cache_dir.glob("*.onnx"))
+
     return False
+
+
+def get_model_size(preset: ModelPreset) -> Optional[int]:
+    """Return the total size in bytes of cached model files, or None if not cached."""
+    if not is_model_cached(preset):
+        return None
+    cache_dir = get_model_cache_dir(preset)
+    if not cache_dir.exists():
+        return None
+    total = 0
+    for f in cache_dir.rglob("*"):
+        if f.is_file():
+            total += f.stat().st_size
+    return total
 
 
 def build_remote_asr_models(providers: Dict[str, Any]) -> List[RemoteASRModel]:

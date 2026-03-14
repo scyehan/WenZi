@@ -24,9 +24,9 @@ _DURATION = 0.3
 _SPEED_FACTOR = 1.5
 
 
-def _ensure_sounds_dir() -> str:
+def _ensure_sounds_dir(sounds_dir: str = SOUNDS_DIR) -> str:
     """Ensure the sounds directory exists and return its expanded path."""
-    expanded = os.path.expanduser(SOUNDS_DIR)
+    expanded = os.path.expanduser(sounds_dir)
     os.makedirs(expanded, exist_ok=True)
     return expanded
 
@@ -77,13 +77,17 @@ def _generate_default_start_sound(path: str) -> None:
     sf.write(path, sig.astype(np.float32), _SAMPLE_RATE)
 
 
-def ensure_start_sound() -> str:
+def ensure_start_sound(config_dir: str | None = None) -> str:
     """Return path to the start sound, generating it if missing.
 
     Users can replace ~/.config/VoiceText/sounds/recording_start.wav
     with their own sound file.
     """
-    sounds_dir = _ensure_sounds_dir()
+    if config_dir:
+        sdir = os.path.join(config_dir, "sounds")
+    else:
+        sdir = SOUNDS_DIR
+    sounds_dir = _ensure_sounds_dir(sdir)
     path = os.path.join(sounds_dir, DEFAULT_START_SOUND)
     if not os.path.exists(path):
         logger.info("Generating default start sound: %s", path)
@@ -98,10 +102,11 @@ class SoundManager:
         self,
         enabled: bool = True,
         volume: float = 0.4,
+        config_dir: str | None = None,
     ) -> None:
         self._enabled = enabled
         self._volume = volume
-        self._start_sound = ensure_start_sound()
+        self._start_sound = ensure_start_sound(config_dir)
 
     @property
     def enabled(self) -> bool:
