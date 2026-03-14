@@ -81,6 +81,7 @@ body {
     -webkit-user-select: text; user-select: text;
 }
 .section.expand .text-area { flex: 1; min-height: 0; }
+.text-area.asr-bg { background: var(--card-bg); }
 .text-area.enhance-bg { background: var(--enhance-bg); }
 .text-area .thinking {
     color: var(--secondary); font-style: italic;
@@ -202,7 +203,7 @@ select {
             <button class="btn hidden" id="save-btn" onclick="postAction('saveAudio')">Save</button>
         </div>
     </div>
-    <div class="text-area" id="asr-text"></div>
+    <div class="text-area asr-bg" id="asr-text"></div>
 </div>
 
 <!-- Mode Segment -->
