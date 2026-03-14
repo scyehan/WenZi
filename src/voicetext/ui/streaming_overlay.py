@@ -51,7 +51,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
         --secondary: #a0a0a5;
         --border: rgba(255, 255, 255, 0.15);
         --thinking: #8e8e93;
-    }
+        }
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body {
@@ -69,39 +69,46 @@ body {
     display: flex; flex-direction: column;
     padding: 10px 12px;
 }
-#asr-section { flex-shrink: 0; margin-bottom: 6px; }
+#asr-section {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column;
+    margin-bottom: 4px;
+}
 #asr-title {
     font-weight: 600; font-size: 11px; color: var(--secondary);
-    margin-bottom: 2px;
+    margin-bottom: 2px; flex-shrink: 0;
 }
 #asr-text {
+    flex: 1; min-height: 0;
     font-size: 12px; color: var(--secondary);
-    line-height: 1.3;
-    max-height: 2.6em; overflow: hidden;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    line-height: 1.4;
+    overflow-y: auto; scrollbar-width: none;
+    -webkit-user-select: text; user-select: text;
+    cursor: text;
 }
+#asr-text::-webkit-scrollbar { display: none; }
 #asr-text:empty::after {
     content: "Transcribing...";
     animation: pulse 1.5s ease-in-out infinite;
 }
 @keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:1} }
-.separator {
-    height: 1px; background: var(--border);
-    margin: 4px 0; flex-shrink: 0;
+#ai-section {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column;
+    padding-top: 4px;
 }
 #status {
     font-weight: 600; font-size: 11px;
-    margin-bottom: 4px; flex-shrink: 0;
+    margin-bottom: 2px; flex-shrink: 0;
 }
 #stream-area {
     flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
     font-size: 13px; line-height: 1.4;
-    scrollbar-width: thin;
+    scrollbar-width: none;
+    -webkit-user-select: text; user-select: text;
+    cursor: text;
 }
-#stream-area::-webkit-scrollbar { width: 4px; }
-#stream-area::-webkit-scrollbar-thumb {
-    background: var(--secondary); border-radius: 2px; opacity: 0.5;
-}
+#stream-area::-webkit-scrollbar { display: none; }
 .thinking { color: var(--thinking); font-style: italic; }
 </style>
 </head>
@@ -110,9 +117,10 @@ body {
   <div id="asr-title"></div>
   <div id="asr-text"></div>
 </div>
-<div class="separator"></div>
-<div id="status"></div>
-<div id="stream-area"></div>
+<div id="ai-section">
+  <div id="status"></div>
+  <div id="stream-area"></div>
+</div>
 <script>
 const C = __CONFIG__;
 document.getElementById('asr-title').textContent = C.asrTitle;
@@ -121,6 +129,7 @@ document.getElementById('status').textContent = C.statusText;
 
 function setAsrText(t) { document.getElementById('asr-text').textContent = t; }
 function setStatus(t) { document.getElementById('status').textContent = t; }
+function setStatusHtml(h) { document.getElementById('status').innerHTML = h; }
 
 function appendText(chunk, tokens) {
     const el = document.getElementById('stream-area');
@@ -150,9 +159,14 @@ function clearText() {
 
 function setComplete(usage) {
     if (usage && usage.total_tokens) {
-        setStatus(C.aiBase + '  Tokens: ' + usage.total_tokens.toLocaleString()
-            + ' (\u2191' + (usage.prompt_tokens||0).toLocaleString()
-            + ' \u2193' + (usage.completion_tokens||0).toLocaleString() + ')');
+        var prompt = usage.prompt_tokens||0, comp = usage.completion_tokens||0;
+        var cached = usage.cache_read_tokens||0;
+        var pp = cached
+            ? '<span style="opacity:0.5">\u2191' + cached.toLocaleString() + '</span>+' + (prompt-cached).toLocaleString()
+            : '\u2191' + prompt.toLocaleString();
+        var safe = C.aiBase.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+        setStatusHtml(safe + '&ensp;Tokens: ' + usage.total_tokens.toLocaleString()
+            + ' (' + pp + ' \u2193' + comp.toLocaleString() + ')');
     } else {
         setStatus(C.aiBase);
     }
@@ -278,7 +292,6 @@ class StreamingOverlayPanel:
             panel.setLevel_(NSStatusWindowLevel + 1)
             panel.setOpaque_(False)
             panel.setBackgroundColor_(NSColor.clearColor())
-            panel.setIgnoresMouseEvents_(True)
             panel.setHasShadow_(True)
             panel.setHidesOnDeactivate_(False)
             panel.setCollectionBehavior_(1 << 4)  # canJoinAllSpaces
