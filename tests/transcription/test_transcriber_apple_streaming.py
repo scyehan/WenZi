@@ -88,9 +88,8 @@ class TestAppleSpeechStreaming:
 
         t.start_streaming(on_partial)
 
-        # Simulate accumulated text
-        t._stream_confirmed = "hello "
-        t._stream_seg_best = "world"
+        # Simulate best text seen
+        t._stream_best_text = "hello world"
         t._stream_done.set()
 
         result = t.stop_streaming()
@@ -147,7 +146,7 @@ class TestAppleSpeechStreaming:
         call_args = t._recognizer.recognitionTaskWithRequest_resultHandler_.call_args
         handler = call_args[0][1]
 
-        # Simulate a partial result
+        # Simulate partial results (formattedString returns FULL text)
         mock_result = MagicMock()
         mock_result.bestTranscription().formattedString.return_value = "hello"
         mock_result.isFinal.return_value = False
@@ -155,34 +154,31 @@ class TestAppleSpeechStreaming:
 
         assert partials == [("hello", False)]
 
-        # Simulate a mid-session final (pause segmentation)
+        # Longer partial — updates
         mock_result2 = MagicMock()
         mock_result2.bestTranscription().formattedString.return_value = "hello world"
-        mock_result2.isFinal.return_value = True
+        mock_result2.isFinal.return_value = False
         handler(mock_result2, None)
 
-        # Mid-session final accumulates but doesn't set done
-        assert len(partials) == 2
-        assert partials[1] == ("hello world", False)  # displayed as non-final
-        assert t._stream_confirmed == "hello world"
-        assert not t._stream_done.is_set()
+        assert partials[-1] == ("hello world", False)
+        assert t._stream_best_text == "hello world"
 
-        # Simulate new segment partial after pause
+        # Shorter partial during silence — ignored (keeps best)
         mock_result3 = MagicMock()
-        mock_result3.bestTranscription().formattedString.return_value = "foo"
+        mock_result3.bestTranscription().formattedString.return_value = "hello"
         mock_result3.isFinal.return_value = False
         handler(mock_result3, None)
 
-        assert partials[2] == ("hello worldfoo", False)  # accumulated
+        assert len(partials) == 2  # not updated
+        assert t._stream_best_text == "hello world"
 
-        # Simulate endAudio final
-        t._stream_ending = True
+        # Final result — sets done
         mock_result4 = MagicMock()
-        mock_result4.bestTranscription().formattedString.return_value = "foo bar"
+        mock_result4.bestTranscription().formattedString.return_value = "hello world"
         mock_result4.isFinal.return_value = True
         handler(mock_result4, None)
 
         assert t._stream_done.is_set()
-        assert t._stream_final_text == "hello worldfoo bar"
+        assert t._stream_best_text == "hello world"
 
         t.cancel_streaming()
