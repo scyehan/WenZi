@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from .mode_loader import (
@@ -99,12 +100,13 @@ def build_thinking_body(model: str, enabled: bool) -> Dict[str, Any]:
 class TextEnhancer:
     """Enhance transcribed text using LLM via OpenAI-compatible API."""
 
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config: Dict[str, Any], config_dir: str | None = None) -> None:
         self._enabled = config.get("enabled", False)
         self._timeout = config.get("timeout", 30)
         self._connection_timeout = config.get("connection_timeout", 10)
         self._max_retries = config.get("max_retries", 2)
         self._thinking = config.get("thinking", False)
+        self._config_dir = config_dir
 
         # Debug flags
         self._debug_print_prompt = False
@@ -117,8 +119,10 @@ class TextEnhancer:
         self._cancel_event = asyncio.Event()
 
         # Load enhancement modes from external files
-        ensure_default_modes()
-        self._modes: Dict[str, ModeDefinition] = load_modes()
+        modes_dir = os.path.join(config_dir, "enhance_modes") if config_dir else None
+        self._modes_dir = modes_dir
+        ensure_default_modes(modes_dir)
+        self._modes: Dict[str, ModeDefinition] = load_modes(modes_dir)
 
         raw_mode = config.get("mode", "proofread")
         if raw_mode != MODE_OFF and raw_mode not in self._modes:
@@ -144,13 +148,16 @@ class TextEnhancer:
         self._vocab_top_k = vocab_cfg.get("top_k", 5)
         self._vocab_index: Optional[VocabularyIndex] = None
         if self._vocab_enabled:
-            self._vocab_index = VocabularyIndex(vocab_cfg)
+            kwargs = {"vocab_dir": config_dir} if config_dir else {}
+            self._vocab_index = VocabularyIndex(vocab_cfg, **kwargs)
 
         # Conversation history
         history_cfg = config.get("conversation_history", {})
         self._history_enabled = history_cfg.get("enabled", False)
         self._history_max_entries = history_cfg.get("max_entries", 10)
-        self._conversation_history = ConversationHistory()
+        self._conversation_history = ConversationHistory(
+            **({"config_dir": config_dir} if config_dir else {})
+        )
 
         # Validate active provider/model
         if self._active_provider not in self._providers and self._providers:
@@ -210,7 +217,7 @@ class TextEnhancer:
 
     def reload_modes(self) -> None:
         """Reload mode definitions from external files."""
-        self._modes = load_modes()
+        self._modes = load_modes(self._modes_dir)
 
     @property
     def thinking(self) -> bool:
@@ -230,7 +237,8 @@ class TextEnhancer:
         self._vocab_enabled = value
         if value and self._vocab_index is None:
             vocab_cfg = self._config_raw.get("vocabulary", {}) if hasattr(self, "_config_raw") else {}
-            self._vocab_index = VocabularyIndex(vocab_cfg)
+            kwargs = {"vocab_dir": self._config_dir} if self._config_dir else {}
+            self._vocab_index = VocabularyIndex(vocab_cfg, **kwargs)
         logger.info("Vocabulary changed to: %s", value)
 
     @property
@@ -685,7 +693,9 @@ class TextEnhancer:
             yield f"(error: {e})", None, False
 
 
-def create_enhancer(config: Dict[str, Any]) -> Optional[TextEnhancer]:
+def create_enhancer(
+    config: Dict[str, Any], config_dir: str | None = None,
+) -> Optional[TextEnhancer]:
     """Factory function to create a TextEnhancer from app config.
 
     Returns None if ai_enhance is not configured.
@@ -693,4 +703,4 @@ def create_enhancer(config: Dict[str, Any]) -> Optional[TextEnhancer]:
     ai_config = config.get("ai_enhance")
     if ai_config is None:
         return None
-    return TextEnhancer(ai_config)
+    return TextEnhancer(ai_config, config_dir=config_dir)

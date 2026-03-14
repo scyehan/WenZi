@@ -13,7 +13,7 @@ from ApplicationServices import AXIsProcessTrusted, AXIsProcessTrustedWithOption
 from CoreFoundation import kCFBooleanTrue
 
 from .enhance.auto_vocab_builder import AutoVocabBuilder
-from .config import load_config, save_config
+from .config import load_config, resolve_config_dir, save_config
 from .controllers.enhance_controller import EnhanceController
 from .enhance.conversation_history import ConversationHistory
 from .usage_stats import UsageStats
@@ -79,7 +79,7 @@ _sf_symbol_cache: Dict[str, Any] = {}
 class VoiceTextApp(StatusBarApp):
     """Menubar app: hold hotkey to record, release to transcribe and type."""
 
-    def __init__(self, config_path: Optional[str] = None) -> None:
+    def __init__(self, config_dir: Optional[str] = None) -> None:
         super().__init__("VoiceText", icon=None, title="VT")
         self._current_status = "VT"
 
@@ -89,8 +89,10 @@ class VoiceTextApp(StatusBarApp):
             self._icon_nsimage = nsimage
             self._title = None  # clear text; icon takes over
 
-        self._config_path = config_path
-        self._config = load_config(config_path)
+        import os
+        self._config_dir = resolve_config_dir(config_dir)
+        self._config_path = os.path.join(self._config_dir, "config.json")
+        self._config = load_config(self._config_path)
         self._setup_logging()
 
         audio_cfg = self._config["audio"]
@@ -156,14 +158,15 @@ class VoiceTextApp(StatusBarApp):
             WebResultPreviewPanel() if self._preview_type == "web"
             else NativeResultPreviewPanel()
         )
-        self._conversation_history = ConversationHistory()
-        self._usage_stats = UsageStats()
+        self._conversation_history = ConversationHistory(config_dir=self._config_dir)
+        self._usage_stats = UsageStats(stats_dir=self._config_dir)
 
         # Feedback: sound + visual indicator
         fb_cfg = self._config.get("feedback", {})
         self._sound_manager = SoundManager(
             enabled=fb_cfg.get("sound_enabled", True),
             volume=fb_cfg.get("sound_volume", 0.4),
+            config_dir=self._config_dir,
         )
         self._recording_indicator = RecordingIndicatorPanel()
         self._recording_indicator.enabled = fb_cfg.get("visual_indicator", True)
@@ -211,7 +214,7 @@ class VoiceTextApp(StatusBarApp):
         self._menu_builder.build_model_menu()
 
         # AI Enhance
-        self._enhancer = create_enhancer(self._config)
+        self._enhancer = create_enhancer(self._config, config_dir=self._config_dir)
         ai_cfg = self._config.get("ai_enhance", {})
         self._enhance_mode: str = ai_cfg.get("mode", "proofread")
         if self._enhancer and not ai_cfg.get("enabled", False):
@@ -232,6 +235,7 @@ class VoiceTextApp(StatusBarApp):
             threshold=vocab_cfg.get("auto_build_threshold", 10),
             on_build_done=self._update_vocab_title,
             conversation_history=self._conversation_history,
+            config_dir=self._config_dir,
         )
         if self._enhancer:
             self._auto_vocab_builder.set_enhancer(self._enhancer)
@@ -795,8 +799,8 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, lambda *_: quit_application())
 
-    config_path = sys.argv[1] if len(sys.argv) > 1 else None
-    app = VoiceTextApp(config_path=config_path)  # None uses default path
+    config_dir = sys.argv[1] if len(sys.argv) > 1 else None
+    app = VoiceTextApp(config_dir=config_dir)  # None uses default dir
     app.run()
 
 

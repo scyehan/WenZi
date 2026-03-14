@@ -403,6 +403,7 @@ def _make_controller(config_path: str) -> ModelController:
     """Build a ModelController backed by a minimal mock app."""
     app = MagicMock()
     app._config_path = config_path
+    app._config_dir = os.path.dirname(config_path)
     ctrl = ModelController.__new__(ModelController)
     ctrl._app = app
     return ctrl

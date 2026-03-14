@@ -13,6 +13,14 @@ DEFAULT_CONFIG_DIR = os.path.join("~", ".config", "VoiceText")
 DEFAULT_CONFIG_PATH = os.path.join(DEFAULT_CONFIG_DIR, "config.json")
 DEFAULT_ENHANCE_MODES_DIR = os.path.join(DEFAULT_CONFIG_DIR, "enhance_modes")
 
+
+def resolve_config_dir(config_dir: Optional[str] = None) -> str:
+    """Return the expanded absolute config directory path.
+
+    If *config_dir* is ``None``, returns the default ``~/.config/VoiceText``.
+    """
+    return os.path.expanduser(config_dir if config_dir else DEFAULT_CONFIG_DIR)
+
 DEFAULT_CONFIG: Dict[str, Any] = {
     "hotkeys": {"fn": True},
     "audio": {
