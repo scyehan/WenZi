@@ -219,7 +219,8 @@ select {
         </div>
         <div class="right">
             <input type="checkbox" id="thinking-cb" style="width:14px;height:14px;cursor:pointer;">
-            <button class="btn disabled" id="thinking-btn" onclick="postAction('showThinking')" style="opacity:0.3;">🧠</button>
+            <button class="btn disabled" id="thinking-btn" onclick="postAction('showThinking')"
+                style="opacity:0.3;">🧠</button>
             <button class="btn disabled" id="prompt-btn" onclick="postAction('showPrompt')">Prompt ⓘ</button>
         </div>
     </div>

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from types import SimpleNamespace
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock
 
 import pytest
 
