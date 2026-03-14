@@ -194,9 +194,11 @@ class RecordingController:
             threading.Thread(target=_do_preview, daemon=True).start()
         else:
             app._set_status("Transcribing...")
-            # Show overlay immediately so user knows recording has ended
+            # Show overlay immediately so user knows recording has ended;
+            # register cancel_event so ESC can abort transcription too
             stt_info = app._current_stt_model()
             llm_info = app._current_llm_model()
+            direct_cancel = threading.Event()
 
             from PyObjCTools import AppHelper
 
@@ -204,7 +206,7 @@ class RecordingController:
                 app._recording_indicator.hide()
                 app._streaming_overlay.show(
                     asr_text="",
-                    cancel_event=None,
+                    cancel_event=direct_cancel,
                     stt_info=stt_info,
                     llm_info=llm_info if use_enhance else "",
                 )
@@ -214,10 +216,20 @@ class RecordingController:
             # Run transcription in background to keep UI responsive
             def _do_transcribe():
                 try:
+                    if direct_cancel.is_set():
+                        AppHelper.callAfter(app._streaming_overlay.close)
+                        app._set_status("VT")
+                        logger.info("Transcription cancelled via ESC")
+                        return
                     app._transcriber.skip_punc = bool(
                         app._enhancer and app._enhancer.is_active
                     )
                     text = app._transcriber.transcribe(wav_data)
+                    if direct_cancel.is_set():
+                        AppHelper.callAfter(app._streaming_overlay.close)
+                        app._set_status("VT")
+                        logger.info("Transcription cancelled via ESC")
+                        return
                     if text and text.strip():
                         asr_text = text.strip()
                         use_enhance_now = bool(
@@ -497,6 +509,7 @@ class RecordingController:
             try:
                 async for chunk, chunk_usage, is_thinking in gen:
                     if cancel_event.is_set():
+                        app._enhancer.cancel_stream()
                         return
                     if is_thinking == "retry" and chunk:
                         had_thinking = True
@@ -580,6 +593,7 @@ class RecordingController:
                     try:
                         async for chunk, chunk_usage, is_thinking in gen:
                             if cancel_event.is_set():
+                                app._enhancer.cancel_stream()
                                 return
                             if is_thinking == "retry" and chunk:
                                 had_thinking = True

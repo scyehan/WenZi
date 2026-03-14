@@ -363,7 +363,8 @@ class StreamingOverlayPanel:
                 if event.keyCode() == _ESC_KEY_CODE:
                     if self._cancel_event is not None:
                         self._cancel_event.set()
-                        logger.info("Streaming cancelled via ESC key")
+                    self.close()
+                    logger.info("Streaming cancelled via ESC key")
 
             self._esc_monitor = (
                 NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(

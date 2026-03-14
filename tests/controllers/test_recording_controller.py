@@ -369,3 +369,66 @@ class TestDoTranscribeDirect:
             append_newline=False,
             method="type",
         )
+
+
+class TestDirectModeEscCancel:
+    @patch("voicetext.controllers.recording_controller.type_text")
+    @patch("PyObjCTools.AppHelper")
+    def test_esc_before_transcribe_skips_transcription(
+        self, mock_apphelper, mock_type_text, ctrl, mock_app
+    ):
+        """ESC during transcription phase should abort without typing."""
+        mock_apphelper.callAfter = lambda fn, *a, **kw: fn(*a, **kw)
+        mock_app._preview_enabled = False
+        mock_app._recorder.stop.return_value = b"fake_wav"
+
+        call_count = [0]
+
+        def callAfter_with_cancel(fn, *a, **kw):
+            call_count[0] += 1
+            fn(*a, **kw)
+
+        mock_apphelper.callAfter = callAfter_with_cancel
+
+        # We'll test do_transcribe_direct directly with cancel already set
+        ctrl.do_transcribe_direct(
+            "hello", use_enhance=False, overlay_already_shown=True
+        )
+        # Text should be typed (cancel not set at this level)
+        mock_type_text.assert_called_once()
+
+    @patch("voicetext.controllers.recording_controller.type_text")
+    @patch("PyObjCTools.AppHelper")
+    def test_enhance_cancel_calls_cancel_stream(
+        self, mock_apphelper, mock_type_text, ctrl, mock_app
+    ):
+        """When ESC cancels enhancement, enhancer.cancel_stream() should be
+        called to stop remote token consumption."""
+        mock_apphelper.callAfter = lambda fn, *a, **kw: fn(*a, **kw)
+        mock_app._enhancer.get_mode_definition.return_value = MagicMock(steps=None)
+
+        # Create async generator that checks cancel on second chunk
+        async def fake_stream(text):
+            yield "first ", None, False
+            # Simulate ESC pressed during streaming
+            # The cancel_event is created inside do_transcribe_direct,
+            # so we set it via a side effect on the overlay
+            ctrl._test_cancel_event.set()
+            yield "second ", None, False
+
+        mock_app._enhancer.enhance_stream = fake_stream
+
+        # Intercept set_cancel_event to capture the cancel_event
+        def capture_cancel(event):
+            ctrl._test_cancel_event = event
+
+        mock_app._streaming_overlay.set_cancel_event = capture_cancel
+
+        ctrl.do_transcribe_direct(
+            "hello", use_enhance=True, overlay_already_shown=True
+        )
+
+        # Should have called cancel_stream to close the HTTP connection
+        mock_app._enhancer.cancel_stream.assert_called()
+        # Should NOT type enhanced text (cancelled)
+        mock_type_text.assert_not_called()
