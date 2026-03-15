@@ -1,8 +1,17 @@
 """Snippet data source for the Chooser.
 
-Manages text snippets stored in a JSON file and provides search
-via the "sn" prefix.  Snippets can also be auto-expanded globally
-when the user types a keyword.
+Manages text snippets stored as individual files in a directory structure.
+Subdirectories serve as categories. Each file uses optional YAML frontmatter
+for the keyword, with the body as snippet content.
+
+File format::
+
+    ---
+    keyword: "@@email"
+    ---
+    user@example.com
+
+Snippets can also be auto-expanded globally when the user types a keyword.
 """
 
 from __future__ import annotations
@@ -10,15 +19,76 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Dict, List, Optional
+import re
+from typing import Dict, List, Optional, Tuple
 
 from voicetext.scripting.sources import ChooserItem, ChooserSource, fuzzy_match
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_SNIPPETS_PATH = os.path.expanduser(
-    "~/.config/VoiceText/snippets.json"
-)
+_DEFAULT_SNIPPETS_DIR = os.path.expanduser("~/.config/VoiceText/snippets")
+
+_SUPPORTED_EXTENSIONS = (".md", ".txt")
+
+# Characters not allowed in filenames
+_UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+# ---------------------------------------------------------------------------
+# Utility functions
+# ---------------------------------------------------------------------------
+
+
+def _parse_frontmatter(text: str) -> Tuple[dict, str]:
+    """Parse optional YAML-style frontmatter from *text*.
+
+    Returns ``(metadata_dict, body)``.  If no frontmatter is present,
+    returns ``({}, text)``.
+    """
+    if not text.startswith("---"):
+        return {}, text
+
+    # Find the closing ---
+    end = text.find("\n---", 3)
+    if end == -1:
+        return {}, text
+
+    header = text[3:end].strip()
+    body = text[end + 4:]  # skip past "\n---"
+    if body.startswith("\n"):
+        body = body[1:]
+
+    meta: dict = {}
+    for line in header.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        colon = line.find(":")
+        if colon == -1:
+            continue
+        key = line[:colon].strip()
+        val = line[colon + 1:].strip()
+        # Strip surrounding quotes
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+            val = val[1:-1]
+        meta[key] = val
+
+    return meta, body
+
+
+def _format_snippet_file(keyword: str, content: str) -> str:
+    """Serialize a snippet back to the file format."""
+    if keyword:
+        return f'---\nkeyword: "{keyword}"\n---\n{content}'
+    return content
+
+
+def _sanitize_filename(name: str) -> str:
+    """Replace filesystem-unsafe characters in *name*."""
+    result = _UNSAFE_CHARS.sub("_", name)
+    # Collapse multiple underscores
+    result = re.sub(r"_+", "_", result).strip("_. ")
+    return result or "snippet"
 
 
 def _paste_text(text: str) -> None:
@@ -81,15 +151,20 @@ def _expand_placeholders(content: str) -> str:
     return result
 
 
-class SnippetStore:
-    """Persistent storage for text snippets.
+# ---------------------------------------------------------------------------
+# SnippetStore — directory-based storage
+# ---------------------------------------------------------------------------
 
-    Each snippet is a dict with keys: name, keyword, content.
-    Stored as a JSON array in *path*.
+
+class SnippetStore:
+    """Persistent storage for text snippets using a directory structure.
+
+    Each snippet is a ``.md`` or ``.txt`` file. Subdirectories act as
+    categories.  Optional YAML frontmatter holds the keyword.
     """
 
     def __init__(self, path: Optional[str] = None) -> None:
-        self._path = path or _DEFAULT_SNIPPETS_PATH
+        self._dir = path or _DEFAULT_SNIPPETS_DIR
         self._snippets: List[Dict[str, str]] = []
         self._loaded = False
 
@@ -98,68 +173,195 @@ class SnippetStore:
         self._ensure_loaded()
         return list(self._snippets)
 
+    # -- loading -------------------------------------------------------------
+
     def _ensure_loaded(self) -> None:
         if self._loaded:
             return
         self._loaded = True
-        if not os.path.isfile(self._path):
+        self._maybe_migrate()
+        self._scan_directory()
+
+    def _scan_directory(self) -> None:
+        """Recursively scan the snippet directory for .md/.txt files."""
+        self._snippets = []
+        if not os.path.isdir(self._dir):
             return
+
+        for dirpath, dirnames, filenames in os.walk(self._dir):
+            # Skip hidden directories
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+
+            rel_dir = os.path.relpath(dirpath, self._dir)
+            category = "" if rel_dir == "." else rel_dir
+
+            for fname in sorted(filenames):
+                if fname.startswith("."):
+                    continue
+                _base, ext = os.path.splitext(fname)
+                if ext.lower() not in _SUPPORTED_EXTENSIONS:
+                    continue
+
+                file_path = os.path.join(dirpath, fname)
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        text = f.read()
+                except Exception:
+                    logger.exception("Failed to read snippet %s", file_path)
+                    continue
+
+                meta, body = _parse_frontmatter(text)
+                name = os.path.splitext(fname)[0]
+                self._snippets.append({
+                    "name": name,
+                    "keyword": meta.get("keyword", ""),
+                    "content": body,
+                    "category": category,
+                    "file_path": file_path,
+                })
+
+        logger.info(
+            "Loaded %d snippets from %s", len(self._snippets), self._dir,
+        )
+
+    # -- migration -----------------------------------------------------------
+
+    def _maybe_migrate(self) -> None:
+        """Migrate from legacy ``snippets.json`` if it exists."""
+        parent = os.path.dirname(self._dir)
+        json_path = os.path.join(parent, "snippets.json")
+        bak_path = json_path + ".bak"
+
+        if not os.path.isfile(json_path) or os.path.exists(bak_path):
+            return
+
         try:
-            with open(self._path, "r", encoding="utf-8") as f:
+            with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            if isinstance(data, list):
-                self._snippets = data
-            logger.info("Loaded %d snippets from %s", len(self._snippets), self._path)
-        except Exception:
-            logger.exception("Failed to load snippets from %s", self._path)
+            if not isinstance(data, list):
+                return
 
-    def _save(self) -> None:
-        try:
-            os.makedirs(os.path.dirname(self._path), exist_ok=True)
-            with open(self._path, "w", encoding="utf-8") as f:
-                json.dump(self._snippets, f, ensure_ascii=False, indent=2)
-        except Exception:
-            logger.exception("Failed to save snippets to %s", self._path)
+            os.makedirs(self._dir, exist_ok=True)
+            used_names: set[str] = set()
 
-    def add(self, name: str, keyword: str, content: str) -> bool:
+            for entry in data:
+                name = _sanitize_filename(entry.get("name", "snippet"))
+                base_name = name
+                counter = 1
+                while name in used_names:
+                    name = f"{base_name}_{counter}"
+                    counter += 1
+                used_names.add(name)
+
+                file_path = os.path.join(self._dir, f"{name}.md")
+                content = _format_snippet_file(
+                    entry.get("keyword", ""),
+                    entry.get("content", ""),
+                )
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+
+            os.rename(json_path, bak_path)
+            logger.info(
+                "Migrated %d snippets from %s to %s",
+                len(data), json_path, self._dir,
+            )
+        except Exception:
+            logger.exception("Failed to migrate snippets from %s", json_path)
+
+    # -- CRUD ----------------------------------------------------------------
+
+    def add(
+        self, name: str, keyword: str, content: str, category: str = "",
+    ) -> bool:
         """Add a new snippet. Returns False if keyword already exists."""
         self._ensure_loaded()
         if keyword and any(s.get("keyword") == keyword for s in self._snippets):
             logger.warning("Snippet keyword %r already exists", keyword)
             return False
+
+        safe_name = _sanitize_filename(name)
+        cat_dir = os.path.join(self._dir, category) if category else self._dir
+        os.makedirs(cat_dir, exist_ok=True)
+        file_path = os.path.join(cat_dir, f"{safe_name}.md")
+
+        text = _format_snippet_file(keyword, content)
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(text)
+        except Exception:
+            logger.exception("Failed to write snippet %s", file_path)
+            return False
+
         self._snippets.append({
-            "name": name,
+            "name": safe_name,
             "keyword": keyword,
             "content": content,
+            "category": category,
+            "file_path": file_path,
         })
-        self._save()
         return True
 
-    def remove(self, keyword: str) -> bool:
-        """Remove a snippet by keyword. Returns True if found."""
+    def remove(self, name: str, category: str = "") -> bool:
+        """Remove a snippet by name and category. Returns True if found."""
         self._ensure_loaded()
-        before = len(self._snippets)
-        self._snippets = [s for s in self._snippets if s.get("keyword") != keyword]
-        if len(self._snippets) < before:
-            self._save()
-            return True
+        for i, s in enumerate(self._snippets):
+            if s["name"] == name and s.get("category", "") == category:
+                file_path = s["file_path"]
+                try:
+                    os.remove(file_path)
+                except OSError:
+                    logger.exception("Failed to delete %s", file_path)
+                self._snippets.pop(i)
+                return True
         return False
 
     def update(
-        self, keyword: str, name: Optional[str] = None,
-        new_keyword: Optional[str] = None, content: Optional[str] = None,
+        self,
+        name: str,
+        category: str = "",
+        *,
+        new_name: Optional[str] = None,
+        new_keyword: Optional[str] = None,
+        content: Optional[str] = None,
+        new_category: Optional[str] = None,
     ) -> bool:
-        """Update an existing snippet by keyword. Returns True if found."""
+        """Update an existing snippet. Supports rename and category move."""
         self._ensure_loaded()
         for s in self._snippets:
-            if s.get("keyword") == keyword:
-                if name is not None:
-                    s["name"] = name
-                if new_keyword is not None:
-                    s["keyword"] = new_keyword
-                if content is not None:
-                    s["content"] = content
-                self._save()
+            if s["name"] == name and s.get("category", "") == category:
+                kw = new_keyword if new_keyword is not None else s["keyword"]
+                ct = content if content is not None else s["content"]
+                nm = _sanitize_filename(new_name) if new_name is not None else s["name"]
+                cat = new_category if new_category is not None else s.get("category", "")
+
+                # Determine new file path
+                cat_dir = os.path.join(self._dir, cat) if cat else self._dir
+                ext = os.path.splitext(s["file_path"])[1]
+                new_path = os.path.join(cat_dir, f"{nm}{ext}")
+
+                os.makedirs(cat_dir, exist_ok=True)
+                text = _format_snippet_file(kw, ct)
+                try:
+                    with open(new_path, "w", encoding="utf-8") as f:
+                        f.write(text)
+                except Exception:
+                    logger.exception("Failed to write %s", new_path)
+                    return False
+
+                # Remove old file if path changed
+                old_path = s["file_path"]
+                if os.path.normpath(old_path) != os.path.normpath(new_path):
+                    try:
+                        os.remove(old_path)
+                    except OSError:
+                        pass
+
+                s["name"] = nm
+                s["keyword"] = kw
+                s["content"] = ct
+                s["category"] = cat
+                s["file_path"] = new_path
                 return True
         return False
 
@@ -178,18 +380,23 @@ class SnippetStore:
         self._ensure_loaded()
 
 
+# ---------------------------------------------------------------------------
+# SnippetSource — Chooser data source
+# ---------------------------------------------------------------------------
+
+
 class SnippetSource:
     """Snippet search data source for the Chooser.
 
-    Activated via the "sn" prefix.  Searches by name, keyword, and
-    content using fuzzy matching.
+    Activated via the "sn" prefix.  Searches by name, keyword, content,
+    and category using fuzzy matching.
     """
 
     def __init__(self, store: SnippetStore) -> None:
         self._store = store
 
     def search(self, query: str) -> List[ChooserItem]:
-        """Search snippets by name, keyword, or content."""
+        """Search snippets by name, keyword, content, or category."""
         snippets = self._store.snippets
 
         if not snippets:
@@ -202,21 +409,20 @@ class SnippetSource:
             name = s.get("name", "")
             keyword = s.get("keyword", "")
             content = s.get("content", "")
+            category = s.get("category", "")
 
             if not q:
-                # Empty query: show all snippets
                 results.append((50, s))
                 continue
 
             best_score = 0
-            for field in (name, keyword, content):
-                matched, score = fuzzy_match(q, field)
+            for field_val in (name, keyword, content, category):
+                matched, score = fuzzy_match(q, field_val)
                 if matched and score > best_score:
                     best_score = score
             if best_score > 0:
                 results.append((best_score, s))
 
-        # Sort by score descending, then name
         results.sort(key=lambda x: (-x[0], x[1].get("name", "")))
 
         items = []
@@ -224,21 +430,38 @@ class SnippetSource:
             name = s.get("name", "")
             keyword = s.get("keyword", "")
             content = s.get("content", "")
+            category = s.get("category", "")
+            file_path = s.get("file_path")
+
+            # Build title: "Name  [@@kw]  ·  category"
+            title = name
+            if keyword:
+                title = f"{name}  [{keyword}]"
+            if category:
+                title = f"{title}  ·  {category}"
+
             display_content = content.replace("\n", " ").strip()
             if len(display_content) > 60:
                 display_content = display_content[:57] + "..."
 
+            # item_id uses "sn:category/name" format
+            if category:
+                item_id = f"sn:{category}/{name}"
+            else:
+                item_id = f"sn:{name}"
+
             items.append(
                 ChooserItem(
-                    title=f"{name}  [{keyword}]" if keyword else name,
+                    title=title,
                     subtitle=display_content,
-                    item_id=f"sn:{keyword}" if keyword else f"sn:{name}",
+                    item_id=item_id,
                     action=lambda c=content: _paste_text(
                         _expand_placeholders(c)
                     ),
                     secondary_action=lambda c=content: _copy_to_clipboard(
                         _expand_placeholders(c)
                     ),
+                    reveal_path=file_path,
                     preview={"type": "text", "content": content},
                 )
             )
