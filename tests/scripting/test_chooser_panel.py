@@ -4,6 +4,7 @@ UI/WKWebView parts are not testable in CI — these tests cover the
 pure-Python logic: source registration, search dispatch, item execution.
 """
 
+import json
 from unittest.mock import MagicMock, patch
 
 from voicetext.scripting.sources import ChooserItem, ChooserSource
@@ -282,6 +283,33 @@ class TestJSMessageHandling:
         )
         assert panel._active_source == "bookmarks"
 
+    def test_request_preview_message(self):
+        panel = _make_panel()
+        panel._current_items = [
+            ChooserItem(
+                title="Hello",
+                preview={"type": "text", "content": "full text"},
+            )
+        ]
+        panel._handle_js_message({"type": "requestPreview", "index": 0})
+        call_args = panel._eval_js.call_args[0][0]
+        assert "setPreview" in call_args
+        assert "full text" in call_args
+
+    def test_request_preview_no_preview(self):
+        panel = _make_panel()
+        panel._current_items = [ChooserItem(title="No Preview")]
+        panel._handle_js_message({"type": "requestPreview", "index": 0})
+        call_args = panel._eval_js.call_args[0][0]
+        assert "setPreview(null)" in call_args
+
+    def test_request_preview_out_of_range(self):
+        panel = _make_panel()
+        panel._current_items = []
+        panel._handle_js_message({"type": "requestPreview", "index": 5})
+        call_args = panel._eval_js.call_args[0][0]
+        assert "setPreview(null)" in call_args
+
 
 class TestPushItemsToJS:
     def test_serializes_items(self):
@@ -296,3 +324,25 @@ class TestPushItemsToJS:
         assert '"Safari"' in call_args
         assert '"Web browser"' in call_args
         assert '"hasReveal": true' in call_args
+
+    def test_serializes_preview(self):
+        panel = _make_panel()
+        panel._current_items = [
+            ChooserItem(
+                title="Test",
+                preview={"type": "text", "content": "hello world"},
+            ),
+        ]
+        panel._push_items_to_js()
+        call_args = panel._eval_js.call_args[0][0]
+        parsed = json.loads(call_args[len("setResults("):-1])
+        assert parsed[0]["preview"]["type"] == "text"
+        assert parsed[0]["preview"]["content"] == "hello world"
+
+    def test_no_preview_key_when_none(self):
+        panel = _make_panel()
+        panel._current_items = [ChooserItem(title="Test")]
+        panel._push_items_to_js()
+        call_args = panel._eval_js.call_args[0][0]
+        parsed = json.loads(call_args[len("setResults("):-1])
+        assert "preview" not in parsed[0]

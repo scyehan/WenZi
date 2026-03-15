@@ -43,6 +43,51 @@ html, body {
 }
 body { display: flex; flex-direction: column; }
 
+/* Main content: left panel + preview */
+.main-content {
+    display: flex; flex: 1; min-height: 0;
+}
+.left-panel {
+    width: 400px; flex-shrink: 0;
+    display: flex; flex-direction: column;
+    min-height: 0;
+}
+.preview-panel {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    border-left: 1px solid var(--border);
+    padding: 16px; overflow: hidden;
+    min-height: 0;
+}
+.preview-panel.empty {
+    color: var(--secondary); font-size: 13px;
+}
+.preview-text {
+    width: 100%; height: 100%; overflow-y: auto;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-word;
+    color: var(--text);
+    -webkit-user-select: text; user-select: text;
+}
+.preview-text::-webkit-scrollbar { width: 6px; }
+.preview-text::-webkit-scrollbar-thumb {
+    background: var(--secondary); border-radius: 3px; opacity: 0.5;
+}
+.preview-image-wrapper {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    width: 100%; height: 100%; gap: 8px;
+}
+.preview-image-wrapper img {
+    max-width: 100%; max-height: calc(100% - 30px);
+    object-fit: contain; border-radius: 4px;
+}
+.preview-image-info {
+    font-size: 11px; color: var(--secondary);
+    text-align: center;
+}
+
 /* Search bar */
 .search-bar {
     display: flex; align-items: center; gap: 8px;
@@ -154,29 +199,36 @@ body { display: flex; flex-direction: column; }
 
 <div class="source-tabs" id="source-tabs" style="display:none;"></div>
 
-<div class="result-list" id="result-list"></div>
-
-<div class="empty-state" id="empty-state" style="display:none;">
-    Type to search
+<div class="main-content">
+    <div class="left-panel">
+        <div class="result-list" id="result-list"></div>
+        <div class="empty-state" id="empty-state" style="display:none;">
+            Type to search
+        </div>
+    </div>
+    <div class="preview-panel empty" id="preview-panel">
+        Select an item to preview
+    </div>
 </div>
 
 <div class="footer" id="footer">
-    <span><kbd>↑↓</kbd> Navigate &nbsp; <kbd>⏎</kbd> Open &nbsp; <kbd>⌘⏎</kbd> Reveal &nbsp; <kbd>⎋</kbd> Close</span>
-    <span id="footer-right"><kbd>⇥</kbd> Switch source</span>
+    <span><kbd>&uarr;&darr;</kbd> Navigate <kbd>&crarr;</kbd> Paste <kbd>&#8984;&crarr;</kbd> Copy <kbd>&#9099;</kbd> Close</span>
+    <span id="footer-right"><kbd>&#8677;</kbd> Switch source</span>
 </div>
 
 <script>
 // --- State ---
-let items = [];
-let selectedIndex = -1;
-let currentSource = null;  // null = default (all non-prefix sources)
-let sources = [];
+var items = [];
+var selectedIndex = -1;
+var currentSource = null;
+var sources = [];
 
 // --- DOM ---
-const searchInput = document.getElementById('search-input');
-const resultList = document.getElementById('result-list');
-const emptyState = document.getElementById('empty-state');
-const sourceTabs = document.getElementById('source-tabs');
+var searchInput = document.getElementById('search-input');
+var resultList = document.getElementById('result-list');
+var emptyState = document.getElementById('empty-state');
+var sourceTabs = document.getElementById('source-tabs');
+var previewPanel = document.getElementById('preview-panel');
 
 // --- Helpers ---
 function post(type, data) {
@@ -191,33 +243,34 @@ function renderItems() {
         resultList.style.display = 'none';
         emptyState.style.display = searchInput.value.trim() ? 'flex' : 'flex';
         emptyState.textContent = searchInput.value.trim() ? 'No results' : 'Type to search';
+        setPreview(null);
         return;
     }
     resultList.style.display = '';
     emptyState.style.display = 'none';
 
     items.forEach(function(item, i) {
-        const row = document.createElement('div');
+        var row = document.createElement('div');
         row.className = 'result-item' + (i === selectedIndex ? ' selected' : '');
 
         if (item.icon) {
-            const img = document.createElement('img');
+            var img = document.createElement('img');
             img.className = 'icon';
             img.src = item.icon;
             img.draggable = false;
             row.appendChild(img);
         }
 
-        const left = document.createElement('div');
+        var left = document.createElement('div');
         left.className = 'left';
 
-        const title = document.createElement('div');
+        var title = document.createElement('div');
         title.className = 'title';
         title.textContent = item.title;
         left.appendChild(title);
 
         if (item.subtitle) {
-            const sub = document.createElement('div');
+            var sub = document.createElement('div');
             sub.className = 'subtitle-text';
             sub.textContent = item.subtitle;
             left.appendChild(sub);
@@ -226,7 +279,7 @@ function renderItems() {
         row.appendChild(left);
 
         if (item.badge) {
-            const badge = document.createElement('span');
+            var badge = document.createElement('span');
             badge.className = 'badge';
             badge.textContent = item.badge;
             row.appendChild(badge);
@@ -245,6 +298,58 @@ function renderItems() {
     if (selectedIndex >= 0 && selectedIndex < resultList.children.length) {
         resultList.children[selectedIndex].scrollIntoView({ block: 'nearest' });
     }
+
+    // Update preview for selected item
+    updatePreview();
+}
+
+function updatePreview() {
+    if (selectedIndex >= 0 && selectedIndex < items.length) {
+        var item = items[selectedIndex];
+        if (item.preview) {
+            setPreview(item.preview);
+        } else {
+            // Request preview from Python (for lazy-loaded content)
+            post('requestPreview', { index: selectedIndex });
+        }
+    } else {
+        setPreview(null);
+    }
+}
+
+function setPreview(data) {
+    if (!data) {
+        previewPanel.className = 'preview-panel empty';
+        previewPanel.textContent = 'Select an item to preview';
+        return;
+    }
+    previewPanel.className = 'preview-panel';
+    previewPanel.innerHTML = '';
+
+    if (data.type === 'text') {
+        var textDiv = document.createElement('div');
+        textDiv.className = 'preview-text';
+        textDiv.textContent = data.content || '';
+        previewPanel.appendChild(textDiv);
+    } else if (data.type === 'image') {
+        var wrapper = document.createElement('div');
+        wrapper.className = 'preview-image-wrapper';
+        var img = document.createElement('img');
+        img.src = data.src || '';
+        wrapper.appendChild(img);
+        if (data.info) {
+            var info = document.createElement('div');
+            info.className = 'preview-image-info';
+            info.textContent = data.info;
+            wrapper.appendChild(info);
+        }
+        previewPanel.appendChild(wrapper);
+    } else if (data.type === 'path') {
+        var pathDiv = document.createElement('div');
+        pathDiv.className = 'preview-text';
+        pathDiv.textContent = data.content || '';
+        previewPanel.appendChild(pathDiv);
+    }
 }
 
 function updateSelection(newIndex) {
@@ -261,7 +366,7 @@ function renderSourceTabs() {
     }
     sourceTabs.style.display = 'flex';
     sources.forEach(function(src) {
-        const tab = document.createElement('div');
+        var tab = document.createElement('div');
         tab.className = 'source-tab' + (src.name === currentSource ? ' active' : '');
         tab.textContent = src.label || src.name;
         tab.addEventListener('click', function() {
@@ -275,20 +380,19 @@ function switchSource(name) {
     if (name === currentSource) return;
     currentSource = name;
     renderSourceTabs();
-    // Clear and re-search with current query
     post('switchSource', { source: name, query: searchInput.value });
 }
 
 function cycleSources() {
     if (sources.length <= 1) return;
-    const idx = sources.findIndex(function(s) { return s.name === currentSource; });
-    const next = (idx + 1) % sources.length;
+    var idx = sources.findIndex(function(s) { return s.name === currentSource; });
+    var next = (idx + 1) % sources.length;
     switchSource(sources[next].name);
 }
 
 // --- Input handling ---
 searchInput.addEventListener('input', function() {
-    const query = searchInput.value;
+    var query = searchInput.value;
     post('search', { query: query });
 });
 
@@ -327,7 +431,7 @@ document.addEventListener('keydown', function(e) {
     }
 });
 
-// --- Python → JS API ---
+// --- Python -> JS API ---
 
 function setResults(newItems) {
     items = newItems || [];

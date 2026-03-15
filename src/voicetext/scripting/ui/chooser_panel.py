@@ -147,7 +147,7 @@ class ChooserPanel:
     registered ChooserSource instances, and executes item actions.
     """
 
-    _PANEL_WIDTH = 640
+    _PANEL_WIDTH = 960
     _PANEL_HEIGHT = 400
 
     def __init__(self) -> None:
@@ -289,13 +289,16 @@ class ChooserPanel:
         """Serialize current items and send to the web view."""
         js_items = []
         for item in self._current_items:
-            js_items.append({
+            js_item = {
                 "title": item.title,
                 "subtitle": item.subtitle,
                 "icon": item.icon,
                 "badge": "",
                 "hasReveal": item.reveal_path is not None or item.secondary_action is not None,
-            })
+            }
+            if item.preview is not None:
+                js_item["preview"] = item.preview
+            js_items.append(js_item)
         self._eval_js(f"setResults({json.dumps(js_items, ensure_ascii=False)})")
 
     # ------------------------------------------------------------------
@@ -327,6 +330,10 @@ class ChooserPanel:
             query = body.get("query", "")
             self._active_source = source_name
             self._do_search(query, source_name=source_name)
+
+        elif msg_type == "requestPreview":
+            index = body.get("index", -1)
+            self._send_preview(index)
 
     def _execute_item(self, index: int) -> None:
         """Execute the primary action (Enter): close panel, then act."""
@@ -375,6 +382,17 @@ class ChooserPanel:
                     logger.exception(
                         "Chooser secondary action failed for %r", item.title
                     )
+
+    def _send_preview(self, index: int) -> None:
+        """Send preview data for the item at *index* to JS."""
+        if 0 <= index < len(self._current_items):
+            item = self._current_items[index]
+            if item.preview is not None:
+                self._eval_js(
+                    f"setPreview({json.dumps(item.preview, ensure_ascii=False)})"
+                )
+                return
+        self._eval_js("setPreview(null)")
 
     # ------------------------------------------------------------------
     # Internal: panel construction

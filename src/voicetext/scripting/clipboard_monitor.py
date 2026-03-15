@@ -7,6 +7,7 @@ password managers and VoiceText itself.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -22,13 +23,20 @@ _CONCEALED_TYPE = "org.nspasteboard.ConcealedType"
 _TRANSIENT_TYPE = "com.nspasteboard.TransientType"
 
 
+_DEFAULT_IMAGE_DIR = os.path.expanduser("~/.config/VoiceText/clipboard_images")
+
+
 @dataclass
 class ClipboardEntry:
     """A single clipboard history entry."""
 
-    text: str
+    text: str = ""
     timestamp: float = field(default_factory=time.time)
     source_app: str = ""
+    image_path: str = ""  # filename in clipboard_images/ (empty = text entry)
+    image_width: int = 0
+    image_height: int = 0
+    image_size: int = 0  # file size in bytes
 
 
 class ClipboardMonitor:
@@ -43,10 +51,12 @@ class ClipboardMonitor:
         max_items: int = 50,
         poll_interval: float = 0.5,
         persist_path: Optional[str] = None,
+        image_dir: Optional[str] = None,
     ) -> None:
         self._max_items = max_items
         self._poll_interval = poll_interval
         self._persist_path = persist_path
+        self._image_dir = image_dir or _DEFAULT_IMAGE_DIR
         self._entries: List[ClipboardEntry] = []
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
@@ -55,6 +65,11 @@ class ClipboardMonitor:
 
         if persist_path:
             self._load_from_disk()
+
+    @staticmethod
+    def default_image_dir() -> str:
+        """Return the default directory for clipboard image storage."""
+        return _DEFAULT_IMAGE_DIR
 
     @property
     def entries(self) -> List[ClipboardEntry]:
@@ -91,10 +106,11 @@ class ClipboardMonitor:
         logger.info("Clipboard monitor stopped")
 
     def clear(self) -> None:
-        """Clear all history entries."""
+        """Clear all history entries and associated image files."""
         with self._lock:
             self._entries.clear()
         self._save_to_disk()
+        self._clear_image_dir()
 
     def _poll_loop(self) -> None:
         """Main polling loop running in a background thread."""
@@ -106,8 +122,8 @@ class ClipboardMonitor:
             self._stop_event.wait(self._poll_interval)
 
     def _check_clipboard(self) -> None:
-        """Check if the clipboard has changed and record new text content."""
-        from AppKit import NSPasteboard, NSPasteboardTypeString
+        """Check if the clipboard has changed and record new content."""
+        from AppKit import NSPasteboard, NSPasteboardTypeString, NSPasteboardTypePNG, NSPasteboardTypeTIFF
 
         pb = NSPasteboard.generalPasteboard()
         current_count = pb.changeCount()
@@ -122,16 +138,23 @@ class ClipboardMonitor:
             logger.debug("Skipping concealed/transient clipboard entry")
             return
 
+        # Try text first
         text = pb.stringForType_(NSPasteboardTypeString)
-        if not text or not str(text).strip():
+        if text and str(text).strip():
+            text_str = str(text).strip()
+            source_app = self._get_frontmost_app()
+            self._add_entry(text_str, source_app)
             return
 
-        text_str = str(text).strip()
-
-        # Get source app name (best-effort)
-        source_app = self._get_frontmost_app()
-
-        self._add_entry(text_str, source_app)
+        # Try image (PNG first, then TIFF)
+        image_data = pb.dataForType_(NSPasteboardTypePNG)
+        image_type = "png"
+        if image_data is None:
+            image_data = pb.dataForType_(NSPasteboardTypeTIFF)
+            image_type = "tiff"
+        if image_data is not None:
+            source_app = self._get_frontmost_app()
+            self._add_image_entry(bytes(image_data), image_type, source_app)
 
     @staticmethod
     def _is_concealed(pb) -> bool:
@@ -172,6 +195,120 @@ class ClipboardMonitor:
                 return
         self._save_to_disk()
 
+    def promote_image(self, image_path: str) -> None:
+        """Move an existing image entry to the top of the history list."""
+        with self._lock:
+            for i, entry in enumerate(self._entries):
+                if entry.image_path == image_path:
+                    self._entries.pop(i)
+                    entry.timestamp = time.time()
+                    self._entries.insert(0, entry)
+                    break
+            else:
+                return
+        self._save_to_disk()
+
+    def _add_image_entry(
+        self, image_data: bytes, image_type: str, source_app: str = ""
+    ) -> None:
+        """Save image data to disk and add an image clipboard entry."""
+        result = self._save_image(image_data, image_type)
+        if result is None:
+            return
+
+        filename, width, height, file_size = result
+
+        with self._lock:
+            # Skip if same as the most recent entry (by filename hash)
+            if self._entries and self._entries[0].image_path == filename:
+                return
+
+            entry = ClipboardEntry(
+                text="",
+                timestamp=time.time(),
+                source_app=source_app,
+                image_path=filename,
+                image_width=width,
+                image_height=height,
+                image_size=file_size,
+            )
+            self._entries.insert(0, entry)
+
+            # Trim to max size — collect removed image paths
+            removed = []
+            if len(self._entries) > self._max_items:
+                removed_entries = self._entries[self._max_items:]
+                self._entries = self._entries[: self._max_items]
+                removed = [e.image_path for e in removed_entries if e.image_path]
+
+        self._save_to_disk()
+        self._cleanup_image_files(removed)
+        logger.debug("Clipboard image entry added: %s (%dx%d)", filename, width, height)
+
+    def _save_image(
+        self, image_data: bytes, image_type: str
+    ) -> Optional[tuple]:
+        """Save image data as PNG, return (filename, width, height, size) or None."""
+        try:
+            from AppKit import NSBitmapImageRep, NSPNGFileType
+            from Foundation import NSData
+
+            ns_data = NSData.dataWithBytes_length_(image_data, len(image_data))
+            rep = NSBitmapImageRep.imageRepWithData_(ns_data)
+            if rep is None:
+                return None
+
+            width = int(rep.pixelsWide())
+            height = int(rep.pixelsHigh())
+
+            # Convert to PNG if needed
+            if image_type == "png":
+                png_data = image_data
+            else:
+                png_ns = rep.representationUsingType_properties_(NSPNGFileType, {})
+                if png_ns is None:
+                    return None
+                png_data = bytes(png_ns)
+
+            # Generate filename: timestamp + short hash
+            ts = int(time.time())
+            short_hash = hashlib.md5(png_data[:4096]).hexdigest()[:6]
+            filename = f"{ts}_{short_hash}.png"
+
+            os.makedirs(self._image_dir, exist_ok=True)
+            filepath = os.path.join(self._image_dir, filename)
+            with open(filepath, "wb") as f:
+                f.write(png_data)
+
+            return filename, width, height, len(png_data)
+        except Exception:
+            logger.debug("Failed to save clipboard image", exc_info=True)
+            return None
+
+    def _cleanup_image_files(self, filenames: List[str]) -> None:
+        """Delete image files that are no longer referenced."""
+        for fname in filenames:
+            if not fname:
+                continue
+            path = os.path.join(self._image_dir, fname)
+            try:
+                if os.path.isfile(path):
+                    os.remove(path)
+                    logger.debug("Removed old clipboard image: %s", fname)
+            except Exception:
+                logger.debug("Failed to remove image %s", fname, exc_info=True)
+
+    def _clear_image_dir(self) -> None:
+        """Remove all files in the image directory."""
+        try:
+            if os.path.isdir(self._image_dir):
+                for fname in os.listdir(self._image_dir):
+                    fpath = os.path.join(self._image_dir, fname)
+                    if os.path.isfile(fpath):
+                        os.remove(fpath)
+        except Exception:
+            logger.debug("Failed to clear image directory", exc_info=True)
+
     def _add_entry(self, text: str, source_app: str = "") -> None:
         """Add a new entry, deduplicating consecutive identical texts."""
         with self._lock:
@@ -186,11 +323,15 @@ class ClipboardMonitor:
             )
             self._entries.insert(0, entry)
 
-            # Trim to max size
+            # Trim to max size — collect removed image paths
+            removed = []
             if len(self._entries) > self._max_items:
+                removed_entries = self._entries[self._max_items:]
                 self._entries = self._entries[: self._max_items]
+                removed = [e.image_path for e in removed_entries if e.image_path]
 
         self._save_to_disk()
+        self._cleanup_image_files(removed)
         logger.debug("Clipboard entry added: %s...", text[:40])
 
     def _save_to_disk(self) -> None:
@@ -220,12 +361,16 @@ class ClipboardMonitor:
             with self._lock:
                 self._entries = [
                     ClipboardEntry(
-                        text=d["text"],
+                        text=d.get("text", ""),
                         timestamp=d.get("timestamp", 0),
                         source_app=d.get("source_app", ""),
+                        image_path=d.get("image_path", ""),
+                        image_width=d.get("image_width", 0),
+                        image_height=d.get("image_height", 0),
+                        image_size=d.get("image_size", 0),
                     )
                     for d in data
-                    if isinstance(d, dict) and "text" in d
+                    if isinstance(d, dict) and ("text" in d or "image_path" in d)
                 ]
             logger.info("Loaded %d clipboard history entries", len(self._entries))
         except Exception:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 
 @dataclass
@@ -13,6 +13,7 @@ class ChooserItem:
     title: str
     subtitle: str = ""
     icon: str = ""  # data: URI (base64 PNG) or empty
+    preview: Optional[Dict] = field(default=None, repr=False)  # {"type": "text"|"image", ...}
     action: Optional[Callable] = field(default=None, repr=False)
     secondary_action: Optional[Callable] = field(default=None, repr=False)  # Cmd+Enter
     reveal_path: Optional[str] = None  # For Cmd+Enter (reveal in Finder)

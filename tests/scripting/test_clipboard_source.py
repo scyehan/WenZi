@@ -1,11 +1,12 @@
 """Tests for clipboard history data source."""
 
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from voicetext.scripting.clipboard_monitor import ClipboardEntry, ClipboardMonitor
 from voicetext.scripting.sources.clipboard_source import (
     ClipboardSource,
+    _format_file_size,
     _format_time_ago,
 )
 
@@ -27,14 +28,34 @@ class TestFormatTimeAgo:
         assert "2d ago" == result
 
 
+class TestFormatFileSize:
+    def test_bytes(self):
+        assert _format_file_size(512) == "512 B"
+
+    def test_kilobytes(self):
+        assert _format_file_size(2048) == "2.0 KB"
+
+    def test_megabytes(self):
+        assert _format_file_size(3 * 1024 * 1024) == "3.0 MB"
+
+
 class TestClipboardSource:
     def _make_monitor_with_entries(self, entries):
         """Create a mock ClipboardMonitor with given entries."""
         monitor = MagicMock(spec=ClipboardMonitor)
         monitor.entries = [
-            ClipboardEntry(text=text, timestamp=ts, source_app=app)
-            for text, ts, app in entries
+            ClipboardEntry(
+                text=e.get("text", ""),
+                timestamp=e.get("timestamp", time.time()),
+                source_app=e.get("source_app", ""),
+                image_path=e.get("image_path", ""),
+                image_width=e.get("image_width", 0),
+                image_height=e.get("image_height", 0),
+                image_size=e.get("image_size", 0),
+            )
+            for e in entries
         ]
+        monitor.default_image_dir = MagicMock(return_value="/tmp/test_images")
         return monitor
 
     def test_empty_history(self):
@@ -45,8 +66,8 @@ class TestClipboardSource:
     def test_empty_query_returns_all(self):
         now = time.time()
         monitor = self._make_monitor_with_entries([
-            ("hello world", now - 60, "Safari"),
-            ("foo bar", now - 120, "Terminal"),
+            {"text": "hello world", "timestamp": now - 60, "source_app": "Safari"},
+            {"text": "foo bar", "timestamp": now - 120, "source_app": "Terminal"},
         ])
         source = ClipboardSource(monitor)
         result = source.search("")
@@ -55,9 +76,9 @@ class TestClipboardSource:
     def test_substring_filter(self):
         now = time.time()
         monitor = self._make_monitor_with_entries([
-            ("hello world", now - 60, ""),
-            ("foo bar", now - 120, ""),
-            ("hello again", now - 180, ""),
+            {"text": "hello world", "timestamp": now - 60},
+            {"text": "foo bar", "timestamp": now - 120},
+            {"text": "hello again", "timestamp": now - 180},
         ])
         source = ClipboardSource(monitor)
         result = source.search("hello")
@@ -67,7 +88,7 @@ class TestClipboardSource:
     def test_case_insensitive(self):
         now = time.time()
         monitor = self._make_monitor_with_entries([
-            ("Hello World", now, ""),
+            {"text": "Hello World", "timestamp": now},
         ])
         source = ClipboardSource(monitor)
         result = source.search("hello")
@@ -77,7 +98,7 @@ class TestClipboardSource:
         now = time.time()
         long_text = "x" * 200
         monitor = self._make_monitor_with_entries([
-            (long_text, now, ""),
+            {"text": long_text, "timestamp": now},
         ])
         source = ClipboardSource(monitor)
         result = source.search("x")
@@ -86,7 +107,7 @@ class TestClipboardSource:
     def test_multiline_collapsed(self):
         now = time.time()
         monitor = self._make_monitor_with_entries([
-            ("line1\nline2\nline3", now, ""),
+            {"text": "line1\nline2\nline3", "timestamp": now},
         ])
         source = ClipboardSource(monitor)
         result = source.search("line")
@@ -95,7 +116,7 @@ class TestClipboardSource:
     def test_subtitle_with_source_app(self):
         now = time.time()
         monitor = self._make_monitor_with_entries([
-            ("hello", now - 120, "Safari"),
+            {"text": "hello", "timestamp": now - 120, "source_app": "Safari"},
         ])
         source = ClipboardSource(monitor)
         result = source.search("hello")
@@ -105,7 +126,7 @@ class TestClipboardSource:
     def test_subtitle_without_source_app(self):
         now = time.time()
         monitor = self._make_monitor_with_entries([
-            ("hello", now - 120, ""),
+            {"text": "hello", "timestamp": now - 120},
         ])
         source = ClipboardSource(monitor)
         result = source.search("hello")
@@ -114,7 +135,7 @@ class TestClipboardSource:
     def test_action_is_callable(self):
         now = time.time()
         monitor = self._make_monitor_with_entries([
-            ("hello", now, ""),
+            {"text": "hello", "timestamp": now},
         ])
         source = ClipboardSource(monitor)
         result = source.search("hello")
@@ -129,3 +150,141 @@ class TestClipboardSource:
         assert cs.prefix == ">cb"
         assert cs.priority == 5
         assert cs.search is not None
+
+    def test_text_entry_has_preview(self):
+        now = time.time()
+        monitor = self._make_monitor_with_entries([
+            {"text": "hello world full text", "timestamp": now},
+        ])
+        source = ClipboardSource(monitor)
+        result = source.search("")
+        assert result[0].preview is not None
+        assert result[0].preview["type"] == "text"
+        assert result[0].preview["content"] == "hello world full text"
+
+
+class TestImageEntries:
+    def _make_monitor_with_entries(self, entries):
+        monitor = MagicMock(spec=ClipboardMonitor)
+        monitor.entries = [
+            ClipboardEntry(
+                text=e.get("text", ""),
+                timestamp=e.get("timestamp", time.time()),
+                source_app=e.get("source_app", ""),
+                image_path=e.get("image_path", ""),
+                image_width=e.get("image_width", 0),
+                image_height=e.get("image_height", 0),
+                image_size=e.get("image_size", 0),
+            )
+            for e in entries
+        ]
+        monitor.default_image_dir = MagicMock(return_value="/tmp/test_images")
+        return monitor
+
+    def test_image_entry_title(self):
+        now = time.time()
+        monitor = self._make_monitor_with_entries([
+            {
+                "image_path": "test.png",
+                "image_width": 1450,
+                "image_height": 866,
+                "image_size": 3600000,
+                "timestamp": now - 120,
+                "source_app": "Safari",
+            },
+        ])
+        source = ClipboardSource(monitor)
+        result = source.search("")
+        assert len(result) == 1
+        assert "1450" in result[0].title
+        assert "866" in result[0].title
+        assert "3.4 MB" in result[0].title
+
+    def test_image_entry_subtitle(self):
+        now = time.time()
+        monitor = self._make_monitor_with_entries([
+            {
+                "image_path": "test.png",
+                "image_width": 100,
+                "image_height": 100,
+                "image_size": 1000,
+                "timestamp": now - 120,
+                "source_app": "Safari",
+            },
+        ])
+        source = ClipboardSource(monitor)
+        result = source.search("")
+        assert "Safari" in result[0].subtitle
+        assert "ago" in result[0].subtitle
+
+    def test_image_entry_has_preview(self):
+        now = time.time()
+        monitor = self._make_monitor_with_entries([
+            {
+                "image_path": "test.png",
+                "image_width": 100,
+                "image_height": 100,
+                "image_size": 1000,
+                "timestamp": now,
+            },
+        ])
+        source = ClipboardSource(monitor)
+        # Patch os.path.isfile to return False (no actual file)
+        with patch("os.path.isfile", return_value=False):
+            result = source.search("")
+        assert result[0].preview is not None
+        assert result[0].preview["type"] == "image"
+        assert result[0].preview["src"] == ""  # no file
+
+    def test_image_entry_has_actions(self):
+        now = time.time()
+        monitor = self._make_monitor_with_entries([
+            {
+                "image_path": "test.png",
+                "image_width": 100,
+                "image_height": 100,
+                "image_size": 1000,
+                "timestamp": now,
+            },
+        ])
+        source = ClipboardSource(monitor)
+        with patch("os.path.isfile", return_value=False):
+            result = source.search("")
+        assert result[0].action is not None
+        assert result[0].secondary_action is not None
+
+    def test_image_search_filter(self):
+        now = time.time()
+        monitor = self._make_monitor_with_entries([
+            {"text": "hello", "timestamp": now},
+            {
+                "image_path": "test.png",
+                "image_width": 100,
+                "image_height": 100,
+                "image_size": 1000,
+                "timestamp": now,
+            },
+        ])
+        source = ClipboardSource(monitor)
+        with patch("os.path.isfile", return_value=False):
+            # "image" should match image entries
+            result = source.search("image")
+        assert len(result) == 1
+        assert "Image" in result[0].title
+
+    def test_image_text_mixed(self):
+        now = time.time()
+        monitor = self._make_monitor_with_entries([
+            {"text": "hello", "timestamp": now},
+            {
+                "image_path": "test.png",
+                "image_width": 100,
+                "image_height": 100,
+                "image_size": 1000,
+                "timestamp": now,
+            },
+        ])
+        source = ClipboardSource(monitor)
+        with patch("os.path.isfile", return_value=False):
+            result = source.search("")
+        assert len(result) == 2
