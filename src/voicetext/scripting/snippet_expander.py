@@ -44,15 +44,17 @@ _CLEAR_KEYCODES = {
 }
 
 
+_carbon = ctypes.cdll.LoadLibrary(ctypes.util.find_library("Carbon"))
+
+
 def _get_unicode_string(event) -> str:
     """Extract the Unicode string from a Quartz CGEvent using ctypes."""
-    carbon = ctypes.cdll.LoadLibrary(
-        ctypes.util.find_library("Carbon")
-    )
+    import objc
+
     length = ctypes.c_uint32(0)
     buf = (ctypes.c_uint16 * 4)()
-    carbon.CGEventKeyboardGetUnicodeString(
-        ctypes.c_void_p(event.__pointer__),
+    _carbon.CGEventKeyboardGetUnicodeString(
+        ctypes.c_void_p(objc.pyobjc_id(event)),
         ctypes.c_uint32(4),
         ctypes.byref(length),
         buf,
