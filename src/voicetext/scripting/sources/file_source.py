@@ -123,11 +123,11 @@ class FileSource:
 
         return items
 
-    def as_chooser_source(self) -> ChooserSource:
+    def as_chooser_source(self, prefix: str = "f") -> ChooserSource:
         """Return a ChooserSource wrapping this FileSource."""
         return ChooserSource(
             name="files",
-            prefix="f",
+            prefix=prefix,
             search=self.search,
             priority=3,
         )

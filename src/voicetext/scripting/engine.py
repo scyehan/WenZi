@@ -89,6 +89,8 @@ class ScriptEngine:
             except Exception:
                 logger.exception("Failed to set up usage tracker")
 
+        prefixes = chooser_config.get("prefixes", {})
+
         # App search source
         if chooser_config.get("app_search", True):
             try:
@@ -120,7 +122,11 @@ class ScriptEngine:
                 self._clipboard_monitor.start()
 
                 cb_source = ClipboardSource(self._clipboard_monitor)
-                self._vt.chooser.register_source(cb_source.as_chooser_source())
+                self._vt.chooser.register_source(
+                    cb_source.as_chooser_source(
+                        prefix=prefixes.get("clipboard", "cb"),
+                    )
+                )
                 logger.info("Built-in clipboard source registered")
             except Exception:
                 logger.exception("Failed to register clipboard source")
@@ -132,7 +138,9 @@ class ScriptEngine:
 
                 file_source = FileSource()
                 self._vt.chooser.register_source(
-                    file_source.as_chooser_source()
+                    file_source.as_chooser_source(
+                        prefix=prefixes.get("files", "f"),
+                    )
                 )
                 logger.info("Built-in file search source registered")
             except Exception:
@@ -149,11 +157,30 @@ class ScriptEngine:
                 self._snippet_store = SnippetStore()
                 snippet_source = SnippetSource(self._snippet_store)
                 self._vt.chooser.register_source(
-                    snippet_source.as_chooser_source()
+                    snippet_source.as_chooser_source(
+                        prefix=prefixes.get("snippets", "sn"),
+                    )
                 )
                 logger.info("Built-in snippet source registered")
             except Exception:
                 logger.exception("Failed to register snippet source")
+
+        # Bookmark search source
+        if chooser_config.get("bookmarks", True):
+            try:
+                from voicetext.scripting.sources.bookmark_source import (
+                    BookmarkSource,
+                )
+
+                bookmark_source = BookmarkSource()
+                self._vt.chooser.register_source(
+                    bookmark_source.as_chooser_source(
+                        prefix=prefixes.get("bookmarks", "bm"),
+                    )
+                )
+                logger.info("Built-in bookmark source registered")
+            except Exception:
+                logger.exception("Failed to register bookmark source")
 
     def _bind_chooser_hotkey(self) -> None:
         """Bind the chooser toggle hotkey from config."""

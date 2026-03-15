@@ -114,6 +114,7 @@ class SettingsController:
             "scripting_enabled": app._config.get("scripting", {}).get(
                 "enabled", False
             ),
+            "launcher": self._build_launcher_state(),
         }
 
         callbacks = {
@@ -150,6 +151,10 @@ class SettingsController:
             "on_reload_config": lambda: app._on_reload_config(None),
             "on_config_dir_browse": self.config_dir_browse,
             "on_config_dir_reset": self.config_dir_reset,
+            "on_launcher_hotkey_change": self.launcher_hotkey_change,
+            "on_launcher_source_toggle": self.launcher_source_toggle,
+            "on_launcher_prefix_change": self.launcher_prefix_change,
+            "on_launcher_usage_learning_toggle": self.launcher_usage_learning_toggle,
             "_reopen": lambda: self.on_open_settings(None),
         }
 
@@ -833,3 +838,76 @@ class SettingsController:
 
         from voicetext.statusbar import quit_application
         quit_application()
+
+    # ── Launcher tab ─────────────────────────────────────────────────
+
+    def _build_launcher_state(self) -> dict:
+        """Build launcher state dict for the settings panel."""
+        app = self._app
+        chooser_cfg = app._config.get("scripting", {}).get("chooser", {})
+        return {
+            "hotkey": chooser_cfg.get("hotkey", "cmd+space"),
+            "app_search": chooser_cfg.get("app_search", True),
+            "clipboard_history": chooser_cfg.get("clipboard_history", True),
+            "file_search": chooser_cfg.get("file_search", True),
+            "snippets": chooser_cfg.get("snippets", True),
+            "bookmarks": chooser_cfg.get("bookmarks", True),
+            "usage_learning": chooser_cfg.get("usage_learning", True),
+            "prefixes": chooser_cfg.get("prefixes", {
+                "clipboard": "cb",
+                "files": "f",
+                "snippets": "sn",
+                "bookmarks": "bm",
+            }),
+        }
+
+    def launcher_hotkey_change(self, hotkey: str) -> None:
+        """Handle launcher hotkey change from Settings panel."""
+        app = self._app
+        chooser_cfg = app._config.setdefault("scripting", {}).setdefault(
+            "chooser", {}
+        )
+        chooser_cfg["hotkey"] = hotkey
+        save_config(app._config, app._config_path)
+        logger.info(
+            "Launcher hotkey set to: %s (requires restart)", hotkey
+        )
+
+    def launcher_source_toggle(self, config_key: str, enabled: bool) -> None:
+        """Handle launcher source toggle from Settings panel."""
+        app = self._app
+        chooser_cfg = app._config.setdefault("scripting", {}).setdefault(
+            "chooser", {}
+        )
+        chooser_cfg[config_key] = enabled
+        save_config(app._config, app._config_path)
+        logger.info(
+            "Launcher source %s set to: %s (requires restart)",
+            config_key, enabled,
+        )
+
+    def launcher_prefix_change(self, prefix_key: str, value: str) -> None:
+        """Handle launcher prefix change from Settings panel."""
+        app = self._app
+        chooser_cfg = app._config.setdefault("scripting", {}).setdefault(
+            "chooser", {}
+        )
+        prefixes = chooser_cfg.setdefault("prefixes", {})
+        prefixes[prefix_key] = value
+        save_config(app._config, app._config_path)
+        logger.info(
+            "Launcher prefix %s set to: %r (requires restart)",
+            prefix_key, value,
+        )
+
+    def launcher_usage_learning_toggle(self, enabled: bool) -> None:
+        """Handle launcher usage learning toggle from Settings panel."""
+        app = self._app
+        chooser_cfg = app._config.setdefault("scripting", {}).setdefault(
+            "chooser", {}
+        )
+        chooser_cfg["usage_learning"] = enabled
+        save_config(app._config, app._config_path)
+        logger.info(
+            "Launcher usage learning set to: %s (requires restart)", enabled
+        )

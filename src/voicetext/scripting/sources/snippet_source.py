@@ -245,11 +245,11 @@ class SnippetSource:
 
         return items
 
-    def as_chooser_source(self) -> ChooserSource:
+    def as_chooser_source(self, prefix: str = "sn") -> ChooserSource:
         """Return a ChooserSource wrapping this SnippetSource."""
         return ChooserSource(
             name="snippets",
-            prefix="sn",
+            prefix=prefix,
             search=self.search,
             priority=3,
         )

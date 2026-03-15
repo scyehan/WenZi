@@ -317,11 +317,11 @@ class ClipboardSource:
             "info": " \u00b7 ".join(info_parts) if info_parts else "",
         }
 
-    def as_chooser_source(self) -> ChooserSource:
+    def as_chooser_source(self, prefix: str = "cb") -> ChooserSource:
         """Return a ChooserSource wrapping this ClipboardSource."""
         return ChooserSource(
             name="clipboard",
-            prefix="cb",
+            prefix=prefix,
             search=self.search,
             priority=5,
         )

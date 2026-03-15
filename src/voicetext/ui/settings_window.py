@@ -106,6 +106,11 @@ class SettingsPanel:
         self._history_check = None
         self._config_dir_field = None
 
+        # Launcher tab controls
+        self._launcher_source_checks: Dict[str, object] = {}
+        self._launcher_prefix_fields: Dict[str, object] = {}
+        self._launcher_hotkey_field = None
+
     def show(
         self,
         state: Dict,
@@ -281,6 +286,11 @@ class SettingsPanel:
         ai_tab.setLabel_("AI")
         self._build_ai_tab(ai_tab, state, inner_w)
         tab_view.addTabViewItem_(ai_tab)
+
+        launcher_tab = NSTabViewItem.alloc().initWithIdentifier_("launcher")
+        launcher_tab.setLabel_("Launcher")
+        self._build_launcher_tab(launcher_tab, state, inner_w)
+        tab_view.addTabViewItem_(launcher_tab)
 
         # Set tab delegate for scroll-to-top on tab switch
         tab_view.setDelegate_(self)
@@ -947,6 +957,164 @@ class SettingsPanel:
         scroll.setDocumentView_(doc_view)
         tab_item.setView_(scroll)
 
+    def _build_launcher_tab(self, tab_item, state: Dict, tab_width: float) -> None:
+        """Build the Launcher tab: source toggles, prefix config, hotkey."""
+        from AppKit import (
+            NSColor,
+            NSFont,
+            NSScrollView,
+            NSTextField,
+            NSView,
+        )
+        from Foundation import NSMakeRect
+
+        content_w = tab_width - 24
+        content_h = (
+            self._PANEL_HEIGHT - self._TOOLBAR_HEIGHT - self._PADDING * 2 - 80
+        )
+
+        scroll = NSScrollView.alloc().initWithFrame_(
+            NSMakeRect(0, 0, content_w, content_h)
+        )
+        scroll.setHasVerticalScroller_(True)
+        scroll.setHasHorizontalScroller_(False)
+
+        pad = 12
+        label_font = NSFont.boldSystemFontOfSize_(13.0)
+        small_font = NSFont.systemFontOfSize_(12.0)
+
+        total_h = 5000
+        doc_view = NSView.alloc().initWithFrame_(
+            NSMakeRect(0, 0, content_w - 20, total_h)
+        )
+        y = total_h - pad
+
+        launcher_state = state.get("launcher", {})
+        prefixes = launcher_state.get("prefixes", {})
+
+        # --- Hotkey section ---
+        y -= self._LABEL_HEIGHT
+        doc_view.addSubview_(
+            self._make_label("Hotkey", pad, y, content_w, label_font)
+        )
+        y = self._add_hint(
+            "Global hotkey to toggle the launcher panel",
+            pad + 12, y, content_w - 24, doc_view,
+        )
+
+        y -= (self._CONTROL_HEIGHT + self._ROW_GAP)
+        hotkey_val = launcher_state.get("hotkey", "cmd+space")
+        hotkey_label = self._make_label("Hotkey:", pad + 12, y, 60, small_font)
+        doc_view.addSubview_(hotkey_label)
+
+        hotkey_field = NSTextField.alloc().initWithFrame_(
+            NSMakeRect(pad + 80, y, 160, self._CONTROL_HEIGHT)
+        )
+        hotkey_field.setStringValue_(hotkey_val)
+        hotkey_field.setFont_(small_font)
+        hotkey_field.setEditable_(True)
+        hotkey_field.setBezeled_(True)
+        hotkey_field.setDrawsBackground_(True)
+        hotkey_field.setBackgroundColor_(NSColor.controlBackgroundColor())
+        hotkey_field.setTextColor_(NSColor.labelColor())
+        hotkey_field.setPlaceholderString_("e.g. cmd+space")
+        hotkey_field.setTarget_(self)
+        hotkey_field.setAction_(b"launcherHotkeyChanged:")
+        doc_view.addSubview_(hotkey_field)
+        self._launcher_hotkey_field = hotkey_field
+
+        y -= self._SECTION_GAP
+
+        # --- Data Sources section ---
+        y -= self._LABEL_HEIGHT
+        doc_view.addSubview_(
+            self._make_label("Data Sources", pad, y, content_w, label_font)
+        )
+        y = self._add_hint(
+            "Enable/disable sources and customize their prefix triggers",
+            pad + 12, y, content_w - 24, doc_view,
+        )
+
+        sources = [
+            ("app_search", "Applications", None),
+            ("clipboard_history", "Clipboard History", "clipboard"),
+            ("file_search", "File Search", "files"),
+            ("snippets", "Snippets", "snippets"),
+            ("bookmarks", "Bookmarks", "bookmarks"),
+        ]
+
+        self._launcher_source_checks.clear()
+        self._launcher_prefix_fields.clear()
+
+        prefix_label_w = 50
+        prefix_field_w = 60
+
+        for config_key, label, prefix_key in sources:
+            enabled = launcher_state.get(config_key, True)
+            prefix_val = prefixes.get(prefix_key, "") if prefix_key else ""
+
+            y -= (self._CONTROL_HEIGHT + self._ROW_GAP)
+
+            # Enable/disable checkbox
+            check = self._make_switch(
+                label, pad + 12, y, 180,
+                enabled, small_font,
+                b"launcherSourceToggled:", doc_view,
+            )
+            self._set_meta(check, config_key=config_key)
+            self._launcher_source_checks[config_key] = check
+
+            # Prefix input field (only for sources that have prefixes)
+            if prefix_key:
+                prefix_label = self._make_label(
+                    "Prefix:", pad + 200, y + 2, prefix_label_w, small_font,
+                )
+                doc_view.addSubview_(prefix_label)
+
+                prefix_field = NSTextField.alloc().initWithFrame_(
+                    NSMakeRect(
+                        pad + 200 + prefix_label_w + 4, y,
+                        prefix_field_w, self._CONTROL_HEIGHT,
+                    )
+                )
+                prefix_field.setStringValue_(prefix_val)
+                prefix_field.setFont_(small_font)
+                prefix_field.setEditable_(True)
+                prefix_field.setBezeled_(True)
+                prefix_field.setDrawsBackground_(True)
+                prefix_field.setBackgroundColor_(
+                    NSColor.controlBackgroundColor()
+                )
+                prefix_field.setTextColor_(NSColor.labelColor())
+                prefix_field.setPlaceholderString_(prefix_val)
+                prefix_field.setTarget_(self)
+                prefix_field.setAction_(b"launcherPrefixChanged:")
+                self._set_meta(prefix_field, prefix_key=prefix_key)
+                doc_view.addSubview_(prefix_field)
+                self._launcher_prefix_fields[prefix_key] = prefix_field
+
+        y -= self._SECTION_GAP
+
+        # --- Options section ---
+        y -= self._LABEL_HEIGHT
+        doc_view.addSubview_(
+            self._make_label("Options", pad, y, content_w, label_font)
+        )
+
+        y -= (self._CONTROL_HEIGHT + self._ROW_GAP)
+        self._make_switch(
+            "Usage Learning", pad + 12, y, content_w - 24,
+            launcher_state.get("usage_learning", True), small_font,
+            b"launcherUsageLearningToggled:", doc_view,
+        )
+        y = self._add_hint(
+            "Learn from your selections to rank frequently used items higher",
+            pad + 12, y, content_w - 24, doc_view,
+        )
+
+        scroll.setDocumentView_(doc_view)
+        tab_item.setView_(scroll)
+
     # ── Helper methods ───────────────────────────────────────────────
 
     @staticmethod
@@ -1276,6 +1444,29 @@ class SettingsPanel:
 
     def configDirResetClicked_(self, sender):
         self._call("on_config_dir_reset")
+
+    def launcherHotkeyChanged_(self, sender):
+        value = str(sender.stringValue()).strip()
+        if value:
+            self._call("on_launcher_hotkey_change", value)
+
+    def launcherSourceToggled_(self, sender):
+        meta = self._get_meta(sender)
+        config_key = meta.get("config_key", "")
+        enabled = sender.state() == 1
+        if config_key:
+            self._call("on_launcher_source_toggle", config_key, enabled)
+
+    def launcherPrefixChanged_(self, sender):
+        meta = self._get_meta(sender)
+        prefix_key = meta.get("prefix_key", "")
+        value = str(sender.stringValue()).strip()
+        if prefix_key:
+            self._call("on_launcher_prefix_change", prefix_key, value)
+
+    def launcherUsageLearningToggled_(self, sender):
+        enabled = sender.state() == 1
+        self._call("on_launcher_usage_learning_toggle", enabled)
 
     # ── State update methods (called from app.py for sync) ───────────
 
