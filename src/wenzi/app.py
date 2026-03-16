@@ -270,7 +270,11 @@ class WenZiApp(StatusBarApp):
         self._menu_builder.build_model_menu()
 
         # AI Enhance
-        self._enhancer = create_enhancer(self._config, config_dir=self._config_dir)
+        self._enhancer = create_enhancer(
+            self._config,
+            config_dir=self._config_dir,
+            conversation_history=self._conversation_history,
+        )
         ai_cfg = self._config.get("ai_enhance", {})
         self._enhance_mode: str = ai_cfg.get("mode", "proofread")
         if self._enhancer and not ai_cfg.get("enabled", False):

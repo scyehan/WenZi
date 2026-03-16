@@ -970,6 +970,15 @@ class TestCreateEnhancer:
         assert enhancer is not None
         assert enhancer.is_active is False
 
+    def test_passes_conversation_history_to_enhancer(self):
+        shared_history = ConversationHistory()
+        config = {"ai_enhance": _make_config(enabled=True)}
+        with patch("wenzi.enhance.enhancer.TextEnhancer._init_providers"):
+            enhancer = create_enhancer(
+                config, conversation_history=shared_history
+            )
+        assert enhancer.conversation_history is shared_history
+
 
 # --- Vocabulary integration tests ---
 
@@ -1203,6 +1212,14 @@ class TestConversationHistoryIntegration:
         with patch("wenzi.enhance.enhancer.TextEnhancer._init_providers"):
             enhancer = TextEnhancer(_make_config())
         assert isinstance(enhancer.conversation_history, ConversationHistory)
+
+    def test_shared_conversation_history_instance(self):
+        shared_history = ConversationHistory()
+        with patch("wenzi.enhance.enhancer.TextEnhancer._init_providers"):
+            enhancer = TextEnhancer(
+                _make_config(), conversation_history=shared_history
+            )
+        assert enhancer.conversation_history is shared_history
 
     def test_enhance_with_history_injects_context(self):
         mock_client = _make_mock_client("enhanced text")

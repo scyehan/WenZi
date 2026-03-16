@@ -175,7 +175,12 @@ class ThinkTagParser:
 class TextEnhancer:
     """Enhance transcribed text using LLM via OpenAI-compatible API."""
 
-    def __init__(self, config: Dict[str, Any], config_dir: str | None = None) -> None:
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        config_dir: str | None = None,
+        conversation_history: Optional[ConversationHistory] = None,
+    ) -> None:
         self._enabled = config.get("enabled", False)
         self._timeout = config.get("timeout", 30)
         self._connection_timeout = config.get("connection_timeout", 10)
@@ -230,9 +235,12 @@ class TextEnhancer:
         history_cfg = config.get("conversation_history", {})
         self._history_enabled = history_cfg.get("enabled", False)
         self._history_max_entries = history_cfg.get("max_entries", 10)
-        self._conversation_history = ConversationHistory(
-            **({"config_dir": config_dir} if config_dir else {})
-        )
+        if conversation_history is not None:
+            self._conversation_history = conversation_history
+        else:
+            self._conversation_history = ConversationHistory(
+                **({"config_dir": config_dir} if config_dir else {})
+            )
 
         # Validate active provider/model
         if self._active_provider not in self._providers and self._providers:
@@ -777,7 +785,9 @@ class TextEnhancer:
 
 
 def create_enhancer(
-    config: Dict[str, Any], config_dir: str | None = None,
+    config: Dict[str, Any],
+    config_dir: str | None = None,
+    conversation_history: Optional[ConversationHistory] = None,
 ) -> Optional[TextEnhancer]:
     """Factory function to create a TextEnhancer from app config.
 
@@ -786,4 +796,6 @@ def create_enhancer(
     ai_config = config.get("ai_enhance")
     if ai_config is None:
         return None
-    return TextEnhancer(ai_config, config_dir=config_dir)
+    return TextEnhancer(
+        ai_config, config_dir=config_dir, conversation_history=conversation_history
+    )
