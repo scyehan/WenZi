@@ -132,7 +132,18 @@ class TestHelpMenu:
 
         mock_open.assert_called_once()
         url = mock_open.call_args[0][0]
-        assert "README.zh.md" in url
+        assert url == "https://airead.github.io/WenZi/zh/docs/user-guide.html"
+
+    @patch("webbrowser.open")
+    @patch("locale.getdefaultlocale", return_value=("zh_TW", "UTF-8"))
+    def test_help_click_chinese_traditional_locale(self, mock_locale, mock_open):
+        app = MagicMock()
+        builder = MenuBuilder(app)
+        builder.on_help_click(MagicMock())
+
+        mock_open.assert_called_once()
+        url = mock_open.call_args[0][0]
+        assert url == "https://airead.github.io/WenZi/zh/docs/user-guide.html"
 
     @patch("webbrowser.open")
     @patch("locale.getdefaultlocale", return_value=("en_US", "UTF-8"))
@@ -143,8 +154,7 @@ class TestHelpMenu:
 
         mock_open.assert_called_once()
         url = mock_open.call_args[0][0]
-        assert "README.md" in url
-        assert "README.zh.md" not in url
+        assert url == "https://airead.github.io/WenZi/docs/user-guide.html"
 
     @patch("webbrowser.open")
     @patch("locale.getdefaultlocale", return_value=(None, None))
@@ -155,6 +165,4 @@ class TestHelpMenu:
 
         mock_open.assert_called_once()
         url = mock_open.call_args[0][0]
-        # Default to English
-        assert "README.md" in url
-        assert "README.zh.md" not in url
+        assert url == "https://airead.github.io/WenZi/docs/user-guide.html"
