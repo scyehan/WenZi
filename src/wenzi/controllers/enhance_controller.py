@@ -319,6 +319,9 @@ class EnhanceController:
                             elif chunk:
                                 if had_thinking:
                                     had_thinking = False
+                                    self._preview_panel.clear_enhance_text(
+                                        request_id=request_id,
+                                    )
                                 collected.append(chunk)
                                 all_display_parts.append(chunk)
                                 completion_tokens += len(chunk)
