@@ -1148,6 +1148,13 @@ class SettingsPanel:
                 doc_view.addSubview_(hk_btn)
                 self._launcher_source_hotkey_btns[prefix_key] = hk_btn
 
+            if config_key == "clipboard_history":
+                y = self._add_warning(
+                    "\u26a0 Not fully verified \u2014 may record sensitive data "
+                    "such as passwords and keys.",
+                    pad + 12, y, content_w - 24, doc_view,
+                )
+
         y -= self._SECTION_GAP
 
         # --- Options section ---
@@ -1286,6 +1293,19 @@ class SettingsPanel:
         y -= (self._HINT_HEIGHT + self._HINT_GAP)
         hint = self._make_hint(text, x, y, width)
         parent.addSubview_(hint)
+        return y
+
+    def _add_warning(self, text, x, y, width, parent):
+        """Add a red warning label below the current y and return the updated y."""
+        from AppKit import NSColor, NSFont, NSTextField
+        from Foundation import NSMakeRect
+
+        y -= (self._HINT_HEIGHT + self._HINT_GAP)
+        warn = NSTextField.labelWithString_(text)
+        warn.setFrame_(NSMakeRect(x, y, width, self._HINT_HEIGHT))
+        warn.setFont_(NSFont.systemFontOfSize_(10.0))
+        warn.setTextColor_(NSColor.systemRedColor())
+        parent.addSubview_(warn)
         return y
 
     def _make_switch(self, title, x, y, width, state_on, font, action, parent):
