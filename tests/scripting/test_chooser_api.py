@@ -191,7 +191,7 @@ class TestChooserAPI:
             api.toggle()
             mock_call.assert_called_once()
 
-    def test_pick_registers_source_and_shows(self):
+    def test_pick_registers_source_with_prefix_and_shows(self):
         api = ChooserAPI()
         results = []
         items = [{"title": "A"}, {"title": "B"}]
@@ -199,18 +199,36 @@ class TestChooserAPI:
         with patch("PyObjCTools.AppHelper.callAfter") as mock_call:
             api.pick(items, callback=lambda item: results.append(item))
             mock_call.assert_called_once()
+            # Should pre-fill with "> " prefix for source isolation
+            _, kwargs = mock_call.call_args
+            assert kwargs.get("initial_query") == "> "
 
-        # A temporary source should be registered
+        # A temporary source should be registered with prefix ">"
         source_names = list(api.panel._sources.keys())
         pick_sources = [n for n in source_names if n.startswith("__pick_")]
         assert len(pick_sources) == 1
+        src = api.panel._sources[pick_sources[0]]
+        assert src.prefix == ">"
 
         # Search should return items when query is empty
-        src = api.panel._sources[pick_sources[0]]
         found = src.search("")
         assert len(found) == 2
         assert found[0].title == "A"
         assert found[1].title == "B"
+
+    def test_pick_assigns_stable_item_ids(self):
+        api = ChooserAPI()
+        items = [{"title": "A"}, {"title": "B", "item_id": "custom"}]
+
+        with patch("PyObjCTools.AppHelper.callAfter"):
+            api.pick(items, callback=lambda item: None)
+
+        pick_name = [n for n in api.panel._sources if n.startswith("__pick_")][0]
+        src = api.panel._sources[pick_name]
+        found = src.search("")
+        # First item gets auto-assigned ID, second keeps its custom ID
+        assert found[0].item_id.startswith("__pick_")
+        assert found[1].item_id == "custom"
 
     def test_pick_search_filters_by_query(self):
         api = ChooserAPI()
@@ -228,23 +246,36 @@ class TestChooserAPI:
         assert "Banana" not in titles
         assert "Avocado" not in titles
 
-    def test_pick_callback_on_select(self):
+    def test_pick_callback_on_select_via_event(self):
+        """Selection is tracked via the synchronous select event, then
+        callback is called from _on_close — avoiding the deferred-action
+        race condition."""
         api = ChooserAPI()
         results = []
         items = [{"title": "X", "subtitle": "x-sub"}]
 
-        with patch("PyObjCTools.AppHelper.callAfter"):
+        with patch("PyObjCTools.AppHelper.callAfter") as mock_call:
             api.pick(items, callback=lambda item: results.append(item))
+            _, kwargs = mock_call.call_args
+            on_close = kwargs.get("on_close")
 
         pick_name = [n for n in api.panel._sources if n.startswith("__pick_")][0]
         src = api.panel._sources[pick_name]
         found = src.search("")
-        # Simulate user selecting the item
-        found[0].action()
+
+        # Simulate the select event fired synchronously by _execute_item
+        api._fire_event("select", {
+            "title": found[0].title,
+            "subtitle": found[0].subtitle,
+            "item_id": found[0].item_id,
+        })
+
+        # Then close runs → _on_close → callback with selected item
+        on_close()
         assert len(results) == 1
         assert results[0] == {"title": "X", "subtitle": "x-sub"}
 
-    def test_pick_callback_none_on_close(self):
+    def test_pick_callback_none_on_close_without_select(self):
         api = ChooserAPI()
         results = []
 
@@ -253,13 +284,27 @@ class TestChooserAPI:
                 [{"title": "A"}],
                 callback=lambda item: results.append(item),
             )
-            # Extract the on_close callback from the callAfter call
             _, kwargs = mock_call.call_args
             on_close = kwargs.get("on_close")
 
         assert on_close is not None
+        # No select event fired — user dismissed the panel
         on_close()
         assert results == [None]
+
+    def test_pick_cleans_up_select_handler_on_close(self):
+        api = ChooserAPI()
+
+        with patch("PyObjCTools.AppHelper.callAfter") as mock_call:
+            api.pick([{"title": "A"}], callback=lambda item: None)
+            _, kwargs = mock_call.call_args
+            on_close = kwargs.get("on_close")
+
+        # Handler should be registered
+        assert len(api._event_handlers.get("select", [])) == 1
+        on_close()
+        # Handler should be removed after close
+        assert len(api._event_handlers.get("select", [])) == 0
 
     def test_on_event_decorator(self):
         api = ChooserAPI()

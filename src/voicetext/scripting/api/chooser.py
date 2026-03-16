@@ -120,11 +120,15 @@ class ChooserAPI:
     # pick() — use the chooser as a generic selection UI
     # ------------------------------------------------------------------
 
+    # Reserved prefix for pick() mode.  Using ``>`` keeps the UI clean
+    # (resembles a command prompt) while isolating pick items from other
+    # sources.  User-defined sources should avoid this prefix.
+    _PICK_PREFIX = ">"
+
     def pick(
         self,
         items: List[dict],
         callback: Callable,
-        placeholder: Optional[str] = None,
     ) -> None:
         """Show the chooser with a fixed list of items for the user to pick.
 
@@ -132,30 +136,35 @@ class ChooserAPI:
         dict.  If the user dismisses the panel without selecting, *callback*
         is called with ``None``.
 
+        The pick source is isolated via a reserved ``>`` prefix so that
+        other registered sources do not contribute results.
+
         Args:
             items: List of item dicts (same format as source search results).
             callback: ``callback(item_dict | None)``.
-            placeholder: Optional placeholder text shown in the search input.
         """
         source_name = f"__pick_{id(callback)}"
         chooser_items = [_dict_to_chooser_item(d) for d in (items or [])]
 
-        picked = False
+        # Assign stable IDs so the select event can identify pick items.
+        pick_id_prefix = f"__pick_{id(callback)}_"
+        id_to_orig: Dict[str, dict] = {}
+        for i, (ci, orig) in enumerate(zip(chooser_items, items or [])):
+            if not ci.item_id:
+                ci.item_id = f"{pick_id_prefix}{i}"
+            id_to_orig[ci.item_id] = orig
 
-        def _wrap_action(ci: ChooserItem, original: dict) -> Callable:
-            original_action = ci.action
+        # Track selection via the synchronous "select" event which fires
+        # on the main thread BEFORE close() runs — avoiding the race
+        # condition where the deferred action thread sets a flag too late.
+        selected: List[Optional[dict]] = [None]
 
-            def _action():
-                nonlocal picked
-                picked = True
-                if original_action is not None:
-                    original_action()
-                callback(original)
+        def _on_select(info: dict) -> None:
+            item_id = info.get("item_id", "")
+            if item_id in id_to_orig:
+                selected[0] = id_to_orig[item_id]
 
-            return _action
-
-        for ci, orig in zip(chooser_items, items or []):
-            ci.action = _wrap_action(ci, orig)
+        self._event_handlers.setdefault("select", []).append(_on_select)
 
         def _search(query: str) -> List[ChooserItem]:
             if not query.strip():
@@ -171,26 +180,36 @@ class ChooserAPI:
                     results.append(ci)
             return results
 
-        def _on_close():
+        def _on_close() -> None:
+            # Remove our temporary select handler
+            handlers = self._event_handlers.get("select", [])
+            if _on_select in handlers:
+                handlers.remove(_on_select)
             self._panel.unregister_source(source_name)
-            if not picked:
-                callback(None)
+            callback(selected[0])
 
         src = ChooserSource(
             name=source_name,
-            prefix=None,
+            prefix=self._PICK_PREFIX,
             search=_search,
-            priority=999,  # Highest priority so pick items appear first
+            priority=999,
         )
         self._panel.register_source(src)
 
         try:
             from PyObjCTools import AppHelper
 
-            AppHelper.callAfter(self._panel.show, on_close=_on_close)
+            AppHelper.callAfter(
+                self._panel.show,
+                on_close=_on_close,
+                initial_query=self._PICK_PREFIX + " ",
+            )
         except Exception:
             logger.exception("Failed to show chooser for pick()")
             self._panel.unregister_source(source_name)
+            handlers = self._event_handlers.get("select", [])
+            if _on_select in handlers:
+                handlers.remove(_on_select)
 
     # ------------------------------------------------------------------
     # Event hooks
