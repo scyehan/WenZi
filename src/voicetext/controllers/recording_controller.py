@@ -290,6 +290,9 @@ class RecordingController:
         """Called when cancel key (cmd) is pressed during recording — discard and stop."""
         app = self._app
         if not app._recorder.is_recording:
+            # Still clean up overlays that may have been shown before
+            # recording actually started (e.g. during sound feedback delay)
+            self._hide_live_overlay()
             return
         logger.info("Cancel key pressed, cancelling recording")
 
@@ -301,7 +304,10 @@ class RecordingController:
             except Exception:
                 logger.exception("Failed to stop streaming during cancel")
             self._streaming_active = False
-            self._hide_live_overlay()
+
+        # Always hide live overlay (it may have been shown in faded state
+        # before streaming actually started)
+        self._hide_live_overlay()
 
         # Stop current recording and discard audio
         app._recorder.stop()
