@@ -177,35 +177,35 @@ class TestJSONMigration:
 
 
 class TestClipboardMonitor:
-    def test_add_entry(self):
-        monitor = ClipboardMonitor(max_days=7)
+    def test_add_entry(self, tmp_path):
+        monitor = ClipboardMonitor(max_days=7, image_dir=str(tmp_path / "images"))
         monitor._add_entry("hello")
         assert len(monitor.entries) == 1
         assert monitor.entries[0].text == "hello"
 
-    def test_add_entry_with_source_app(self):
-        monitor = ClipboardMonitor(max_days=7)
+    def test_add_entry_with_source_app(self, tmp_path):
+        monitor = ClipboardMonitor(max_days=7, image_dir=str(tmp_path / "images"))
         monitor._add_entry("hello", source_app="Safari")
         assert monitor.entries[0].source_app == "Safari"
 
-    def test_deduplication(self):
+    def test_deduplication(self, tmp_path):
         """Consecutive identical texts should not create duplicate entries."""
-        monitor = ClipboardMonitor(max_days=7)
+        monitor = ClipboardMonitor(max_days=7, image_dir=str(tmp_path / "images"))
         monitor._add_entry("hello")
         monitor._add_entry("hello")
         assert len(monitor.entries) == 1
 
-    def test_different_texts_not_deduplicated(self):
-        monitor = ClipboardMonitor(max_days=7)
+    def test_different_texts_not_deduplicated(self, tmp_path):
+        monitor = ClipboardMonitor(max_days=7, image_dir=str(tmp_path / "images"))
         monitor._add_entry("hello")
         monitor._add_entry("world")
         assert len(monitor.entries) == 2
 
-    def test_expired_entries_trimmed(self):
+    def test_expired_entries_trimmed(self, tmp_path):
         """Entries older than max_days should be removed on add."""
         import time as _time
 
-        monitor = ClipboardMonitor(max_days=1)
+        monitor = ClipboardMonitor(max_days=1, image_dir=str(tmp_path / "images"))
         # Manually add an old entry (2 days ago)
         old_entry = ClipboardEntry(
             text="old", timestamp=_time.time() - 2 * 86400
@@ -217,22 +217,22 @@ class TestClipboardMonitor:
         assert len(monitor.entries) == 1
         assert monitor.entries[0].text == "new"
 
-    def test_newest_first(self):
-        monitor = ClipboardMonitor(max_days=7)
+    def test_newest_first(self, tmp_path):
+        monitor = ClipboardMonitor(max_days=7, image_dir=str(tmp_path / "images"))
         monitor._add_entry("first")
         monitor._add_entry("second")
         monitor._add_entry("third")
         assert monitor.entries[0].text == "third"
         assert monitor.entries[2].text == "first"
 
-    def test_clear(self):
-        monitor = ClipboardMonitor(max_days=7)
+    def test_clear(self, tmp_path):
+        monitor = ClipboardMonitor(max_days=7, image_dir=str(tmp_path / "images"))
         monitor._add_entry("hello")
         monitor.clear()
         assert len(monitor.entries) == 0
 
-    def test_entries_returns_copy(self):
-        monitor = ClipboardMonitor(max_days=7)
+    def test_entries_returns_copy(self, tmp_path):
+        monitor = ClipboardMonitor(max_days=7, image_dir=str(tmp_path / "images"))
         monitor._add_entry("hello")
         entries = monitor.entries
         entries.clear()
@@ -240,9 +240,12 @@ class TestClipboardMonitor:
 
     def test_persistence_save_and_load(self, tmp_path):
         persist_path = str(tmp_path / "clipboard.json")
+        image_dir = str(tmp_path / "images")
 
         # Create monitor and add entries
-        monitor1 = ClipboardMonitor(max_days=7, persist_path=persist_path)
+        monitor1 = ClipboardMonitor(
+            max_days=7, persist_path=persist_path, image_dir=image_dir,
+        )
         monitor1._add_entry("first", source_app="Safari")
         monitor1._add_entry("second")
 
@@ -251,7 +254,9 @@ class TestClipboardMonitor:
         assert os.path.isfile(db_path)
 
         # Load in a new monitor
-        monitor2 = ClipboardMonitor(max_days=7, persist_path=persist_path)
+        monitor2 = ClipboardMonitor(
+            max_days=7, persist_path=persist_path, image_dir=image_dir,
+        )
         assert len(monitor2.entries) == 2
         assert monitor2.entries[0].text == "second"
         assert monitor2.entries[1].text == "first"
@@ -266,8 +271,11 @@ class TestClipboardMonitor:
         # persist_path triggers _init_db which opens .db
         # The corrupt file should be handled gracefully
         persist_path = str(tmp_path / "clipboard.json")
+        image_dir = str(tmp_path / "images")
         try:
-            ClipboardMonitor(max_days=7, persist_path=persist_path)
+            ClipboardMonitor(
+                max_days=7, persist_path=persist_path, image_dir=image_dir,
+            )
         except Exception:
             pass  # SQLite may raise on corrupt file; that's acceptable
 
@@ -276,6 +284,7 @@ class TestClipboardMonitor:
         import time as _time
 
         json_path = str(tmp_path / "clipboard.json")
+        image_dir = str(tmp_path / "images")
         recent_ts = _time.time() - 3600
         data = [
             {"text": "hello", "timestamp": recent_ts, "source_app": "Safari"},
@@ -284,7 +293,9 @@ class TestClipboardMonitor:
         with open(json_path, "w") as f:
             json.dump(data, f)
 
-        monitor = ClipboardMonitor(max_days=7, persist_path=json_path)
+        monitor = ClipboardMonitor(
+            max_days=7, persist_path=json_path, image_dir=image_dir,
+        )
         assert len(monitor.entries) == 2
         assert monitor.entries[0].text == "world"  # most recent
         # JSON should be renamed to .bak
@@ -310,9 +321,11 @@ class TestClipboardMonitor:
         pb.types.return_value = None
         assert ClipboardMonitor._is_concealed(pb) is False
 
-    def test_start_stop(self):
+    def test_start_stop(self, tmp_path):
         """Start and stop should not raise."""
-        monitor = ClipboardMonitor(max_days=7, poll_interval=10.0)
+        monitor = ClipboardMonitor(
+            max_days=7, poll_interval=10.0, image_dir=str(tmp_path / "images"),
+        )
         # Mock NSPasteboard to avoid actual clipboard access
         with patch(
             "voicetext.scripting.clipboard_monitor.ClipboardMonitor._check_clipboard"
@@ -424,7 +437,7 @@ class TestImageEntries:
         assert not os.path.exists(os.path.join(image_dir, "test.png"))
 
     def test_promote_image(self, tmp_path):
-        monitor = ClipboardMonitor(max_days=7)
+        monitor = ClipboardMonitor(max_days=7, image_dir=str(tmp_path / "images"))
         monitor._entries = [
             ClipboardEntry(text="text1"),
             ClipboardEntry(
@@ -436,8 +449,8 @@ class TestImageEntries:
         monitor.promote_image("img1.png")
         assert monitor.entries[0].image_path == "img1.png"
 
-    def test_promote_image_not_found(self):
-        monitor = ClipboardMonitor(max_days=7)
+    def test_promote_image_not_found(self, tmp_path):
+        monitor = ClipboardMonitor(max_days=7, image_dir=str(tmp_path / "images"))
         monitor._entries = [ClipboardEntry(text="text1")]
         monitor.promote_image("nonexistent.png")  # Should not raise
 
@@ -620,17 +633,18 @@ class TestCheckClipboardDetectionOrder:
     TIFF_TYPE = "public.tiff"
     STR_TYPE = "public.utf8-plain-text"
 
-    def _setup(self, *, pb_data=None, pb_text=None):
+    def _setup(self, *, pb_data=None, pb_text=None, image_dir="/tmp/test_images"):
         """Create a monitor with mocked pasteboard.
 
         Args:
             pb_data: dict mapping type-string → bytes (or None).
             pb_text: dict mapping type-string → str (or None).
+            image_dir: isolated image directory to avoid touching production.
         """
         pb_data = pb_data or {}
         pb_text = pb_text or {}
 
-        monitor = ClipboardMonitor(max_days=7)
+        monitor = ClipboardMonitor(max_days=7, image_dir=image_dir)
         monitor._last_change_count = 0
         monitor._add_image_entry = MagicMock(return_value=True)
         monitor._add_entry = MagicMock()
