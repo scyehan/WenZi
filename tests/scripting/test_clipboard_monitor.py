@@ -127,6 +127,41 @@ class TestClipboardDB:
         assert entries[0].image_path == "exists.png"
         db.close()
 
+    def test_delete_by_text(self, tmp_path):
+        import time
+        db = _ClipboardDB(str(tmp_path / "test.db"))
+        db.insert(ClipboardEntry(text="hello", timestamp=time.time()))
+        db.insert(ClipboardEntry(text="world", timestamp=time.time()))
+        assert db.delete_by_text("hello") is True
+        entries = db.load_all(max_days=999)
+        assert len(entries) == 1
+        assert entries[0].text == "world"
+        db.close()
+
+    def test_delete_by_text_not_found(self, tmp_path):
+        db = _ClipboardDB(str(tmp_path / "test.db"))
+        assert db.delete_by_text("nope") is False
+        db.close()
+
+    def test_delete_by_image_path(self, tmp_path):
+        import time
+        db = _ClipboardDB(str(tmp_path / "test.db"))
+        db.insert(ClipboardEntry(
+            image_path="img.png", image_width=100, image_height=50,
+            timestamp=time.time(),
+        ))
+        db.insert(ClipboardEntry(text="text", timestamp=time.time()))
+        assert db.delete_by_image_path("img.png") is True
+        entries = db.load_all(max_days=999)
+        assert len(entries) == 1
+        assert entries[0].text == "text"
+        db.close()
+
+    def test_delete_by_image_path_not_found(self, tmp_path):
+        db = _ClipboardDB(str(tmp_path / "test.db"))
+        assert db.delete_by_image_path("nope.png") is False
+        db.close()
+
     def test_latest_text(self, tmp_path):
         import time
         db = _ClipboardDB(str(tmp_path / "test.db"))
@@ -453,6 +488,43 @@ class TestImageEntries:
         monitor = ClipboardMonitor(max_days=7, image_dir=str(tmp_path / "images"))
         monitor._entries = [ClipboardEntry(text="text1")]
         monitor.promote_image("nonexistent.png")  # Should not raise
+
+    def test_delete_text(self, tmp_path):
+        monitor = ClipboardMonitor(max_days=7, image_dir=str(tmp_path / "images"))
+        monitor._add_entry("first")
+        monitor._add_entry("second")
+        assert monitor.delete_text("first") is True
+        assert len(monitor.entries) == 1
+        assert monitor.entries[0].text == "second"
+
+    def test_delete_text_not_found(self, tmp_path):
+        monitor = ClipboardMonitor(max_days=7, image_dir=str(tmp_path / "images"))
+        monitor._add_entry("hello")
+        assert monitor.delete_text("nope") is False
+        assert len(monitor.entries) == 1
+
+    def test_delete_image(self, tmp_path):
+        image_dir = str(tmp_path / "images")
+        os.makedirs(image_dir, exist_ok=True)
+        with open(os.path.join(image_dir, "del_me.png"), "wb") as f:
+            f.write(b"fake")
+
+        monitor = ClipboardMonitor(max_days=7, image_dir=image_dir)
+        monitor._entries.append(
+            ClipboardEntry(
+                image_path="del_me.png", image_width=100, image_height=100,
+            )
+        )
+        monitor._add_entry("text")
+
+        assert monitor.delete_image("del_me.png") is True
+        assert len(monitor.entries) == 1
+        assert monitor.entries[0].text == "text"
+        assert not os.path.exists(os.path.join(image_dir, "del_me.png"))
+
+    def test_delete_image_not_found(self, tmp_path):
+        monitor = ClipboardMonitor(max_days=7, image_dir=str(tmp_path / "images"))
+        assert monitor.delete_image("nope.png") is False
 
     def test_persistence_with_image_entries(self, tmp_path):
         persist_path = str(tmp_path / "clipboard.json")

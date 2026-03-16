@@ -359,6 +359,7 @@ class ChooserPanel:
                     or item.secondary_action is not None
                 ),
                 "hasModifiers": bool(item.modifiers),
+                "deletable": item.delete_action is not None,
             }
             if item.preview is not None:
                 js_item["preview"] = item.preview
@@ -399,10 +400,31 @@ class ChooserPanel:
             index = body.get("index", -1)
             self._send_preview(index)
 
+        elif msg_type == "deleteItem":
+            index = body.get("index", -1)
+            version = body.get("version", self._items_version)
+            self._delete_item(index, version)
+
         elif msg_type == "modifierChange":
             index = body.get("index", -1)
             modifier = body.get("modifier")
             self._send_modifier_subtitle(index, modifier)
+
+    def _delete_item(self, index: int, version: int = 0) -> None:
+        """Delete an item and refresh the list."""
+        if version and version != self._items_version:
+            return
+        if 0 <= index < len(self._current_items):
+            item = self._current_items[index]
+            if item.delete_action is not None:
+                try:
+                    item.delete_action()
+                except Exception:
+                    logger.exception(
+                        "Chooser delete action failed for %r", item.title,
+                    )
+                self._current_items.pop(index)
+                self._push_items_to_js()
 
     def _execute_item(
         self, index: int, version: int = 0, modifier: Optional[str] = None,

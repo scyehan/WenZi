@@ -162,6 +162,26 @@ class TestClipboardSource:
         assert result[0].preview["type"] == "text"
         assert result[0].preview["content"] == "hello world full text"
 
+    def test_text_entry_has_delete_action(self):
+        now = time.time()
+        monitor = self._make_monitor_with_entries([
+            {"text": "hello", "timestamp": now},
+        ])
+        source = ClipboardSource(monitor)
+        result = source.search("")
+        assert result[0].delete_action is not None
+        assert callable(result[0].delete_action)
+
+    def test_delete_action_calls_monitor_delete_text(self):
+        now = time.time()
+        monitor = self._make_monitor_with_entries([
+            {"text": "hello", "timestamp": now},
+        ])
+        source = ClipboardSource(monitor)
+        result = source.search("")
+        result[0].delete_action()
+        monitor.delete_text.assert_called_once_with("hello")
+
 
 class TestImageEntries:
     def _make_monitor_with_entries(self, entries):
@@ -288,3 +308,37 @@ class TestImageEntries:
         with patch("os.path.isfile", return_value=False):
             result = source.search("")
         assert len(result) == 2
+
+    def test_image_entry_has_delete_action(self):
+        now = time.time()
+        monitor = self._make_monitor_with_entries([
+            {
+                "image_path": "test.png",
+                "image_width": 100,
+                "image_height": 100,
+                "image_size": 1000,
+                "timestamp": now,
+            },
+        ])
+        source = ClipboardSource(monitor)
+        with patch("os.path.isfile", return_value=False):
+            result = source.search("")
+        assert result[0].delete_action is not None
+        assert callable(result[0].delete_action)
+
+    def test_delete_action_calls_monitor_delete_image(self):
+        now = time.time()
+        monitor = self._make_monitor_with_entries([
+            {
+                "image_path": "test.png",
+                "image_width": 100,
+                "image_height": 100,
+                "image_size": 1000,
+                "timestamp": now,
+            },
+        ])
+        source = ClipboardSource(monitor)
+        with patch("os.path.isfile", return_value=False):
+            result = source.search("")
+        result[0].delete_action()
+        monitor.delete_image.assert_called_once_with("test.png")

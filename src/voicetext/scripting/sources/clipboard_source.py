@@ -219,6 +219,9 @@ class ClipboardSource:
                     m.promote_image(ip)
                     _copy_image_to_clipboard(p)
 
+                def _do_delete_img(ip=ep, m=monitor):
+                    m.delete_image(ip)
+
                 preview = self._make_preview(entry)
 
                 results.append(
@@ -229,6 +232,7 @@ class ClipboardSource:
                         preview=preview,
                         action=_do_paste_img,
                         secondary_action=_do_copy_img,
+                        delete_action=_do_delete_img,
                     )
                 )
             else:
@@ -251,6 +255,9 @@ class ClipboardSource:
                     m.promote(t)
                     _copy_to_clipboard(t)
 
+                def _do_delete_text(t=text, m=monitor):
+                    m.delete_text(t)
+
                 preview = self._make_preview(entry)
 
                 # Use first 64 chars of text as stable id
@@ -263,6 +270,7 @@ class ClipboardSource:
                         preview=preview,
                         action=_do_paste,
                         secondary_action=_do_copy,
+                        delete_action=_do_delete_text,
                     )
                 )
 

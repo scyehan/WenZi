@@ -29,6 +29,7 @@ class ChooserItem:
     modifiers: Optional[Dict[str, ModifierAction]] = field(
         default=None, repr=False,
     )  # key: "cmd", "alt", "ctrl", "shift"
+    delete_action: Optional[Callable] = field(default=None, repr=False)
 
 
 @dataclass

@@ -157,6 +157,19 @@ body { display: flex; flex-direction: column; }
     border-radius: 3px; padding: 1px 4px;
     white-space: nowrap; opacity: 0.7;
 }
+.result-item .delete-btn {
+    width: 18px; height: 18px; flex-shrink: 0;
+    border: none; border-radius: 50%;
+    background: transparent; color: var(--secondary);
+    font-size: 13px; line-height: 18px; text-align: center;
+    cursor: pointer; opacity: 0; transition: opacity 0.15s;
+    padding: 0;
+}
+.result-item:hover .delete-btn,
+.result-item.selected .delete-btn { opacity: 0.6; }
+.result-item .delete-btn:hover {
+    opacity: 1; background: var(--item-hover); color: var(--text);
+}
 
 /* Empty state */
 .empty-state {
@@ -287,6 +300,18 @@ function renderItems() {
             shortcut.className = 'shortcut';
             shortcut.textContent = '\u2318' + (i + 1);
             rightGroup.appendChild(shortcut);
+        }
+
+        // Delete button for deletable items
+        if (item.deletable) {
+            var delBtn = document.createElement('button');
+            delBtn.className = 'delete-btn';
+            delBtn.textContent = '\u00d7';
+            delBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                post('deleteItem', { index: i, version: itemsVersion });
+            });
+            rightGroup.appendChild(delBtn);
         }
 
         row.appendChild(rightGroup);

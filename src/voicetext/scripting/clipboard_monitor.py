@@ -127,6 +127,30 @@ class _ClipboardDB:
         self._conn.commit()
         return removed
 
+    def delete_by_text(self, text: str) -> bool:
+        """Delete the first entry matching *text*. Returns True if deleted."""
+        cur = self._conn.execute(
+            "SELECT id FROM entries WHERE text=? LIMIT 1", (text,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return False
+        self._conn.execute("DELETE FROM entries WHERE id=?", (row[0],))
+        self._conn.commit()
+        return True
+
+    def delete_by_image_path(self, image_path: str) -> bool:
+        """Delete the first entry matching *image_path*. Returns True if deleted."""
+        cur = self._conn.execute(
+            "SELECT id FROM entries WHERE image_path=? LIMIT 1", (image_path,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return False
+        self._conn.execute("DELETE FROM entries WHERE id=?", (row[0],))
+        self._conn.commit()
+        return True
+
     def delete_all(self) -> None:
         self._conn.execute("DELETE FROM entries")
         self._conn.commit()
@@ -471,6 +495,33 @@ class ClipboardMonitor:
                 return
         if self._db:
             self._db.update_timestamp(image_path=image_path)
+
+    def delete_text(self, text: str) -> bool:
+        """Delete a text entry from history. Returns True if found."""
+        with self._lock:
+            for i, entry in enumerate(self._entries):
+                if entry.text == text:
+                    self._entries.pop(i)
+                    break
+            else:
+                return False
+        if self._db:
+            self._db.delete_by_text(text)
+        return True
+
+    def delete_image(self, image_path: str) -> bool:
+        """Delete an image entry and its file. Returns True if found."""
+        with self._lock:
+            for i, entry in enumerate(self._entries):
+                if entry.image_path == image_path:
+                    self._entries.pop(i)
+                    break
+            else:
+                return False
+        if self._db:
+            self._db.delete_by_image_path(image_path)
+        self._cleanup_image_files([image_path])
+        return True
 
     def _add_image_entry(
         self, image_data: bytes, image_type: str, source_app: str = ""
