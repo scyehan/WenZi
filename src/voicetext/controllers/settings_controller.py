@@ -35,11 +35,17 @@ class SettingsController:
         self._app = app
 
     def _save_and_reload(self) -> None:
-        """Save config and reload the Settings panel if it is visible."""
+        """Save config and reload the Settings panel if it is visible.
+
+        Safe to call from any thread — the UI reload is dispatched to the
+        main thread automatically.
+        """
+        from PyObjCTools import AppHelper
+
         app = self._app
         save_config(app._config, app._config_path)
         if app._settings_panel.is_visible:
-            self.on_open_settings(None)
+            AppHelper.callAfter(self.on_open_settings, None)
 
     def on_open_settings(self, _) -> None:
         """Open the Settings panel with current state and callbacks."""
