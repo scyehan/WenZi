@@ -32,7 +32,6 @@ _MAX_BUFFER = 128
 _CLEAR_KEYCODES = {
     36,  # return
     48,  # tab
-    49,  # space
     51,  # delete (backspace)
     53,  # escape
     76,  # enter (numpad)
