@@ -344,7 +344,7 @@ Output only the processed text without any explanation."""
                 except Exception:
                     logger.debug("Notification center unavailable, skipping notification")
             finally:
-                app._set_status(old_status or "VT")
+                app._set_status(old_status or "WZ")
                 progress_panel.close()
 
         t = threading.Thread(target=_build, daemon=True)

@@ -560,7 +560,7 @@ class PreviewController:
                     append_newline=app._append_newline,
                     method=app._output_method,
                 )
-            app._set_status("VT")
+            app._set_status("WZ")
 
             try:
                 app._usage_stats.record_output_method(copy_to_clipboard=copy_to_clip)
@@ -596,7 +596,7 @@ class PreviewController:
                     getattr(app, "_preview_audio_duration", 0.0), "voice",
                 )
         else:
-            app._set_status("VT")
+            app._set_status("WZ")
             logger.info("Preview cancelled by user")
             # Save cancelled preview to history (timestamp=None)
             if viewing_idx is None:
@@ -814,7 +814,7 @@ class PreviewController:
                     append_newline=app._append_newline,
                     method=app._output_method,
                 )
-            app._set_status("VT")
+            app._set_status("WZ")
 
             try:
                 app._usage_stats.record_clipboard_confirm()
@@ -850,7 +850,7 @@ class PreviewController:
                     ts, action, result_holder, None, 0.0, "clipboard",
                 )
         else:
-            app._set_status("VT")
+            app._set_status("WZ")
             try:
                 app._usage_stats.record_clipboard_cancel()
             except Exception as e:

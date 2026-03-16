@@ -309,7 +309,7 @@ class RecordingController:
             self._hide_live_overlay()
             self.stop_recording_indicator()
             app._recording_started.set()
-            app._set_status("VT")
+            app._set_status("WZ")
             self._restore_mode()
             return
         logger.info("Cancel key pressed, cancelling recording")
@@ -336,7 +336,7 @@ class RecordingController:
         # Reset state
         app._recording_started.clear()
         app._busy = False
-        app._set_status("VT")
+        app._set_status("WZ")
 
     def on_hotkey_release(self, key_name: str = "") -> None:
         """Called when hotkey is released - stop recording and transcribe."""
@@ -412,7 +412,7 @@ class RecordingController:
         # Non-streaming (batch) path
         if not wav_data:
             self.stop_recording_indicator()
-            app._set_status("VT")
+            app._set_status("WZ")
             return
         use_enhance = bool(app._enhancer and app._enhancer.is_active)
         # Always keep indicator alive for animate-out: preview mode animates
@@ -451,7 +451,7 @@ class RecordingController:
 
             def _on_esc_cancel():
                 app._busy = False
-                app._set_status("VT")
+                app._set_status("WZ")
 
             def _show_direct_overlay():
                 app._recording_indicator.hide()
@@ -733,7 +733,7 @@ class RecordingController:
                 app._streaming_overlay.close_with_delay()
 
         if cancel_event.is_set():
-            app._set_status("VT")
+            app._set_status("WZ")
             return
 
         self._fire_scripting_event("output_text", final_text=text.strip())
@@ -743,7 +743,7 @@ class RecordingController:
             append_newline=app._append_newline,
             method=app._output_method,
         )
-        app._set_status("VT")
+        app._set_status("WZ")
 
         try:
             app._usage_stats.record_confirm(modified=False)

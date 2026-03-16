@@ -348,7 +348,7 @@ models:
                     if not ok:
                         logger.warning("Apple Speech preflight failed: %s", err)
                         prompt_enable_siri()
-                        app._set_status("VT")
+                        app._set_status("WZ")
                         return
 
                 app._set_status("Unloading...")
@@ -394,7 +394,7 @@ models:
                 app._config["asr"]["default_model"] = None
                 save_config(app._config, app._config_path)
 
-                app._set_status("VT")
+                app._set_status("WZ")
                 logger.info("Switched to model: %s", preset.display_name)
                 try:
                     send_notification(
@@ -545,7 +545,7 @@ models:
             app._transcriber = restored
             app._current_preset_id = old_preset_id
             app._menu_builder.update_model_checkmarks()
-            app._set_status("VT")
+            app._set_status("WZ")
             logger.info("Previous model restored")
         except Exception as e2:
             logger.error("Failed to restore previous model: %s", e2)
@@ -597,7 +597,7 @@ models:
             app._config["asr"]["default_model"] = None
             save_config(app._config, app._config_path)
 
-            app._set_status("VT")
+            app._set_status("WZ")
             logger.info("Model switched after cache clear: %s", preset.display_name)
         except Exception as e2:
             stop_event.set()
@@ -671,7 +671,7 @@ models:
                 app._config["asr"]["default_model"] = rm.model
                 save_config(app._config, app._config_path)
 
-                app._set_status("VT")
+                app._set_status("WZ")
                 logger.info("Switched to remote ASR: %s", rm.display_name)
                 try:
                     send_notification(

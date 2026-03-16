@@ -39,7 +39,7 @@ def mock_app():
     app._auto_vocab_builder._enabled = True
     app._auto_vocab_builder.is_building.return_value = False
     app._preview_enabled = True
-    app._current_status = "VT"
+    app._current_status = "WZ"
     return app
 
 

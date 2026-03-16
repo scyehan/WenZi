@@ -61,7 +61,7 @@ LOG_FILE = LOG_DIR / "wenzi.log"
 
 # Map status strings to SF Symbol names for menu bar icons
 _STATUS_ICONS: Dict[str, str] = {
-    "VT": "mic.fill",
+    "WZ": "mic.fill",
     "Recording...": "waveform",
     "Transcribing...": "text.bubble",
     "Enhancing...": "sparkles",
@@ -128,8 +128,8 @@ class WenZiApp(StatusBarApp):
     """Menubar app: hold hotkey to record, release to transcribe and type."""
 
     def __init__(self, config_dir: Optional[str] = None) -> None:
-        super().__init__("WenZi", icon=None, title="VT")
-        self._current_status = "VT"
+        super().__init__("WenZi", icon=None, title="WZ")
+        self._current_status = "WZ"
 
         # Seed the SF Symbol icon so the first render shows an icon, not text
         nsimage = self._sf_symbol_image("mic.fill", "WenZi")
@@ -1025,7 +1025,7 @@ class WenZiApp(StatusBarApp):
                 self._transcriber.initialize()
                 stop_event.set()
                 monitor_thread.join(timeout=2)
-                self._set_status("VT")
+                self._set_status("WZ")
                 logger.info("Model reinitialized after cache clear")
             except Exception as e2:
                 stop_event.set()
@@ -1114,7 +1114,7 @@ class WenZiApp(StatusBarApp):
                 if monitor_thread:
                     monitor_thread.join(timeout=2)
                 if not self._config_degraded:
-                    self._set_status("VT")
+                    self._set_status("WZ")
                 logger.info("Models loaded, app ready")
             except Exception as e:
                 stop_event.set()

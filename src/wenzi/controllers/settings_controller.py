@@ -379,7 +379,7 @@ class SettingsController:
                             old_preset_id,
                             app._current_remote_asr,
                         )
-                        app._set_status("VT")
+                        app._set_status("WZ")
                         return
 
                 app._set_status("Unloading...")
@@ -425,7 +425,7 @@ class SettingsController:
                 app._config["asr"]["default_model"] = None
                 self._save_and_reload()
 
-                app._set_status("VT")
+                app._set_status("WZ")
                 logger.info("Switched to model: %s (from settings)", preset.display_name)
                 try:
                     send_notification("WenZi", "Model switched",
@@ -522,7 +522,7 @@ class SettingsController:
             app._config["asr"]["default_model"] = None
             self._save_and_reload()
 
-            app._set_status("VT")
+            app._set_status("WZ")
             logger.info(
                 "Model switched after cache clear: %s (from settings)",
                 preset.display_name,
@@ -607,7 +607,7 @@ class SettingsController:
                 app._config["asr"]["default_model"] = model
                 self._save_and_reload()
 
-                app._set_status("VT")
+                app._set_status("WZ")
                 logger.info("Switched to remote ASR: %s / %s (from settings)",
                             provider, model)
             except Exception as e:
