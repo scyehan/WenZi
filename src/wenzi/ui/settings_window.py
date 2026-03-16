@@ -1340,7 +1340,7 @@ class SettingsPanel:
         """
         import locale
 
-        current_locale = locale.getdefaultlocale()[0] or ""
+        current_locale = locale.getlocale()[0] or ""
         if current_locale.startswith("zh"):
             return f"{SettingsPanel._DOCS_BASE_URL}/zh/docs/{path}"
         return f"{SettingsPanel._DOCS_BASE_URL}/docs/{path}"

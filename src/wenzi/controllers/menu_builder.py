@@ -197,7 +197,7 @@ class MenuBuilder:
         import webbrowser
 
         base_url = "https://airead.github.io/WenZi"
-        current_locale = locale.getdefaultlocale()[0] or ""
+        current_locale = locale.getlocale()[0] or ""
         if current_locale.startswith("zh"):
             url = f"{base_url}/zh/docs/user-guide.html"
         else:
