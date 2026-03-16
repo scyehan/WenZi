@@ -31,6 +31,40 @@ def _no_real_snippet_tap():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _safe_default_paths(tmp_path, monkeypatch):
+    """Redirect all default data paths to tmp_path.
+
+    Classes like ClipboardMonitor, SnippetStore, AppSource, etc. have
+    default paths under ~/.config/WenZi/. If a test instantiates one
+    without overriding the path, destructive ops (clear, delete) would
+    hit real user data. This fixture patches all known defaults.
+
+    When adding a new _DEFAULT_* path constant, update this fixture.
+    """
+    safe = str(tmp_path / "wenzi_safe")
+    monkeypatch.setattr(
+        "wenzi.scripting.clipboard_monitor._DEFAULT_IMAGE_DIR",
+        safe + "/clipboard_images",
+    )
+    monkeypatch.setattr(
+        "wenzi.scripting.sources.snippet_source._DEFAULT_SNIPPETS_DIR",
+        safe + "/snippets",
+    )
+    monkeypatch.setattr(
+        "wenzi.scripting.sources.app_source._DEFAULT_ICON_CACHE_DIR",
+        safe + "/icon_cache",
+    )
+    monkeypatch.setattr(
+        "wenzi.scripting.sources.usage_tracker._DEFAULT_PATH",
+        safe + "/chooser_usage.json",
+    )
+    monkeypatch.setattr(
+        "wenzi.scripting.api.store._DEFAULT_PATH",
+        safe + "/script_data.json",
+    )
+
+
 class MockAppKitModules:
     """Container for mocked AppKit/Foundation/PyObjC modules."""
 
