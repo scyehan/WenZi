@@ -546,8 +546,9 @@ class TextEnhancer:
 
         1. mode prompt  — static per mode
         2. thinking hint — static within a session
-        3. history context — append-only, changes infrequently
-        4. vocabulary context — dynamic per request (semantic search)
+        3. combined context section — merged history & vocab instructions
+           as a unified header (static), followed by history entries
+           (append-only) and vocab entries (dynamic per request)
         """
         system_content = mode_def.prompt
 
@@ -555,16 +556,42 @@ class TextEnhancer:
         if self._thinking:
             system_content = f"{system_content}\n\n{THINKING_BREVITY_HINT}"
 
-        # 2. Semi-dynamic: conversation history (append-only for cache hits)
+        # 2. Combined context section (history + vocab)
+        context_section = self._build_context_section(text)
+        if context_section:
+            system_content = f"{system_content}\n\n{context_section}"
+
+        return system_content
+
+    def _build_context_section(self, text: str) -> str:
+        """Build the combined context section with history and vocabulary.
+
+        Merges history and vocabulary instruction headers into one static
+        block at the top, maximizing the cacheable prompt prefix.  History
+        entries follow (append-only), then vocabulary entries (dynamic).
+
+        Structure::
+
+            ---
+            <combined instructions>
+
+            对话记录：
+            - entry1
+            - entry2
+
+            词库：
+            - term1
+            - term2
+            ---
+        """
+        history_context = ""
         if self._history_enabled:
             try:
                 history_context = self._build_history_context()
-                if history_context:
-                    system_content = f"{system_content}\n\n{history_context}"
             except Exception as e:
                 logger.warning("Conversation history retrieval failed: %s", e)
 
-        # 3. Dynamic: vocabulary (changes per request)
+        vocab_lines = ""
         if self._vocab_enabled and self._vocab_index is not None:
             try:
                 if not self._vocab_index.is_loaded:
@@ -573,8 +600,10 @@ class TextEnhancer:
                     text.strip(), top_k=self._vocab_top_k
                 )
                 if entries:
-                    vocab_context = self._vocab_index.format_for_prompt(entries)
-                    system_content = f"{system_content}\n\n{vocab_context}"
+                    vocab_lines = "\n".join(
+                        f"- {e.term}（{e.context}）" if e.context else f"- {e.term}"
+                        for e in entries
+                    )
                     logger.info(
                         "Vocabulary matched: %s",
                         ", ".join(e.term for e in entries),
@@ -582,7 +611,20 @@ class TextEnhancer:
             except Exception as e:
                 logger.warning("Vocabulary retrieval failed: %s", e)
 
-        return system_content
+        if not history_context and not vocab_lines:
+            return ""
+
+        # Build the combined section
+        parts = [self._context_section_header()]
+
+        if history_context:
+            parts.append(f"对话记录：\n{history_context}")
+
+        if vocab_lines:
+            parts.append(f"词库：\n{vocab_lines}")
+
+        parts.append("---")
+        return "\n\n".join(parts)
 
     # ------------------------------------------------------------------
     # Incremental history context builder
@@ -695,15 +737,42 @@ class TextEnhancer:
         return self._format_history_section()
 
     def _format_history_section(self) -> str:
-        """Format the cached entry lines into a complete history section."""
+        """Format the cached entry lines (without header/footer).
+
+        Returns just the joined entry lines, e.g.::
+
+            - asr_1 → final_1
+            - asr_2 → final_2
+
+        The combined context header and footer are managed by
+        :meth:`_build_context_section`.
+        """
         if not self._history_entry_lines:
             return ""
-        return (
-            ConversationHistory.HISTORY_PROMPT_HEADER
-            + "\n".join(self._history_entry_lines)
-            + "\n"
-            + ConversationHistory.HISTORY_PROMPT_FOOTER
-        )
+        return "\n".join(self._history_entry_lines)
+
+    def _context_section_header(self) -> str:
+        """Build the combined instruction header for the context section.
+
+        Includes history and/or vocabulary instructions depending on which
+        features are enabled.  This text is static within a session, so it
+        contributes to the cacheable prompt prefix.
+        """
+        lines = ["---", "以下是辅助纠错的参考上下文："]
+
+        if self._history_enabled:
+            lines.append(
+                "- 对话记录：若 ASR 识别与最终确认不同则用→分隔（识别→确认），"
+                "相同则表示无需纠错。"
+            )
+
+        if self._vocab_enabled:
+            lines.append(
+                "- 词库：以下专有名词 ASR 常误写为同音近音词，"
+                "仅当输入中确实存在对应误写时才替换，不要强行套用。"
+            )
+
+        return "\n".join(lines)
 
     def _build_request_kwargs(
         self, text: str, system_content: str, **extra_kwargs: Any

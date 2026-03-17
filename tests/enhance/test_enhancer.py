@@ -1593,6 +1593,62 @@ class TestIncrementalHistoryContext:
 
         assert mode_pos < thinking_pos < history_pos
 
+    def test_combined_context_section_with_vocab(self):
+        """When both history and vocab enabled, instructions merge into one header."""
+        enhancer = self._make_enhancer()
+        enhancer._vocab_enabled = True
+
+        # Set up history
+        entries = [self._make_entry(0)]
+        mock_h = self._make_mock_history(entries, log_count=1)
+        enhancer._conversation_history = mock_h
+
+        # Set up vocab
+        mock_vocab = MagicMock(spec=VocabularyIndex)
+        mock_vocab.is_loaded = True
+        mock_vocab.retrieve.return_value = [
+            VocabularyEntry(term="WenZi", context="app name"),
+        ]
+        enhancer._vocab_index = mock_vocab
+
+        mode_def = _TEST_MODES["proofread"]
+        result = enhancer._build_system_content("test WenZi", mode_def)
+
+        # Combined header should contain both instructions
+        header_pos = result.find("以下是辅助纠错的参考上下文")
+        history_instr_pos = result.find("- 对话记录：")
+        vocab_instr_pos = result.find("- 词库：以下专有名词")
+        assert header_pos < history_instr_pos < vocab_instr_pos
+
+        # History entries come before vocab entries
+        history_entry_pos = result.find("asr_0")
+        vocab_entry_pos = result.find("WenZi（app name）")
+        assert history_entry_pos < vocab_entry_pos
+
+        # All instructions are before any entries
+        assert vocab_instr_pos < history_entry_pos
+
+    def test_context_section_vocab_only(self):
+        """When only vocab enabled (no history), still uses combined section."""
+        enhancer = self._make_enhancer()
+        enhancer._history_enabled = False
+        enhancer._vocab_enabled = True
+
+        mock_vocab = MagicMock(spec=VocabularyIndex)
+        mock_vocab.is_loaded = True
+        mock_vocab.retrieve.return_value = [
+            VocabularyEntry(term="API"),
+        ]
+        enhancer._vocab_index = mock_vocab
+
+        mode_def = _TEST_MODES["proofread"]
+        result = enhancer._build_system_content("test API", mode_def)
+
+        assert "词库" in result
+        assert "API" in result
+        # No history instruction in header
+        assert "对话记录：若 ASR" not in result
+
 
 class TestLastSystemPrompt:
     """Test last_system_prompt property."""
@@ -1622,7 +1678,6 @@ class TestLastSystemPrompt:
         mock_vocab.is_loaded = True
         entries = [VocabularyEntry(term="API", context="Application Programming Interface")]
         mock_vocab.retrieve.return_value = entries
-        mock_vocab.format_for_prompt.return_value = "# Vocabulary\n- API: Application Programming Interface"
 
         with patch("wenzi.enhance.enhancer.TextEnhancer._init_providers"):
             enhancer = TextEnhancer(_make_config(
@@ -1639,7 +1694,8 @@ class TestLastSystemPrompt:
         asyncio.run(enhancer.enhance("test API"))
 
         assert "proofread prompt" in enhancer.last_system_prompt
-        assert "Vocabulary" in enhancer.last_system_prompt
+        assert "API（Application Programming Interface）" in enhancer.last_system_prompt
+        assert "词库" in enhancer.last_system_prompt
 
 
 def _make_mock_stream_client(chunks, usage=None):
