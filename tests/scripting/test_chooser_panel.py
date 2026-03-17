@@ -1003,3 +1003,180 @@ class TestQueryHistory:
         panel._query_history = qh
         panel._handle_js_message({"type": "historyUp"})
         assert panel._history_index == -1
+
+
+# ---------------------------------------------------------------------------
+# Calculator pin mode
+# ---------------------------------------------------------------------------
+
+
+def _make_calc_item(expr="2 + 3", result="5"):
+    return ChooserItem(
+        title=f"{expr} = {result}",
+        subtitle="Calculator",
+        item_id=f"calc:{expr}",
+        action=lambda: None,
+    )
+
+
+class TestCalcMode:
+    def test_has_calc_results_true(self):
+        panel = _make_panel()
+        panel._current_items = [_make_calc_item()]
+        assert panel._has_calc_results() is True
+
+    def test_has_calc_results_false(self):
+        panel = _make_panel()
+        panel._current_items = [ChooserItem(title="Safari")]
+        assert panel._has_calc_results() is False
+
+    def test_has_calc_results_empty(self):
+        panel = _make_panel()
+        panel._current_items = []
+        assert panel._has_calc_results() is False
+
+    def test_has_calc_results_mixed(self):
+        """Calc items among non-calc items should still be detected."""
+        panel = _make_panel()
+        panel._current_items = [
+            ChooserItem(title="Safari"),
+            _make_calc_item(),
+        ]
+        assert panel._has_calc_results() is True
+
+    def test_update_hides_on_deactivate_with_calc(self):
+        """hidesOnDeactivate should be False when calc results are present."""
+        panel = _make_panel()
+        panel._panel = MagicMock()
+        panel._current_items = [_make_calc_item()]
+        panel._update_hides_on_deactivate()
+        panel._panel.setHidesOnDeactivate_.assert_called_with(False)
+
+    def test_update_hides_on_deactivate_without_calc(self):
+        """hidesOnDeactivate should be True when no calc results."""
+        panel = _make_panel()
+        panel._panel = MagicMock()
+        panel._current_items = [ChooserItem(title="Safari")]
+        panel._update_hides_on_deactivate()
+        panel._panel.setHidesOnDeactivate_.assert_called_with(True)
+
+    def test_update_hides_on_deactivate_no_panel(self):
+        """Should not crash when panel is None."""
+        panel = _make_panel()
+        panel._panel = None
+        panel._current_items = [_make_calc_item()]
+        panel._update_hides_on_deactivate()  # Should not raise
+
+    def test_do_search_sets_hides_on_deactivate_for_calc(self):
+        """_do_search should set hidesOnDeactivate=False when calc results appear."""
+        panel = _make_panel()
+        panel._panel = MagicMock()
+        calc_source = _make_source(
+            "calculator",
+            items=[_make_calc_item()],
+            priority=12,
+        )
+        panel.register_source(calc_source)
+        panel._do_search("2 + 3")
+        panel._panel.setHidesOnDeactivate_.assert_called_with(False)
+
+    def test_do_search_sets_hides_on_deactivate_for_non_calc(self):
+        """_do_search should set hidesOnDeactivate=True when no calc results."""
+        panel = _make_panel()
+        panel._panel = MagicMock()
+        panel.register_source(
+            _make_source("apps", items=[ChooserItem(title="Safari")])
+        )
+        panel._do_search("Safari")
+        panel._panel.setHidesOnDeactivate_.assert_called_with(True)
+
+    def test_do_search_empty_query_resets_hides_on_deactivate(self):
+        """Empty query should reset hidesOnDeactivate to True."""
+        panel = _make_panel()
+        panel._panel = MagicMock()
+        panel._do_search("")
+        panel._panel.setHidesOnDeactivate_.assert_called_with(True)
+
+    def test_enter_calc_mode(self):
+        panel = _make_panel()
+        panel._start_esc_tap = MagicMock()
+        with patch("wenzi.scripting.ui.chooser_panel.restore_accessory"):
+            panel._enter_calc_mode()
+        assert panel._calc_mode is True
+        assert panel._previous_app is None
+        panel._start_esc_tap.assert_called_once()
+
+    def test_enter_calc_mode_idempotent(self):
+        """Calling _enter_calc_mode twice should not start a second ESC tap."""
+        panel = _make_panel()
+        panel._start_esc_tap = MagicMock()
+        with patch("wenzi.scripting.ui.chooser_panel.restore_accessory"):
+            panel._enter_calc_mode()
+            panel._enter_calc_mode()
+        panel._start_esc_tap.assert_called_once()
+
+    def test_exit_calc_mode(self):
+        panel = _make_panel()
+        panel._calc_mode = True
+        panel._stop_esc_tap = MagicMock()
+        panel._exit_calc_mode()
+        assert panel._calc_mode is False
+        panel._stop_esc_tap.assert_called_once()
+
+    def test_exit_calc_mode_noop_when_not_active(self):
+        panel = _make_panel()
+        panel._stop_esc_tap = MagicMock()
+        panel._exit_calc_mode()
+        panel._stop_esc_tap.assert_not_called()
+
+    def test_exit_calc_mode_does_not_touch_hides_on_deactivate(self):
+        """_exit_calc_mode must NOT change hidesOnDeactivate."""
+        panel = _make_panel()
+        panel._panel = MagicMock()
+        panel._calc_mode = True
+        panel._stop_esc_tap = MagicMock()
+        panel._exit_calc_mode()
+        panel._panel.setHidesOnDeactivate_.assert_not_called()
+
+    def test_maybe_close_enters_calc_mode_with_calc_results(self):
+        """_maybe_close should enter calc mode instead of closing."""
+        panel = _make_panel()
+        panel._panel = MagicMock()
+        panel._current_items = [_make_calc_item()]
+        panel._start_esc_tap = MagicMock()
+
+        with patch("PyObjCTools.AppHelper.callLater") as mock_later, \
+             patch("wenzi.scripting.ui.chooser_panel.restore_accessory"):
+            panel._maybe_close()
+            # Extract and run the deferred _check callback
+            _check = mock_later.call_args[0][1]
+            _check()
+
+        assert panel._calc_mode is True
+        panel.close = MagicMock()  # Should NOT have been called
+
+    def test_maybe_close_closes_without_calc_results(self):
+        """_maybe_close should close normally without calc results."""
+        panel = _make_panel()
+        panel._panel = MagicMock()
+        panel._current_items = [ChooserItem(title="Safari")]
+        panel.close = MagicMock()
+
+        with patch("PyObjCTools.AppHelper.callLater") as mock_later:
+            panel._maybe_close()
+            _check = mock_later.call_args[0][1]
+            _check()
+
+        panel.close.assert_called_once()
+
+    def test_close_exits_calc_mode(self):
+        """close() should exit calc mode."""
+        panel = _make_panel()
+        panel._calc_mode = True
+        panel._stop_esc_tap = MagicMock()
+        with patch("PyObjCTools.AppHelper.callAfter", side_effect=lambda fn, *a, **kw: fn(*a, **kw)), \
+             patch("wenzi.scripting.ui.chooser_panel.restore_accessory"), \
+             patch("wenzi.scripting.ui.chooser_panel.reactivate_app"):
+            panel.close()
+        assert panel._calc_mode is False
+        panel._stop_esc_tap.assert_called_once()

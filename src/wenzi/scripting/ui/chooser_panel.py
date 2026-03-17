@@ -137,6 +137,10 @@ def _get_panel_delegate_class():
             if self._panel_ref is not None:
                 self._panel_ref._maybe_close()
 
+        def windowDidBecomeKey_(self, notification):
+            if self._panel_ref is not None:
+                self._panel_ref._exit_calc_mode()
+
     _PanelDelegate = ChooserPanelDelegate
     return _PanelDelegate
 
@@ -181,6 +185,9 @@ class ChooserPanel:
         self._event_callback: Optional[Callable] = None  # (event, *args)
         self._previous_app = None  # NSRunningApplication saved on show()
         self._ql_panel = None  # Quick Look preview panel
+        self._calc_mode: bool = False  # Calculator pin mode
+        self._esc_tap = None  # CGEventTap for global ESC
+        self._esc_source = None  # CFRunLoopSource for ESC tap
 
     # ------------------------------------------------------------------
     # Source management
@@ -235,11 +242,145 @@ class ChooserPanel:
                     return
             except Exception:
                 pass
+
+            # Calculator mode: keep panel visible, listen for ESC
+            if self._has_calc_results():
+                self._enter_calc_mode()
+                return
+
             self.close()
 
         from PyObjCTools import AppHelper
 
         AppHelper.callLater(0.1, _check)
+
+    # ------------------------------------------------------------------
+    # Calculator pin mode
+    # ------------------------------------------------------------------
+
+    def _has_calc_results(self) -> bool:
+        """Check if current results include calculator items."""
+        return any(
+            item.item_id.startswith("calc:") for item in self._current_items
+        )
+
+    def _update_hides_on_deactivate(self) -> None:
+        """Set hidesOnDeactivate based on whether calc results are present.
+
+        Must be called preemptively (before the panel loses focus) so the
+        panel stays visible when the app deactivates.
+        """
+        if self._panel is not None:
+            try:
+                self._panel.setHidesOnDeactivate_(not self._has_calc_results())
+            except Exception:
+                pass
+
+    def _enter_calc_mode(self) -> None:
+        """Pin the panel and listen for a global ESC to dismiss.
+
+        Called from ``_maybe_close`` when the panel loses key-window
+        status while calculator results are displayed.
+        """
+        if self._calc_mode:
+            return
+        self._calc_mode = True
+        self._previous_app = None  # Don't reactivate a stale app on close
+        restore_accessory()
+        self._start_esc_tap()
+        logger.debug("Entered calculator pin mode")
+
+    def _exit_calc_mode(self) -> None:
+        """Stop the ESC listener and reset the calc-mode flag.
+
+        Does NOT change ``hidesOnDeactivate`` — that is managed solely
+        by ``_update_hides_on_deactivate`` (driven by search results).
+        """
+        if not self._calc_mode:
+            return
+        self._calc_mode = False
+        self._stop_esc_tap()
+        logger.debug("Exited calculator pin mode")
+
+    def _start_esc_tap(self) -> None:
+        """Create a CGEventTap on the main run loop that swallows ESC."""
+        try:
+            import Quartz
+        except ImportError:
+            logger.warning("Quartz not available, cannot create ESC tap")
+            self.close()
+            return
+
+        _kCGEventKeyDown = Quartz.kCGEventKeyDown
+        _kCGKeyboardEventKeycode = Quartz.kCGKeyboardEventKeycode
+        _ESC_KEYCODE = 53
+
+        def _esc_callback(proxy, event_type, event, refcon):
+            try:
+                if event_type == Quartz.kCGEventTapDisabledByTimeout:
+                    if self._esc_tap is not None:
+                        Quartz.CGEventTapEnable(self._esc_tap, True)
+                    return event
+                if event_type == _kCGEventKeyDown:
+                    keycode = Quartz.CGEventGetIntegerValueField(
+                        event, _kCGKeyboardEventKeycode,
+                    )
+                    if keycode == _ESC_KEYCODE:
+                        # Disable tap immediately to prevent auto-repeat
+                        # from queuing multiple close() calls
+                        if self._esc_tap is not None:
+                            Quartz.CGEventTapEnable(self._esc_tap, False)
+                        from PyObjCTools import AppHelper
+
+                        AppHelper.callAfter(self.close)
+                        return None  # Swallow ESC
+            except Exception:
+                logger.warning("ESC tap callback error", exc_info=True)
+            return event
+
+        mask = Quartz.CGEventMaskBit(_kCGEventKeyDown)
+        tap = Quartz.CGEventTapCreate(
+            Quartz.kCGSessionEventTap,
+            Quartz.kCGHeadInsertEventTap,
+            Quartz.kCGEventTapOptionDefault,
+            mask,
+            _esc_callback,
+            None,
+        )
+        if tap is None:
+            logger.warning(
+                "Failed to create ESC event tap — closing panel instead"
+            )
+            self.close()
+            return
+
+        source = Quartz.CFMachPortCreateRunLoopSource(None, tap, 0)
+        loop = Quartz.CFRunLoopGetMain()
+        Quartz.CFRunLoopAddSource(loop, source, Quartz.kCFRunLoopDefaultMode)
+        Quartz.CGEventTapEnable(tap, True)
+
+        self._esc_tap = tap
+        self._esc_source = source
+        logger.debug("ESC event tap started on main run loop")
+
+    def _stop_esc_tap(self) -> None:
+        """Disable and remove the ESC event tap."""
+        if self._esc_tap is None:
+            return
+        try:
+            import Quartz
+
+            Quartz.CGEventTapEnable(self._esc_tap, False)
+            if self._esc_source is not None:
+                loop = Quartz.CFRunLoopGetMain()
+                Quartz.CFRunLoopRemoveSource(
+                    loop, self._esc_source, Quartz.kCFRunLoopDefaultMode,
+                )
+        except Exception:
+            logger.warning("Failed to stop ESC tap", exc_info=True)
+        self._esc_tap = None
+        self._esc_source = None
+        logger.debug("ESC event tap stopped")
 
     # ------------------------------------------------------------------
     # Public API
@@ -296,6 +437,7 @@ class ChooserPanel:
         if self._closing:
             return
         self._closing = True
+        self._exit_calc_mode()
 
         if self._ql_panel is not None:
             self._ql_panel.close()
@@ -391,6 +533,7 @@ class ChooserPanel:
             if not query.strip():
                 self._current_items = []
                 self._eval_js("setResults([])")
+                self._update_hides_on_deactivate()
                 return
             all_items = []
             sorted_sources = sorted(
@@ -419,6 +562,7 @@ class ChooserPanel:
         if self._usage_tracker and self._current_items:
             self._boost_by_usage(query)
 
+        self._update_hides_on_deactivate()
         self._push_items_to_js(source=source)
 
     def _boost_by_usage(self, query: str) -> None:
