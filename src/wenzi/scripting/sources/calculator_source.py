@@ -67,23 +67,40 @@ def _normalize_unit(unit_str: str) -> str:
 
 
 def _looks_like_math(expr: str) -> bool:
-    return bool(_OPERATORS_RE.search(expr)) or bool(_FUNC_CALL_RE.search(expr))
+    # A bare negative number like "-5" should not count as a math expression.
+    # Require at least one binary operator (an operator that is not a leading
+    # unary minus) OR a known function call.
+    if _FUNC_CALL_RE.search(expr):
+        return True
+    # Strip leading unary minus before checking for operators
+    check = expr.lstrip("-").lstrip()
+    return bool(_OPERATORS_RE.search(check))
 
 
 def _is_complete(expr: str) -> bool:
     return not _INCOMPLETE_RE.search(expr)
 
 
-def _format_number(value: object) -> str:
+def _format_number(value: object) -> tuple[str, str]:
+    """Return ``(display, raw)`` strings for *value*.
+
+    *display* uses thousand separators for readability (shown in title).
+    *raw* is a plain number string safe for pasting into code or another
+    calculator.
+    """
     if isinstance(value, bool):
-        return str(value)
+        s = str(value)
+        return s, s
     if isinstance(value, int):
-        return f"{value:,}"
+        return f"{value:,}", str(value)
     if isinstance(value, float):
         if value == int(value) and abs(value) < 1e15:
-            return f"{int(value):,}"
-        return f"{value:.10g}"
-    return str(value)
+            iv = int(value)
+            return f"{iv:,}", str(iv)
+        g = f"{value:.10g}"
+        return g, g
+    s = str(value)
+    return s, s
 
 
 def _paste_text(text: str) -> None:
@@ -226,9 +243,10 @@ class CalculatorSource:
         except Exception:
             return None
 
-        formatted = _format_number(magnitude)
-        result_text = f"{formatted} {unit_str}"
-        title = f"{expr} = {result_text}"
+        display, raw = _format_number(magnitude)
+        display_text = f"{display} {unit_str}"
+        raw_text = f"{raw} {unit_str}"
+        title = f"{expr} = {display_text}"
         icon = _get_calculator_icon()
 
         return ChooserItem(
@@ -236,8 +254,8 @@ class CalculatorSource:
             subtitle="Unit Conversion",
             icon=icon,
             item_id=f"calc:{expr}",
-            action=lambda t=result_text: _copy_to_clipboard(t),
-            secondary_action=lambda t=result_text: _paste_text(t),
+            action=lambda t=raw_text: _copy_to_clipboard(t),
+            secondary_action=lambda t=raw_text: _paste_text(t),
         )
 
     # -- math expression -----------------------------------------------------
@@ -263,8 +281,8 @@ class CalculatorSource:
         if isinstance(value, float) and (math.isinf(value) or math.isnan(value)):
             return None
 
-        formatted = _format_number(value)
-        title = f"{expr} = {formatted}"
+        display, raw = _format_number(value)
+        title = f"{expr} = {display}"
         icon = _get_calculator_icon()
 
         return ChooserItem(
@@ -272,6 +290,6 @@ class CalculatorSource:
             subtitle="Calculator",
             icon=icon,
             item_id=f"calc:{expr}",
-            action=lambda t=formatted: _copy_to_clipboard(t),
-            secondary_action=lambda t=formatted: _paste_text(t),
+            action=lambda t=raw: _copy_to_clipboard(t),
+            secondary_action=lambda t=raw: _paste_text(t),
         )

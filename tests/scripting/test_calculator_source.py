@@ -136,6 +136,12 @@ class TestDetectionLogic:
     def test_only_spaces(self, calc):
         assert calc.search("   ") == []
 
+    def test_bare_negative_number(self, calc):
+        assert calc.search("-5") == []
+
+    def test_bare_negative_decimal(self, calc):
+        assert calc.search("-3.14") == []
+
 
 # ---------------------------------------------------------------------------
 # Unit conversion
@@ -236,6 +242,25 @@ class TestChooserItem:
         assert item.item_id.startswith("calc:")
         assert item.subtitle == "Calculator"
 
+    def test_clipboard_value_has_no_commas(self, calc):
+        """The value copied to clipboard must be a plain number (no thousand separators)."""
+        items = calc.search("1000 * 1000")
+        assert len(items) == 1
+        # title shows formatted display
+        assert "1,000,000" in items[0].title
+        # Inspect what the action closure would copy — extract from closure defaults
+        action_closure = items[0].action
+        # The default arg 't' captured in 'lambda t=raw: ...'
+        raw_value = action_closure.__defaults__[0] if hasattr(action_closure, "__defaults__") else None
+        if raw_value is None:
+            # Fallback: check via __code__.co_freevars / __closure__
+            for cell in (action_closure.__closure__ or []):
+                val = cell.cell_contents
+                if isinstance(val, str) and val.isdigit():
+                    raw_value = val
+                    break
+        assert raw_value == "1000000"
+
     def test_conversion_item_fields(self, calc_with_pint):
         items = calc_with_pint.search("10 km to mi")
         item = items[0]
@@ -252,16 +277,24 @@ class TestChooserItem:
 
 class TestHelpers:
     def test_format_number_int(self):
-        assert _format_number(1000000) == "1,000,000"
+        display, raw = _format_number(1000000)
+        assert display == "1,000,000"
+        assert raw == "1000000"
 
     def test_format_number_float_whole(self):
-        assert _format_number(4.0) == "4"
+        display, raw = _format_number(4.0)
+        assert display == "4"
+        assert raw == "4"
 
     def test_format_number_float(self):
-        assert _format_number(3.14159) == "3.14159"
+        display, raw = _format_number(3.14159)
+        assert display == "3.14159"
+        assert raw == "3.14159"
 
     def test_format_number_bool(self):
-        assert _format_number(True) == "True"
+        display, raw = _format_number(True)
+        assert display == "True"
+        assert raw == "True"
 
     def test_looks_like_math_with_operator(self):
         assert _looks_like_math("2 + 3") is True
