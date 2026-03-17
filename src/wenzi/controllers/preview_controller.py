@@ -80,6 +80,61 @@ class PreviewController:
             })
         return items
 
+    def _log_with_chain_steps(
+        self,
+        app: WenZiApp,
+        *,
+        result_holder: dict,
+        asr_text: str,
+        final_text: str,
+        audio_duration: float = 0.0,
+    ) -> str | None:
+        """Log enhancement result, with per-step logging for chain modes.
+
+        For chain modes, each intermediate step is logged under its own
+        ``enhance_mode`` so that per-mode history caching works correctly.
+        The last step receives the user's ``final_text`` and
+        ``user_corrected`` flag.
+
+        Returns:
+            The timestamp of the last logged record (used for preview history).
+        """
+        chain_steps = result_holder.get("chain_step_results")
+        stt_model = app._current_stt_model()
+        llm_model = app._current_llm_model()
+        user_corrected = bool(result_holder.get("user_corrected"))
+
+        if chain_steps and len(chain_steps) > 1:
+            ts = None
+            for i, step in enumerate(chain_steps):
+                is_last = i == len(chain_steps) - 1
+                ts = app._conversation_history.log(
+                    asr_text=step["asr_text"],
+                    enhanced_text=step["enhanced_text"],
+                    # Last step: use user's final_text (may have corrections)
+                    final_text=final_text if is_last else step["enhanced_text"],
+                    enhance_mode=step["enhance_mode"],
+                    preview_enabled=True,
+                    stt_model=stt_model,
+                    llm_model=llm_model,
+                    user_corrected=user_corrected if is_last else False,
+                    audio_duration=audio_duration if is_last else 0.0,
+                )
+            return ts
+        else:
+            # Non-chain mode or single-step chain
+            return app._conversation_history.log(
+                asr_text=asr_text,
+                enhanced_text=result_holder.get("enhanced_text"),
+                final_text=final_text,
+                enhance_mode=app._enhance_mode,
+                preview_enabled=True,
+                stt_model=stt_model,
+                llm_model=llm_model,
+                user_corrected=user_corrected,
+                audio_duration=audio_duration,
+            )
+
     def _save_to_preview_history(
         self,
         timestamp: str | None,
@@ -587,15 +642,11 @@ class PreviewController:
                 # Normal confirm — log to conversation history, then save to preview history
                 ts = None
                 try:
-                    ts = app._conversation_history.log(
+                    ts = self._log_with_chain_steps(
+                        app,
+                        result_holder=result_holder,
                         asr_text=app._current_preview_asr_text,
-                        enhanced_text=result_holder["enhanced_text"],
                         final_text=final_text,
-                        enhance_mode=app._enhance_mode,
-                        preview_enabled=True,
-                        stt_model=app._current_stt_model(),
-                        llm_model=app._current_llm_model(),
-                        user_corrected=bool(result_holder.get("user_corrected")),
                         audio_duration=getattr(app, "_preview_audio_duration", 0.0),
                     )
                 except Exception as e:
@@ -844,15 +895,12 @@ class PreviewController:
             else:
                 ts = None
                 try:
-                    ts = app._conversation_history.log(
+                    ts = self._log_with_chain_steps(
+                        app,
+                        result_holder=result_holder,
                         asr_text=clipboard_text,
-                        enhanced_text=result_holder.get("enhanced_text"),
                         final_text=final_text,
-                        enhance_mode=app._enhance_mode,
-                        preview_enabled=True,
-                        stt_model=app._current_stt_model(),
-                        llm_model=app._current_llm_model(),
-                        user_corrected=bool(result_holder.get("user_corrected")),
+                        audio_duration=0.0,
                     )
                 except Exception as e:
                     logger.error("Failed to log conversation: %s", e)

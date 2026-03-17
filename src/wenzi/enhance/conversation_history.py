@@ -419,7 +419,12 @@ class ConversationHistory:
     # little value as correction context.
     _MAX_TEXT_LENGTH_FOR_CONTEXT = 500
 
-    def get_recent(self, n: Optional[int] = None, max_entries: int = 10) -> List[Dict[str, Any]]:
+    def get_recent(
+        self,
+        n: Optional[int] = None,
+        max_entries: int = 10,
+        enhance_mode: str = "",
+    ) -> List[Dict[str, Any]]:
         """Read the most recent N preview_enabled=true records.
 
         Records whose ``final_text`` exceeds ``_MAX_TEXT_LENGTH_FOR_CONTEXT``
@@ -431,6 +436,7 @@ class ConversationHistory:
         Args:
             n: Number of records to return. Defaults to max_entries.
             max_entries: Default number of records when n is not specified.
+            enhance_mode: If non-empty, only return records matching this mode.
 
         Returns:
             List of record dicts, oldest first.
@@ -444,6 +450,8 @@ class ConversationHistory:
                 continue
             final = record.get("final_text", "")
             if len(final) > self._MAX_TEXT_LENGTH_FOR_CONTEXT:
+                continue
+            if enhance_mode and record.get("enhance_mode") != enhance_mode:
                 continue
             results.append(record)
             if len(results) >= count:

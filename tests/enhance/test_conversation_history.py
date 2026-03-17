@@ -200,6 +200,37 @@ class TestConversationHistoryGetRecent:
         assert texts == ["a", "b", "c"]
 
 
+class TestConversationHistoryGetRecentByMode:
+    def test_filter_by_enhance_mode(self, history):
+        history.log("a", "A", "A", "proofread", True)
+        history.log("b", "B", "B", "translate_en", True)
+        history.log("c", "C", "C", "proofread", True)
+
+        results = history.get_recent(n=10, enhance_mode="proofread")
+        assert len(results) == 2
+        texts = [r["asr_text"] for r in results]
+        assert texts == ["a", "c"]
+
+    def test_filter_by_mode_returns_empty(self, history):
+        history.log("a", "A", "A", "proofread", True)
+        results = history.get_recent(n=10, enhance_mode="translate_en")
+        assert len(results) == 0
+
+    def test_no_filter_returns_all(self, history):
+        history.log("a", "A", "A", "proofread", True)
+        history.log("b", "B", "B", "translate_en", True)
+        results = history.get_recent(n=10)
+        assert len(results) == 2
+
+    def test_filter_respects_max_entries(self, history):
+        for i in range(5):
+            history.log(f"e{i}", f"E{i}", f"E{i}", "proofread", True)
+        results = history.get_recent(max_entries=3, enhance_mode="proofread")
+        assert len(results) == 3
+        # Should be the 3 most recent
+        assert results[-1]["asr_text"] == "e4"
+
+
 class TestConversationHistoryFormatForPrompt:
     def test_format_same_asr_and_final(self, history):
         entries = [

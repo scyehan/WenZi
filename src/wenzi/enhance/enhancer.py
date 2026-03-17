@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import re
+from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from .mode_loader import (
@@ -19,6 +20,15 @@ from .conversation_history import ConversationHistory
 from .vocabulary import VocabularyIndex
 
 logger = logging.getLogger(__name__)
+
+@dataclass
+class _ModeHistoryCache:
+    """Per-mode incremental history cache for prompt caching optimization."""
+
+    entry_lines: List[str] = field(default_factory=list)
+    last_ts: str = ""
+    total_chars: int = 0
+
 
 # Appended to system prompt when thinking mode is enabled to keep reasoning concise
 THINKING_BREVITY_HINT = (
@@ -252,14 +262,11 @@ class TextEnhancer:
                 **({"config_dir": config_dir} if config_dir else {})
             )
 
-        # Incremental history cache for prompt caching optimization.
-        # Instead of rebuilding the history section from scratch on every
-        # request, we append new entries and keep the prefix stable so that
-        # LLM API-level prompt caching can kick in.
-        self._history_entry_lines: List[str] = []
-        self._history_last_log_count: int = 0
-        self._history_last_ts: str = ""
-        self._history_total_chars: int = 0
+        # Per-mode incremental history cache for prompt caching optimization.
+        # Each enhancement mode maintains its own history cache so that
+        # switching modes does not invalidate another mode's cache prefix.
+        self._history_caches: Dict[str, _ModeHistoryCache] = {}
+        self._history_last_log_count: int = 0  # global, for fast-path detection
         self._history_refresh_threshold: int = history_cfg.get(
             "refresh_threshold", 50
         )
@@ -630,14 +637,18 @@ class TextEnhancer:
     # Incremental history context builder
     # ------------------------------------------------------------------
 
+    def _get_mode_cache(self) -> _ModeHistoryCache:
+        """Return the history cache for the current enhancement mode."""
+        mode = self._mode
+        if mode not in self._history_caches:
+            self._history_caches[mode] = _ModeHistoryCache()
+        return self._history_caches[mode]
+
     def _build_history_context(self) -> str:
         """Build history section incrementally for better API cache hit rate.
 
-        Instead of rebuilding the full history string on every request, this
-        method appends only new entries to the existing list.  This keeps the
-        system prompt prefix stable across consecutive requests so that LLM
-        API-level prompt caching (OpenAI, DeepSeek, etc.) can reuse the
-        cached KV state.
+        Each enhancement mode maintains its own history cache so that
+        switching modes does not invalidate another mode's cached prefix.
 
         Rebuild triggers (resets to ``_history_max_entries`` base entries):
         - Entry count reaches ``_history_refresh_threshold``
@@ -645,35 +656,39 @@ class TextEnhancer:
         - Anchor timestamp not found (rotation, deletion, etc.)
         """
         ch = self._conversation_history
+        mc = self._get_mode_cache()
 
         # Fast path: no new log() calls since last build — return cached
         lc = ch.log_count
-        if lc == self._history_last_log_count and self._history_entry_lines:
+        if lc == self._history_last_log_count and mc.entry_lines:
             return self._format_history_section()
         self._history_last_log_count = lc
 
-        # Fetch up to threshold entries for comparison
-        entries = ch.get_recent(max_entries=self._history_refresh_threshold)
+        # Fetch up to threshold entries for the current mode
+        entries = ch.get_recent(
+            max_entries=self._history_refresh_threshold,
+            enhance_mode=self._mode,
+        )
         if not entries:
-            self._history_entry_lines = []
-            self._history_total_chars = 0
-            self._history_last_ts = ""
+            mc.entry_lines = []
+            mc.total_chars = 0
+            mc.last_ts = ""
             return ""
 
         latest_ts = entries[-1].get("timestamp", "")
 
-        # No qualifying entries were added (e.g. non-preview log)
-        if latest_ts == self._history_last_ts and self._history_entry_lines:
+        # No qualifying entries were added for this mode
+        if latest_ts == mc.last_ts and mc.entry_lines:
             return self._format_history_section()
 
         # First build
-        if not self._history_entry_lines:
+        if not mc.entry_lines:
             return self._full_rebuild_history(entries)
 
         # Find new entries by walking backwards from the end
         new_entries: list = []
         for e in reversed(entries):
-            if e.get("timestamp") == self._history_last_ts:
+            if e.get("timestamp") == mc.last_ts:
                 break
             new_entries.append(e)
         else:
@@ -690,8 +705,8 @@ class TextEnhancer:
         new_lines = [ch.format_entry_line(e) for e in new_entries]
         # Each new line adds: 1 separator (\n) + line length
         new_chars = sum(len(line) + 1 for line in new_lines)
-        projected_count = len(self._history_entry_lines) + len(new_lines)
-        projected_chars = self._history_total_chars + new_chars
+        projected_count = len(mc.entry_lines) + len(new_lines)
+        projected_chars = mc.total_chars + new_chars
 
         if (
             projected_count >= self._history_refresh_threshold
@@ -705,14 +720,15 @@ class TextEnhancer:
             return self._full_rebuild_history(entries)
 
         # Safe to append
-        self._history_entry_lines.extend(new_lines)
-        self._history_total_chars = projected_chars
-        self._history_last_ts = latest_ts
+        mc.entry_lines.extend(new_lines)
+        mc.total_chars = projected_chars
+        mc.last_ts = latest_ts
         logger.info(
-            "History cache appended %d entries (total %d, chars %d)",
+            "History cache [%s] appended %d entries (total %d, chars %d)",
+            self._mode,
             len(new_lines),
-            len(self._history_entry_lines),
-            self._history_total_chars,
+            len(mc.entry_lines),
+            mc.total_chars,
         )
 
         return self._format_history_section()
@@ -722,21 +738,20 @@ class TextEnhancer:
     ) -> str:
         """Rebuild history cache from scratch with the most recent base entries."""
         ch = self._conversation_history
+        mc = self._get_mode_cache()
         base = entries[-self._history_max_entries:]
-        self._history_entry_lines = [ch.format_entry_line(e) for e in base]
+        mc.entry_lines = [ch.format_entry_line(e) for e in base]
         # Total chars of "\n".join(lines): sum of line lengths + (N-1) separators
-        n = len(self._history_entry_lines)
-        self._history_total_chars = (
-            sum(len(line) for line in self._history_entry_lines)
-            + max(n - 1, 0)
+        n = len(mc.entry_lines)
+        mc.total_chars = (
+            sum(len(line) for line in mc.entry_lines) + max(n - 1, 0)
         )
-        self._history_last_ts = (
-            entries[-1].get("timestamp", "") if entries else ""
-        )
+        mc.last_ts = entries[-1].get("timestamp", "") if entries else ""
         logger.info(
-            "History cache rebuilt with %d entries (chars %d)",
-            len(self._history_entry_lines),
-            self._history_total_chars,
+            "History cache [%s] rebuilt with %d entries (chars %d)",
+            self._mode,
+            len(mc.entry_lines),
+            mc.total_chars,
         )
         return self._format_history_section()
 
@@ -751,9 +766,10 @@ class TextEnhancer:
         The combined context header and footer are managed by
         :meth:`_build_context_section`.
         """
-        if not self._history_entry_lines:
+        mc = self._get_mode_cache()
+        if not mc.entry_lines:
             return ""
-        return "\n".join(self._history_entry_lines)
+        return "\n".join(mc.entry_lines)
 
     def _context_section_header(
         self, *, has_history: bool, has_vocab: bool

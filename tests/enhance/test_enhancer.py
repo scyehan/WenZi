@@ -1363,12 +1363,13 @@ class TestIncrementalHistoryContext:
             enhancer = TextEnhancer(cfg)
         return enhancer
 
-    def _make_entry(self, idx, preview=True, ts=None):
+    def _make_entry(self, idx, preview=True, ts=None, mode="proofread"):
         return {
             "asr_text": f"asr_{idx}",
             "final_text": f"final_{idx}",
             "timestamp": ts or f"2025-01-01T00:00:{idx:02d}",
             "preview_enabled": preview,
+            "enhance_mode": mode,
         }
 
     def _make_mock_history(self, entries, log_count=0):
@@ -1377,6 +1378,10 @@ class TestIncrementalHistoryContext:
         mock_history.get_recent.return_value = entries
         mock_history.format_entry_line = ConversationHistory.format_entry_line
         return mock_history
+
+    def _mode_cache(self, enhancer):
+        """Get the history cache for the enhancer's current mode ('proofread')."""
+        return enhancer._history_caches.get("proofread")
 
     def test_first_build_uses_max_entries(self):
         """First call builds from the most recent max_entries entries."""
@@ -1392,7 +1397,7 @@ class TestIncrementalHistoryContext:
         assert "final_8" in result
         assert "final_9" in result
         assert "final_6" not in result
-        assert len(enhancer._history_entry_lines) == 3
+        assert len(self._mode_cache(enhancer).entry_lines) == 3
 
     def test_fast_path_no_log_change(self):
         """When log_count unchanged, return cached result without calling get_recent."""
@@ -1427,7 +1432,7 @@ class TestIncrementalHistoryContext:
         result2 = enhancer._build_history_context()
 
         assert "final_3" in result2
-        assert len(enhancer._history_entry_lines) == 4
+        assert len(self._mode_cache(enhancer).entry_lines) == 4
         # Prefix should be preserved (the first 3 entry lines unchanged)
         assert result2.startswith(result1.rsplit("\n---", 1)[0])
 
@@ -1469,7 +1474,7 @@ class TestIncrementalHistoryContext:
         mock_h = self._make_mock_history(entries, log_count=1)
         enhancer._conversation_history = mock_h
         enhancer._build_history_context()
-        assert len(enhancer._history_entry_lines) == 2
+        assert len(self._mode_cache(enhancer).entry_lines) == 2
 
         # Append entries 2, 3 → now 4 total
         for i in range(2, 4):
@@ -1477,7 +1482,7 @@ class TestIncrementalHistoryContext:
             mock_h.log_count = i
             mock_h.get_recent.return_value = list(entries)
             enhancer._build_history_context()
-        assert len(enhancer._history_entry_lines) == 4
+        assert len(self._mode_cache(enhancer).entry_lines) == 4
 
         # Adding entry 4 would make 5 (>=threshold) → triggers rebuild
         entries.append(self._make_entry(4))
@@ -1486,9 +1491,9 @@ class TestIncrementalHistoryContext:
         enhancer._build_history_context()
 
         # Rebuilt with max_entries=2 → only last 2 entries
-        assert len(enhancer._history_entry_lines) == 2
-        assert "final_3" in enhancer._history_entry_lines[0]
-        assert "final_4" in enhancer._history_entry_lines[1]
+        assert len(self._mode_cache(enhancer).entry_lines) == 2
+        assert "final_3" in self._mode_cache(enhancer).entry_lines[0]
+        assert "final_4" in self._mode_cache(enhancer).entry_lines[1]
 
     def test_rebuild_on_chars_threshold(self):
         """Rebuild when total chars reaches max_history_chars."""
@@ -1515,7 +1520,7 @@ class TestIncrementalHistoryContext:
             enhancer._build_history_context()
 
         # Should have rebuilt (entry_lines back to max_entries=2)
-        assert len(enhancer._history_entry_lines) == 2
+        assert len(self._mode_cache(enhancer).entry_lines) == 2
 
     def test_rebuild_on_anchor_not_found(self):
         """Rebuild when last known timestamp not found (rotation/deletion)."""
@@ -1526,7 +1531,7 @@ class TestIncrementalHistoryContext:
         mock_h = self._make_mock_history(entries_v1, log_count=1)
         enhancer._conversation_history = mock_h
         enhancer._build_history_context()
-        assert enhancer._history_last_ts == "2025-01-01T00:00:02"
+        assert self._mode_cache(enhancer).last_ts == "2025-01-01T00:00:02"
 
         # Simulate rotation: completely different entries
         entries_v2 = [self._make_entry(i + 100) for i in range(5)]
@@ -1535,7 +1540,7 @@ class TestIncrementalHistoryContext:
         result = enhancer._build_history_context()
 
         # Should have rebuilt with last max_entries entries
-        assert len(enhancer._history_entry_lines) == 3
+        assert len(self._mode_cache(enhancer).entry_lines) == 3
         assert "final_104" in result
 
     def test_non_qualifying_log_no_append(self):
@@ -1553,8 +1558,8 @@ class TestIncrementalHistoryContext:
         mock_h.get_recent.return_value = entries  # unchanged
         enhancer._build_history_context()
 
-        assert len(enhancer._history_entry_lines) == 3
-        assert enhancer._history_last_ts == "2025-01-01T00:00:02"
+        assert len(self._mode_cache(enhancer).entry_lines) == 3
+        assert self._mode_cache(enhancer).last_ts == "2025-01-01T00:00:02"
 
     def test_empty_history_returns_empty_string(self):
         enhancer = self._make_enhancer()
@@ -1569,6 +1574,40 @@ class TestIncrementalHistoryContext:
         enhancer = self._make_enhancer(max_entries=10, refresh_threshold=5)
         # Should auto-correct to max_entries * 5 = 50
         assert enhancer._history_refresh_threshold == 50
+
+    def test_per_mode_history_isolation(self):
+        """Different modes maintain separate history caches."""
+        enhancer = self._make_enhancer()
+
+        # Build history for proofread mode
+        proofread_entries = [self._make_entry(i, mode="proofread") for i in range(3)]
+        mock_h = self._make_mock_history(proofread_entries, log_count=1)
+        enhancer._conversation_history = mock_h
+        enhancer._build_history_context()
+
+        assert "proofread" in enhancer._history_caches
+        assert len(enhancer._history_caches["proofread"].entry_lines) == 3
+
+        # Switch to translate mode — proofread cache should be untouched
+        enhancer._mode = "translate_en"
+        translate_entries = [self._make_entry(i + 10, mode="translate_en") for i in range(2)]
+        mock_h.log_count = 2
+        mock_h.get_recent.return_value = translate_entries
+        enhancer._build_history_context()
+
+        assert "translate_en" in enhancer._history_caches
+        assert len(enhancer._history_caches["translate_en"].entry_lines) == 2
+        # Proofread cache preserved
+        assert len(enhancer._history_caches["proofread"].entry_lines) == 3
+
+        # Switch back to proofread — should use cached result (fast path)
+        enhancer._mode = "proofread"
+        mock_h.get_recent.reset_mock()
+        result = enhancer._build_history_context()
+
+        assert "asr_0" in result
+        # Fast path: log_count unchanged, no get_recent call needed
+        mock_h.get_recent.assert_not_called()
 
     def test_system_prompt_ordering(self):
         """System prompt should order: mode → thinking → history → vocab."""
