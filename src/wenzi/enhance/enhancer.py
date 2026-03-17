@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import re
+from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from .mode_loader import (
@@ -19,6 +20,16 @@ from .conversation_history import ConversationHistory
 from .vocabulary import VocabularyIndex
 
 logger = logging.getLogger(__name__)
+
+@dataclass
+class _ModeHistoryCache:
+    """Per-mode incremental history cache for prompt caching optimization."""
+
+    entry_lines: List[str] = field(default_factory=list)
+    last_ts: str = ""
+    total_chars: int = 0
+    last_log_count: int = 0
+
 
 # Appended to system prompt when thinking mode is enabled to keep reasoning concise
 THINKING_BREVITY_HINT = (
@@ -189,6 +200,8 @@ class TextEnhancer:
         self,
         config: Dict[str, Any],
         config_dir: str | None = None,
+        data_dir: str | None = None,
+        cache_dir: str | None = None,
         conversation_history: Optional[ConversationHistory] = None,
     ) -> None:
         self._enabled = config.get("enabled", False)
@@ -197,6 +210,8 @@ class TextEnhancer:
         self._max_retries = config.get("max_retries", 2)
         self._thinking = config.get("thinking", False)
         self._config_dir = config_dir
+        self._data_dir = data_dir
+        self._cache_dir = cache_dir
 
         # Debug flags
         self._debug_print_prompt = False
@@ -238,7 +253,11 @@ class TextEnhancer:
         self._vocab_top_k = vocab_cfg.get("top_k", 5)
         self._vocab_index: Optional[VocabularyIndex] = None
         if self._vocab_enabled:
-            kwargs = {"vocab_dir": config_dir} if config_dir else {}
+            kwargs: Dict[str, Any] = {}
+            if data_dir:
+                kwargs["data_dir"] = data_dir
+            if cache_dir:
+                kwargs["cache_dir"] = cache_dir
             self._vocab_index = VocabularyIndex(vocab_cfg, **kwargs)
 
         # Conversation history
@@ -249,8 +268,29 @@ class TextEnhancer:
             self._conversation_history = conversation_history
         else:
             self._conversation_history = ConversationHistory(
-                **({"config_dir": config_dir} if config_dir else {})
+                **({"data_dir": data_dir} if data_dir else {})
             )
+
+        # Per-mode incremental history cache for prompt caching optimization.
+        # Each enhancement mode maintains its own history cache so that
+        # switching modes does not invalidate another mode's cache prefix.
+        self._history_caches: Dict[str, _ModeHistoryCache] = {}
+        self._history_refresh_threshold: int = history_cfg.get(
+            "refresh_threshold", 50
+        )
+        self._max_history_chars: int = history_cfg.get(
+            "max_history_chars", 6000
+        )
+        # Guard: threshold must exceed base size to avoid rebuild-every-request
+        if self._history_refresh_threshold <= self._history_max_entries:
+            logger.warning(
+                "refresh_threshold (%d) must be greater than max_entries (%d), "
+                "using %d",
+                self._history_refresh_threshold,
+                self._history_max_entries,
+                self._history_max_entries * 5,
+            )
+            self._history_refresh_threshold = self._history_max_entries * 5
 
         # Validate active provider/model
         if self._active_provider not in self._providers and self._providers:
@@ -330,7 +370,11 @@ class TextEnhancer:
         self._vocab_enabled = value
         if value and self._vocab_index is None:
             vocab_cfg = self._config_raw.get("vocabulary", {}) if hasattr(self, "_config_raw") else {}
-            kwargs = {"vocab_dir": self._config_dir} if self._config_dir else {}
+            kwargs: Dict[str, Any] = {}
+            if self._data_dir:
+                kwargs["data_dir"] = self._data_dir
+            if self._cache_dir:
+                kwargs["cache_dir"] = self._cache_dir
             self._vocab_index = VocabularyIndex(vocab_cfg, **kwargs)
         logger.info("Vocabulary changed to: %s", value)
 
@@ -346,6 +390,29 @@ class TextEnhancer:
     def history_enabled(self, value: bool) -> None:
         self._history_enabled = value
         logger.info("Conversation history changed to: %s", value)
+
+    @property
+    def history_max_entries(self) -> int:
+        return self._history_max_entries
+
+    @history_max_entries.setter
+    def history_max_entries(self, value: int) -> None:
+        self._history_max_entries = max(1, value)
+        logger.info("History max_entries changed to: %d", self._history_max_entries)
+
+    @property
+    def history_refresh_threshold(self) -> int:
+        return self._history_refresh_threshold
+
+    @history_refresh_threshold.setter
+    def history_refresh_threshold(self, value: int) -> None:
+        self._history_refresh_threshold = max(
+            self._history_max_entries + 1, value
+        )
+        logger.info(
+            "History refresh_threshold changed to: %d",
+            self._history_refresh_threshold,
+        )
 
     @property
     def conversation_history(self) -> ConversationHistory:
@@ -514,9 +581,59 @@ class TextEnhancer:
         return result
 
     def _build_system_content(self, text: str, mode_def: "ModeDefinition") -> str:
-        """Build system prompt with vocabulary and history context."""
+        """Build system prompt with vocabulary and history context.
+
+        Components are ordered by stability (most stable first) so that
+        LLM API-level prompt caching can match the longest possible prefix:
+
+        1. mode prompt  — static per mode
+        2. thinking hint — static within a session
+        3. combined context section — merged history & vocab instructions
+           as a unified header (static), followed by history entries
+           (append-only) and vocab entries (dynamic per request)
+        """
         system_content = mode_def.prompt
 
+        # 1. Static: thinking brevity hint
+        if self._thinking:
+            system_content = f"{system_content}\n\n{THINKING_BREVITY_HINT}"
+
+        # 2. Combined context section (history + vocab)
+        context_section = self._build_context_section(text)
+        if context_section:
+            system_content = f"{system_content}\n\n{context_section}"
+
+        return system_content
+
+    def _build_context_section(self, text: str) -> str:
+        """Build the combined context section with history and vocabulary.
+
+        Merges history and vocabulary instruction headers into one static
+        block at the top, maximizing the cacheable prompt prefix.  History
+        entries follow (append-only), then vocabulary entries (dynamic).
+
+        Structure::
+
+            ---
+            <combined instructions>
+
+            对话记录：
+            - entry1
+            - entry2
+
+            词库：
+            - term1
+            - term2
+            ---
+        """
+        history_context = ""
+        if self._history_enabled:
+            try:
+                history_context = self._build_history_context()
+            except Exception as e:
+                logger.warning("Conversation history retrieval failed: %s", e)
+
+        vocab_lines = ""
         if self._vocab_enabled and self._vocab_index is not None:
             try:
                 if not self._vocab_index.is_loaded:
@@ -525,8 +642,7 @@ class TextEnhancer:
                     text.strip(), top_k=self._vocab_top_k
                 )
                 if entries:
-                    vocab_context = self._vocab_index.format_for_prompt(entries)
-                    system_content = f"{mode_def.prompt}\n\n{vocab_context}"
+                    vocab_lines = self._vocab_index.format_entry_lines(entries)
                     logger.info(
                         "Vocabulary matched: %s",
                         ", ".join(e.term for e in entries),
@@ -534,27 +650,199 @@ class TextEnhancer:
             except Exception as e:
                 logger.warning("Vocabulary retrieval failed: %s", e)
 
+        if not history_context and not vocab_lines:
+            return ""
+
+        # Build the combined section — header uses enabled flags for stability
+        parts = [self._context_section_header()]
+
+        if history_context:
+            parts.append(f"对话记录：\n{history_context}")
+
+        if vocab_lines:
+            parts.append(f"词库：\n{vocab_lines}")
+
+        parts.append("---")
+        return "\n\n".join(parts)
+
+    # ------------------------------------------------------------------
+    # Incremental history context builder
+    # ------------------------------------------------------------------
+
+    def _get_mode_cache(self) -> _ModeHistoryCache:
+        """Return the history cache for the current enhancement mode."""
+        mode = self._mode
+        if mode not in self._history_caches:
+            self._history_caches[mode] = _ModeHistoryCache()
+        return self._history_caches[mode]
+
+    def _build_history_context(self) -> str:
+        """Build history section incrementally for better API cache hit rate.
+
+        Each enhancement mode maintains its own history cache so that
+        switching modes does not invalidate another mode's cached prefix.
+
+        Rebuild triggers (resets to ``_history_max_entries`` base entries):
+        - Entry count reaches ``_history_refresh_threshold``
+        - Total character count reaches ``_max_history_chars``
+        - Anchor timestamp not found (rotation, deletion, etc.)
+        """
+        ch = self._conversation_history
+        mc = self._get_mode_cache()
+
+        # Fast path: no new log() calls since last build — return cached.
+        # last_log_count is per-mode so that one mode's update does not
+        # cause another mode to skip its own new entries.
+        lc = ch.log_count
+        if lc == mc.last_log_count and mc.entry_lines:
+            return self._format_history_section()
+
+        # Fetch up to threshold entries for the current mode.
+        # NOTE: last_log_count is updated only AFTER successful processing,
+        # so that an exception here does not cause future calls to skip
+        # new entries via the fast path.
+        entries = ch.get_recent(
+            max_entries=self._history_refresh_threshold,
+            enhance_mode=self._mode,
+        )
+        if not entries:
+            mc.entry_lines = []
+            mc.total_chars = 0
+            mc.last_ts = ""
+            mc.last_log_count = lc
+            return ""
+
+        latest_ts = entries[-1].get("timestamp", "")
+
+        # No qualifying entries were added for this mode
+        if latest_ts == mc.last_ts and mc.entry_lines:
+            mc.last_log_count = lc
+            return self._format_history_section()
+
+        # First build
+        if not mc.entry_lines:
+            result = self._full_rebuild_history(entries)
+            mc.last_log_count = lc
+            return result
+
+        # Find new entries by walking backwards from the end
+        new_entries: list = []
+        for e in reversed(entries):
+            if e.get("timestamp") == mc.last_ts:
+                break
+            new_entries.append(e)
+        else:
+            # Anchor not found — structural change (rotation, deletion)
+            logger.info("History anchor not found, performing full rebuild")
+            result = self._full_rebuild_history(entries)
+            mc.last_log_count = lc
+            return result
+
+        if not new_entries:
+            mc.last_log_count = lc
+            return self._format_history_section()
+
+        new_entries.reverse()
+
+        # Pre-check: would appending exceed thresholds?
+        new_lines = [ch.format_entry_line(e) for e in new_entries]
+        # Each new line adds: 1 separator (\n) + line length
+        new_chars = sum(len(line) + 1 for line in new_lines)
+        projected_count = len(mc.entry_lines) + len(new_lines)
+        projected_chars = mc.total_chars + new_chars
+
+        if (
+            projected_count >= self._history_refresh_threshold
+            or projected_chars >= self._max_history_chars
+        ):
+            logger.info(
+                "History threshold reached (entries=%d, chars=%d), rebuilding",
+                projected_count,
+                projected_chars,
+            )
+            result = self._full_rebuild_history(entries)
+            mc.last_log_count = lc
+            return result
+
+        # Safe to append
+        mc.entry_lines.extend(new_lines)
+        mc.total_chars = projected_chars
+        mc.last_ts = latest_ts
+        mc.last_log_count = lc
+        logger.info(
+            "History cache [%s] appended %d entries (total %d, chars %d)",
+            self._mode,
+            len(new_lines),
+            len(mc.entry_lines),
+            mc.total_chars,
+        )
+
+        return self._format_history_section()
+
+    def _full_rebuild_history(
+        self, entries: List[Dict[str, Any]]
+    ) -> str:
+        """Rebuild history cache from scratch with the most recent base entries."""
+        ch = self._conversation_history
+        mc = self._get_mode_cache()
+        base = entries[-self._history_max_entries:]
+        mc.entry_lines = [ch.format_entry_line(e) for e in base]
+        # Total chars of "\n".join(lines): sum of line lengths + (N-1) separators
+        n = len(mc.entry_lines)
+        mc.total_chars = (
+            sum(len(line) for line in mc.entry_lines) + max(n - 1, 0)
+        )
+        mc.last_ts = entries[-1].get("timestamp", "") if entries else ""
+        logger.info(
+            "History cache [%s] rebuilt with %d entries (chars %d)",
+            self._mode,
+            len(mc.entry_lines),
+            mc.total_chars,
+        )
+        return self._format_history_section()
+
+    def _format_history_section(self) -> str:
+        """Format the cached entry lines (without header/footer).
+
+        Returns just the joined entry lines, e.g.::
+
+            - asr_1 → final_1
+            - asr_2 → final_2
+
+        The combined context header and footer are managed by
+        :meth:`_build_context_section`.
+        """
+        mc = self._get_mode_cache()
+        if not mc.entry_lines:
+            return ""
+        return "\n".join(mc.entry_lines)
+
+    def _context_section_header(self) -> str:
+        """Build the combined instruction header for the context section.
+
+        Uses ``_history_enabled`` / ``_vocab_enabled`` flags (not per-request
+        content) so the header stays **stable within a session** and
+        contributes to the cacheable prompt prefix.  The subsection labels
+        (``对话记录：`` / ``词库：``) are only emitted when actual content
+        exists, so the LLM never sees a label with no data beneath it.
+        """
+        lines = ["---", "以下是辅助纠错的参考上下文："]
+
         if self._history_enabled:
-            try:
-                entries = self._conversation_history.get_recent(
-                    max_entries=self._history_max_entries
-                )
-                if entries:
-                    history_context = self._conversation_history.format_for_prompt(
-                        entries
-                    )
-                    system_content = f"{system_content}\n\n{history_context}"
-                    logger.info(
-                        "Conversation history injected: %d entries",
-                        len(entries),
-                    )
-            except Exception as e:
-                logger.warning("Conversation history retrieval failed: %s", e)
+            lines.append(
+                "- 对话记录（优先参考）：反映用户真实的纠错偏好和话题上下文，"
+                "若 ASR 识别与最终确认不同则用→分隔（识别→确认），"
+                "相同则表示无需纠错。"
+            )
 
-        if self._thinking:
-            system_content = f"{system_content}\n\n{THINKING_BREVITY_HINT}"
+        if self._vocab_enabled:
+            lines.append(
+                "- 词库（仅供辅助）：以下专有名词 ASR 常误写为同音近音词，"
+                "仅当输入中确实存在对应误写时才替换，不要强行套用。"
+                "当词库与对话记录冲突时，以对话记录为准。"
+            )
 
-        return system_content
+        return "\n".join(lines)
 
     def _build_request_kwargs(
         self, text: str, system_content: str, **extra_kwargs: Any
@@ -797,6 +1085,8 @@ class TextEnhancer:
 def create_enhancer(
     config: Dict[str, Any],
     config_dir: str | None = None,
+    data_dir: str | None = None,
+    cache_dir: str | None = None,
     conversation_history: Optional[ConversationHistory] = None,
 ) -> Optional[TextEnhancer]:
     """Factory function to create a TextEnhancer from app config.
@@ -807,5 +1097,9 @@ def create_enhancer(
     if ai_config is None:
         return None
     return TextEnhancer(
-        ai_config, config_dir=config_dir, conversation_history=conversation_history
+        ai_config,
+        config_dir=config_dir,
+        data_dir=data_dir,
+        cache_dir=cache_dir,
+        conversation_history=conversation_history,
     )

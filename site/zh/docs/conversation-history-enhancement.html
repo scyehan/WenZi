@@ -73,21 +73,22 @@
 <li><a href="#_3">工作原理</a><ul>
 <li><a href="#_4">记录</a></li>
 <li><a href="#_5">过滤：为何仅使用预览确认的记录</a></li>
-<li><a href="#_6">上下文注入</a></li>
-<li><a href="#_7">与其他上下文源的集成</a></li>
+<li><a href="#_6">按模式隔离历史</a></li>
+<li><a href="#_7">上下文注入</a></li>
+<li><a href="#_8">提示词缓存优化</a></li>
 </ul>
 </li>
-<li><a href="#_8">存储与归档</a><ul>
-<li><a href="#_9">自动轮转</a></li>
-<li><a href="#_10">按月归档</a></li>
-<li><a href="#_11">浏览归档记录</a></li>
+<li><a href="#_9">存储与归档</a><ul>
+<li><a href="#_10">自动轮转</a></li>
+<li><a href="#_11">按月归档</a></li>
+<li><a href="#_12">浏览归档记录</a></li>
 </ul>
 </li>
-<li><a href="#_12">内存缓存</a></li>
-<li><a href="#_13">历史浏览器分页</a></li>
-<li><a href="#_14">架构</a></li>
-<li><a href="#_15">配置</a></li>
-<li><a href="#_16">关键文件</a></li>
+<li><a href="#_13">内存缓存</a></li>
+<li><a href="#_14">历史浏览器分页</a></li>
+<li><a href="#_15">架构</a></li>
+<li><a href="#_16">配置</a></li>
+<li><a href="#_17">关键文件</a></li>
 </ul>
 </div>
 
@@ -194,16 +195,29 @@
 <li><strong>直接模式</strong> — 文本直接输入，未经审阅。用户从未验证过输出，因此可能包含未纠正的 ASR 错误或 AI 过度纠正。注入未经验证的文本会导致错误传播。</li>
 </ul>
 <p>这是一个有意为之的数据质量决策：<strong>一组较小的已验证数据比一组较大的未验证数据更有价值</strong>。</p>
-<h3 id="_6"><a href="#_6" class="heading-anchor">上下文注入</a></h3>
-<p>当对话历史功能启用时，增强提示词会附加近期历史。格式设计旨在高效利用 token：</p>
+<h3 id="_6"><a href="#_6" class="heading-anchor">按模式隔离历史</a></h3>
+<p>每种增强模式维护独立的对话历史。使用"纠错润色"模式时，只注入纠错润色的历史条目；使用"翻译"模式时，只出现翻译历史。这一设计：</p>
+<ul>
+<li><strong>保持上下文相关性</strong> — 纠错修正示例（中文→中文）对翻译模式没有参考价值，反之亦然。</li>
+<li><strong>提高缓存命中率</strong> — 切换模式不会使另一个模式的缓存前缀失效。</li>
+</ul>
+<p><strong>链式模式</strong>（如"纠错润色→翻译"）在执行时<em>读取</em>各步骤模式的历史，但<em>不写入</em>任何历史条目。因为用户无法验证或修正中间步骤的结果，记录这些未经验证的数据可能会误导 LLM。</p>
+<h3 id="_7"><a href="#_7" class="heading-anchor">上下文注入</a></h3>
+<p>当对话历史功能启用时，历史和词库被合并到一个统一的上下文段中，共享一个指令头部。格式设计兼顾 token 效率和 API 级提示词缓存：</p>
 <pre><code>---
-以下是用户近期的对话记录，用于学习纠错偏好和话题上下文。
-若 ASR 识别与最终确认不同则用→分隔（识别→确认），相同则表示无需纠错：
+以下是辅助纠错的参考上下文：
+- 对话记录（优先参考）：反映用户真实的纠错偏好和话题上下文，若 ASR 识别与最终确认不同则用→分隔（识别→确认），相同则表示无需纠错。
+- 词库（仅供辅助）：以下专有名词 ASR 常误写为同音近音词，仅当输入中确实存在对应误写时才替换，不要强行套用。当词库与对话记录冲突时，以对话记录为准。
 
+对话记录：
 - 将是否开启对话历史注入的功能，做一个开关放在菜单栏里。
 - 现在测试一下历史上下文注入的功能。
 - 果果今天在公园里遇到了平平。 → 果果今天在公园里遇到了萍萍。
 - 平平对果果说我今天吃了面条。 → 萍萍对果果说我今天吃了面条。
+
+词库：
+- WenZi（语音转文字工具）
+- 萍萍（人名）
 ---
 </code></pre>
 <p>提示词格式的关键设计选择：</p>
@@ -211,23 +225,37 @@
 <li><strong>每条记录一行</strong> — 最大程度减少 token 用量。</li>
 <li><strong>箭头标注纠正</strong> — 仅在 ASR 文本和最终文本不同时显示，使纠正模式对 LLM 一目了然。</li>
 <li><strong>相同时不显示箭头</strong> — 避免重复展示相同的文本。</li>
-<li><strong>仅包含 ASR + 最终文本</strong> — AI 增强的中间文本不会被注入，以节省 token。LLM 只需看到用户实际说了什么（ASR）和实际想表达什么（最终文本）。</li>
+<li><strong>仅包含 ASR + 最终文本</strong> — AI 增强的中间文本不会被注入，以节省 token。</li>
+<li><strong>对话记录优先于词库</strong> — 标注为"优先参考"与"仅供辅助"，因为对话记录反映了用户验证过的纠正，而词库是自动化建议。</li>
+<li><strong>合并指令头部</strong> — 历史和词库的说明文字合并到顶部一个静态块中，有利于提示词缓存（见下文）。</li>
 </ul>
-<h3 id="_7"><a href="#_7" class="heading-anchor">与其他上下文源的集成</a></h3>
-<p>对话历史在系统提示词中注入于词汇上下文<strong>之后</strong>，遵循相同的模式：</p>
-<pre><code>[Mode prompt]                    ← 基础增强指令
-[Vocabulary context]             ← 来自用户词汇表的相关术语（如已启用）
-[Conversation history context]   ← 近期确认的输出（如已启用）
+<h3 id="_8"><a href="#_8" class="heading-anchor">提示词缓存优化</a></h3>
+<p>系统提示词按稳定性从高到低排列，以最大化大模型 API 级缓存（OpenAI、DeepSeek 等）可复用的前缀长度：</p>
+<pre><code>[模式提示词]                     ← 每个模式固定不变
+[思考简洁提示]                   ← 会话内固定（如开启思考模式）
+[合并上下文指令头部]             ← 会话内固定（说明文字）
+[对话记录条目]                   ← 追加式增长（只增不减）
+[词库条目]                       ← 每次请求动态变化
 </code></pre>
+<p><strong>追加式历史构建</strong>：不再每次请求都从头重建历史，而是将新条目<em>追加</em>到已有列表末尾，保持提示词前缀在连续请求间完全一致。当条目总数达到 <code>refresh_threshold</code> 或总字符数达到 <code>max_history_chars</code> 时，以最近的 <code>max_entries</code> 条为基础重建。</p>
+<p>前缀稳定性示例：</p>
+<pre><code>请求 1: ...header... + entry1 + entry2 |← 缓存前缀 →| + vocab_A
+请求 2: ...header... + entry1 + entry2 + entry3 |← 缓存 →| + vocab_B
+请求 3: ...header... + entry1 + entry2 + entry3 |← 缓存 →| + vocab_C
+</code></pre>
+<p>每次请求复用已缓存的 KV 状态，只为新增的 token 付费。</p>
+<blockquote>
+<p><strong>提示：</strong> 大多数 API 提供商要求缓存前缀至少达到 <strong>1024 tokens</strong>（约 500-700 个中文字符）。如果你使用的增强模式提示词较短，建议适当增大 <code>max_entries</code>（如改为 20），以确保重建后系统提示词能超过此阈值。</p>
+</blockquote>
 <p>每个上下文源都可独立开关，并能优雅降级——如果历史记录获取失败，增强过程将在没有它的情况下继续进行。</p>
-<h2 id="_8"><a href="#_8" class="heading-anchor">存储与归档</a></h2>
-<h3 id="_9"><a href="#_9" class="heading-anchor">自动轮转</a></h3>
+<h2 id="_9"><a href="#_9" class="heading-anchor">存储与归档</a></h2>
+<h3 id="_10"><a href="#_10" class="heading-anchor">自动轮转</a></h3>
 <p>主历史文件（<code>conversation_history.jsonl</code>）通过自动轮转机制保持有界。每次 <code>log()</code> 调用后，系统会检查是否需要轮转：</p>
 <ol>
 <li><strong>文件大小预检</strong> — 如果文件小于 4 MB，则完全跳过轮转（廉价的前置检查，避免每次写入都计算行数）。</li>
 <li><strong>记录数检查</strong> — 如果文件超过 <strong>20,000 条记录</strong>（<code>_MAX_RECORDS</code>），超出限制的最旧记录将被归档。</li>
 </ol>
-<h3 id="_10"><a href="#_10" class="heading-anchor">按月归档</a></h3>
+<h3 id="_11"><a href="#_11" class="heading-anchor">按月归档</a></h3>
 <p>轮转出的记录按其 <code>timestamp</code> 字段中的月份分组，追加到按月命名的归档文件中：</p>
 <pre><code>~/.config/WenZi/
 ├── conversation_history.jsonl                  # 活跃文件（最多 20,000 条记录）
@@ -238,9 +266,9 @@
 </code></pre>
 <p>每个归档文件命名为 <code>YYYY-MM.jsonl</code>，包含该月的所有记录。无法解析时间戳的记录会被放入 <code>unknown.jsonl</code>。归档文件仅追加——后续轮转会向已有的月份文件追加内容，而非覆盖。</p>
 <p>归档完成后，主文件通过临时文件 + <code>os.replace()</code> 原子替换，仅保留最近的 20,000 条记录，同时所有内存缓存被清除。</p>
-<h3 id="_11"><a href="#_11" class="heading-anchor">浏览归档记录</a></h3>
+<h3 id="_12"><a href="#_12" class="heading-anchor">浏览归档记录</a></h3>
 <p>历史浏览器提供了<strong>"包含归档"</strong>开关。启用后，<code>get_all()</code> 和 <code>search()</code> 会加载所有归档文件中的记录（按文件名时间排序），并将其置于活跃记录之前。这使用户能够搜索和浏览完整历史，同时保持活跃文件不会无限增长。</p>
-<h2 id="_12"><a href="#_12" class="heading-anchor">内存缓存</a></h2>
+<h2 id="_13"><a href="#_13" class="heading-anchor">内存缓存</a></h2>
 <p>为避免重复的磁盘读取，<code>ConversationHistory</code> 维护两级缓存：</p>
 <div class="table-wrapper"><table>
 <thead>
@@ -269,10 +297,10 @@
 <p><strong>热路径缓存</strong> — 存储最近 200 条原始（未过滤）记录。由 <code>log()</code>、<code>update_record()</code> 和 <code>delete_record()</code> 就地更新。由于上下文注入通常只需从尾部过滤出 10 条记录，200 条缓存提供了充足的余量，无需加载整个文件。</p>
 <p><strong>完整缓存</strong> — 存储活跃 JSONL 文件中所有已解析的记录。通过比较文件的 <code>mtime</code> 检测过期——如果文件被外部修改，下次访问时会重新加载。调用方应在不再需要数据时调用 <code>release_full_cache()</code>（例如关闭历史浏览器窗口时）以及时释放内存。</p>
 <p>轮转事件后，两级缓存均被完全清除。</p>
-<h2 id="_13"><a href="#_13" class="heading-anchor">历史浏览器分页</a></h2>
+<h2 id="_14"><a href="#_14" class="heading-anchor">历史浏览器分页</a></h2>
 <p>基于 Web 的历史浏览器（<code>history_browser_window_web.py</code>）以每页 <strong>100 条记录</strong>（<code>PAGE_SIZE = 100</code>）的方式显示。Python 后端根据过滤后的记录总数计算总页数，仅将当前页的记录发送给 WKWebView 前端。前端渲染分页器，提供上一页/下一页导航和"第 X / Y 页"指示器。</p>
 <p>当搜索关键词、时间过滤器或归档开关发生变化时，分页会重置到第 0 页。</p>
-<h2 id="_14"><a href="#_14" class="heading-anchor">架构</a></h2>
+<h2 id="_15"><a href="#_15" class="heading-anchor">架构</a></h2>
 <pre><code>Voice Input
      │
      ▼
@@ -287,13 +315,17 @@
      │                    │   │ （按月归档，仅追加）         │
      │                    │   └──────────────────────────┘
      ▼                    │
-┌──────────┐              │ get_recent(n=10)
+┌──────────┐              │ get_recent(enhance_mode=当前模式)
 │ Enhancer │◄─────────────┘ filter: preview_enabled=true
-│          │                经由热路径缓存（200 条记录）
-│ system_prompt = base_prompt      │
-│            + vocab_context       │
-│            + history_context ◄───┘
+│          │                按模式过滤，经由热路径缓存
 │          │
+│ system_prompt =              ┌── 稳定前缀（已缓存）──┐
+│   mode_prompt                │                       │
+│ + thinking_hint              │  ┌─ 上下文段 ────────┐│
+│ + context_header ────────────┤  │ 指令头部           ││
+│ + history_entries (追加) ────┤  │ 对话记录: 条目...   ││
+│ + vocab_entries (动态) ──────┘  │ 词库: 条目...       ││
+│                                 └──────────────────┘│
 │          │──► LLM ──► enhanced text
 └──────────┘
      │
@@ -302,15 +334,17 @@
 │ Preview Panel    │──► 用户确认 ──► type_text
 │ (预览模式)        │                  │
 └──────────────────┘                  ▼
-                                 log(preview_enabled=true,
-                                      audio_duration=N.Ns)
+                                 log(enhance_mode=当前模式,
+                                      preview_enabled=true)
 </code></pre>
-<h2 id="_15"><a href="#_15" class="heading-anchor">配置</a></h2>
+<h2 id="_16"><a href="#_16" class="heading-anchor">配置</a></h2>
 <p>在 <code>config.json</code> 的 <code>ai_enhance</code> 下：</p>
 <pre><code class="language-json">{
     &quot;conversation_history&quot;: {
         &quot;enabled&quot;: false,
-        &quot;max_entries&quot;: 10
+        &quot;max_entries&quot;: 10,
+        &quot;refresh_threshold&quot;: 50,
+        &quot;max_history_chars&quot;: 6000
     }
 }
 </code></pre>
@@ -334,12 +368,28 @@
 <td><code>max_entries</code></td>
 <td>int</td>
 <td><code>10</code></td>
-<td>注入的最大近期记录数</td>
+<td>重建后的基础条目数（也是初始条目数）</td>
+</tr>
+<tr>
+<td><code>refresh_threshold</code></td>
+<td>int</td>
+<td><code>50</code></td>
+<td>触发重建的最大条目数</td>
+</tr>
+<tr>
+<td><code>max_history_chars</code></td>
+<td>int</td>
+<td><code>6000</code></td>
+<td>触发重建的最大总字符数</td>
 </tr>
 </tbody>
 </table></div>
 <p>该开关也可在 <strong>Settings</strong> 面板（AI 标签页）中使用。</p>
-<h2 id="_16"><a href="#_16" class="heading-anchor">关键文件</a></h2>
+<p><strong>调优指南：</strong>
+- <code>max_entries</code> 控制每次重建后的基础大小。较大值意味着更多上下文，但"冷启动"前缀更长。如果模式提示词较短，建议设为 20+ 以便重建后立刻超过 1024 token 的 API 缓存阈值。
+- <code>refresh_threshold</code> 控制累积多少条目后触发重建。较高值意味着更长的缓存命中区间，但每次请求的 token 用量更多。
+- <code>max_history_chars</code> 作为 token 用量的安全上限，独立于条目数。</p>
+<h2 id="_17"><a href="#_17" class="heading-anchor">关键文件</a></h2>
 <div class="table-wrapper"><table>
 <thead>
 <tr>

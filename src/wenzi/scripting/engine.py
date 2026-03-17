@@ -29,6 +29,7 @@ class ScriptEngine:
         self._registry = ScriptingRegistry()
         self._clipboard_monitor = None
         self._usage_tracker = None
+        self._query_history = None
         self._snippet_store = None
         self._snippet_expander = None
         self._reloading = False
@@ -65,6 +66,8 @@ class ScriptEngine:
         if self._snippet_expander is not None:
             self._snippet_expander.stop()
             self._snippet_expander = None
+        if self._query_history is not None:
+            self._query_history.flush_sync()
         self._wz.pasteboard._set_monitor(None)
         self._wz.snippets._set_store(None)
         self._wz.store.flush_sync()
@@ -98,6 +101,8 @@ class ScriptEngine:
     def enable_chooser(self) -> None:
         """Enable the chooser at runtime: register sources, bind hotkeys."""
         self._register_builtin_sources()
+        # Re-register the built-in command source (cleared by disable_chooser)
+        self._wz.chooser._ensure_command_source()
         self._bind_chooser_hotkey()
         self._bind_source_hotkeys()
         self._wz.hotkey.start()
@@ -130,6 +135,7 @@ class ScriptEngine:
 
         self._snippet_store = None
         self._usage_tracker = None
+        self._query_history = None
         self._wz.pasteboard._set_monitor(None)
         self._wz.snippets._set_store(None)
 
@@ -137,6 +143,7 @@ class ScriptEngine:
         panel = self._wz.chooser._get_panel()
         panel._sources.clear()
         panel._usage_tracker = None
+        panel._query_history = None
 
         logger.info("Chooser disabled at runtime")
 
@@ -191,8 +198,10 @@ class ScriptEngine:
             "app_search": ("apps", self._enable_app_source),
             "clipboard_history": ("clipboard", lambda p: self.enable_clipboard()),
             "file_search": ("files", self._enable_file_source),
+            "folder_search": ("folders", self._enable_folder_source),
             "snippets": ("snippets", self._enable_snippet_source),
             "bookmarks": ("bookmarks", self._enable_bookmark_source),
+            "calculator": ("calculator", self._enable_calculator_source),
         }
         entry = source_map.get(config_key)
         if not entry:
@@ -207,8 +216,10 @@ class ScriptEngine:
             "app_search": "apps",
             "clipboard_history": "clipboard",
             "file_search": "files",
+            "folder_search": "folders",
             "snippets": "snippets",
             "bookmarks": "bookmarks",
+            "calculator": "calculator",
         }
         source_name = source_name_map.get(config_key)
         if not source_name:
@@ -248,6 +259,18 @@ class ScriptEngine:
         except Exception:
             logger.exception("Failed to enable file source")
 
+    def _enable_folder_source(self, prefix: str) -> None:
+        try:
+            from wenzi.scripting.sources.file_source import FolderSource
+
+            folder_source = FolderSource()
+            self._wz.chooser.register_source(
+                folder_source.as_chooser_source(prefix=prefix)
+            )
+            logger.info("Folder source enabled at runtime")
+        except Exception:
+            logger.exception("Failed to enable folder source")
+
     def _enable_snippet_source(self, prefix: str) -> None:
         try:
             from wenzi.scripting.sources.snippet_source import (
@@ -284,6 +307,16 @@ class ScriptEngine:
         except Exception:
             logger.exception("Failed to enable bookmark source")
 
+    def _enable_calculator_source(self, _prefix: str) -> None:
+        try:
+            from wenzi.scripting.sources.calculator_source import CalculatorSource
+
+            calc_source = CalculatorSource()
+            self._wz.chooser.register_source(calc_source.as_chooser_source())
+            logger.info("Calculator source enabled at runtime")
+        except Exception:
+            logger.exception("Failed to enable calculator source")
+
     def rebind_chooser_hotkey(self, old_hotkey: str, new_hotkey: str) -> None:
         """Unbind old chooser hotkey and bind the new one at runtime."""
         if old_hotkey:
@@ -319,6 +352,9 @@ class ScriptEngine:
             logger.info("Chooser disabled via config, skipping source registration")
             return
 
+        # Command source (always registered when chooser is enabled)
+        self._wz.chooser._ensure_command_source()
+
         # Usage learning tracker
         if chooser_config.get("usage_learning", True):
             try:
@@ -332,7 +368,29 @@ class ScriptEngine:
             except Exception:
                 logger.exception("Failed to set up usage tracker")
 
+        # Query history
+        try:
+            from wenzi.scripting.sources.query_history import QueryHistory
+
+            self._query_history = QueryHistory()
+            panel = self._wz.chooser._get_panel()
+            panel._query_history = self._query_history
+            logger.info("Query history enabled")
+        except Exception:
+            logger.exception("Failed to set up query history")
+
         prefixes = chooser_config.get("prefixes", {})
+
+        # Calculator source
+        if chooser_config.get("calculator", True):
+            try:
+                from wenzi.scripting.sources.calculator_source import CalculatorSource
+
+                calc_source = CalculatorSource()
+                self._wz.chooser.register_source(calc_source.as_chooser_source())
+                logger.info("Built-in calculator source registered")
+            except Exception:
+                logger.exception("Failed to register calculator source")
 
         # App search source
         if chooser_config.get("app_search", True):
@@ -389,6 +447,21 @@ class ScriptEngine:
                 logger.info("Built-in file search source registered")
             except Exception:
                 logger.exception("Failed to register file search source")
+
+        # Folder search source
+        if chooser_config.get("folder_search", True):
+            try:
+                from wenzi.scripting.sources.file_source import FolderSource
+
+                folder_source = FolderSource()
+                self._wz.chooser.register_source(
+                    folder_source.as_chooser_source(
+                        prefix=prefixes.get("folders", "fd"),
+                    )
+                )
+                logger.info("Built-in folder search source registered")
+            except Exception:
+                logger.exception("Failed to register folder search source")
 
         # Snippet source
         if chooser_config.get("snippets", True):

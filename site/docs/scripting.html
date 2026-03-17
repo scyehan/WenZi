@@ -80,6 +80,7 @@
 <li><a href="#built-in-data-sources">Built-in Data Sources</a></li>
 <li><a href="#keyboard-shortcuts">Keyboard Shortcuts</a></li>
 <li><a href="#custom-sources">Custom Sources</a></li>
+<li><a href="#commands">Commands</a></li>
 <li><a href="#usage-learning">Usage Learning</a></li>
 </ul>
 </li>
@@ -106,7 +107,10 @@
 <li><a href="#wzchooserunregister_sourcename">wz.chooser.unregister_source(name)</a></li>
 <li><a href="#wzchooserpickitems-callback-placeholderchoose">wz.chooser.pick(items, callback, placeholder="Choose...")</a></li>
 <li><a href="#wzchooseronevent">@wz.chooser.on(event)</a></li>
-<li><a href="#wzchoosersourcename-prefixnone-priority0">@wz.chooser.source(name, prefix=None, priority=0)</a></li>
+<li><a href="#wzchooserregister_commandname-title-action">wz.chooser.register_command(name, title, action, ...)</a></li>
+<li><a href="#wzchooserunregister_commandname">wz.chooser.unregister_command(name)</a></li>
+<li><a href="#wzchoosercommandname-title">@wz.chooser.command(name, title, ...)</a></li>
+<li><a href="#wzchoosersourcename-prefixnone-priority0-description">@wz.chooser.source(name, prefix=None, priority=0, description="")</a></li>
 </ul>
 </li>
 <li><a href="#examples">Examples</a><ul>
@@ -282,9 +286,24 @@ wz.leader(&quot;alt_r&quot;, [...])   # Right Alt for utilities
 <td>Search installed applications. Always active in global search.</td>
 </tr>
 <tr>
+<td><strong>Calculator</strong></td>
+<td><em>(none)</em></td>
+<td>Math evaluation and unit conversion. Always active in global search.</td>
+</tr>
+<tr>
+<td><strong>Commands</strong></td>
+<td><code>&gt;</code></td>
+<td>Command palette — scripts register named commands here.</td>
+</tr>
+<tr>
 <td><strong>Files</strong></td>
 <td><code>f</code></td>
 <td>Search files by name via macOS Spotlight.</td>
+</tr>
+<tr>
+<td><strong>Folders</strong></td>
+<td><code>fd</code></td>
+<td>Search folders via macOS Spotlight.</td>
 </tr>
 <tr>
 <td><strong>Clipboard</strong></td>
@@ -303,7 +322,7 @@ wz.leader(&quot;alt_r&quot;, [...])   # Right Alt for utilities
 </tr>
 </tbody>
 </table></div>
-<p>Prefixes are configurable via <code>scripting.chooser.prefixes</code> in config.</p>
+<p>Prefixes are configurable via <code>scripting.chooser.prefixes</code> in config. The <code>&gt;</code> prefix is reserved for commands and cannot be changed.</p>
 <h3 id="keyboard-shortcuts"><a href="#keyboard-shortcuts" class="heading-anchor">Keyboard Shortcuts</a></h3>
 <div class="table-wrapper"><table>
 <thead>
@@ -330,6 +349,10 @@ wz.leader(&quot;alt_r&quot;, [...])   # Right Alt for utilities
 <td>Quick select by position</td>
 </tr>
 <tr>
+<td><code>Tab</code></td>
+<td>Auto-complete (e.g. complete command name in <code>&gt;</code> mode)</td>
+</tr>
+<tr>
 <td><code>Esc</code></td>
 <td>Close the Launcher</td>
 </tr>
@@ -348,6 +371,39 @@ def search_todos(query):
         {&quot;title&quot;: &quot;Write docs&quot;, &quot;subtitle&quot;: &quot;frontend&quot;, &quot;action&quot;: lambda: ...},
     ]
 </code></pre>
+<h3 id="commands"><a href="#commands" class="heading-anchor">Commands</a></h3>
+<p>Scripts can register named commands that appear in the command palette (activated by typing <code>&gt;</code> in the Launcher). Commands support argument passing, modifier keys, and Tab completion.</p>
+<pre><code class="language-python"># Decorator style
+@wz.chooser.command(&quot;greet&quot;, title=&quot;Greet&quot;, subtitle=&quot;Say hello&quot;)
+def greet(args):
+    name = args.strip() or &quot;World&quot;
+    wz.notify(&quot;Hello&quot;, f&quot;Hello, {name}!&quot;)
+
+# Direct registration
+wz.chooser.register_command(
+    name=&quot;open-url&quot;,
+    title=&quot;Open URL&quot;,
+    subtitle=&quot;Open a URL in browser&quot;,
+    action=lambda args: wz.execute(f&quot;open {args.strip()}&quot;),
+)
+</code></pre>
+<p><strong>Argument passing:</strong> Type the full command name followed by a space to enter args mode. For example, <code>&gt; greet Alice</code> passes <code>"Alice"</code> as the <code>args</code> parameter. Tab-completing a command name also enters args mode.</p>
+<p><strong>Modifier keys:</strong> Commands can define alternative actions for modifier keys:</p>
+<pre><code class="language-python">wz.chooser.register_command(
+    name=&quot;deploy&quot;,
+    title=&quot;Deploy&quot;,
+    action=lambda args: deploy(args),
+    modifiers={
+        &quot;alt&quot;: {&quot;subtitle&quot;: &quot;Force deploy&quot;, &quot;action&quot;: lambda args: force_deploy(args)},
+    },
+)
+</code></pre>
+<p><strong>Promoted commands:</strong> By default, commands only appear when the <code>&gt;</code> prefix is active. Set <code>promoted=True</code> to also show them in the main (unprefixed) search alongside apps and other results:</p>
+<pre><code class="language-python">@wz.chooser.command(&quot;reload&quot;, title=&quot;Reload Scripts&quot;, promoted=True)
+def reload(args):
+    wz.reload()
+</code></pre>
+<p><strong>Built-in help:</strong> A promoted <code>help</code> command is always available. Type "help" in the Launcher and press Enter to see all available prefixes and their descriptions.</p>
 <h3 id="usage-learning"><a href="#usage-learning" class="heading-anchor">Usage Learning</a></h3>
 <p>When enabled (default), the Launcher tracks which items you select for each query and boosts frequently used items in future results. Data is stored locally at <code>~/.config/WenZi/chooser_usage.json</code>.</p>
 <h2 id="api-reference"><a href="#api-reference" class="heading-anchor">API Reference</a></h2>
@@ -449,9 +505,80 @@ wz.chooser.show(initial_query=&quot;f readme&quot;)
 def on_select(item_info):
     print(f&quot;Selected: {item_info['title']}&quot;)
 </code></pre>
-<h3 id="wzchoosersourcename-prefixnone-priority0"><a href="#wzchoosersourcename-prefixnone-priority0" class="heading-anchor"><code>@wz.chooser.source(name, prefix=None, priority=0)</code></a></h3>
-<p>Decorator to register a search function as a Launcher data source.</p>
-<pre><code class="language-python">@wz.chooser.source(&quot;notes&quot;, prefix=&quot;n&quot;, priority=5)
+<h3 id="wzchooserregister_commandname-title-action"><a href="#wzchooserregister_commandname-title-action" class="heading-anchor"><code>wz.chooser.register_command(name, title, action, ...)</code></a></h3>
+<p>Register a named command in the command palette (<code>&gt;</code> prefix).</p>
+<div class="table-wrapper"><table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td><code>str</code></td>
+<td><em>(required)</em></td>
+<td>Unique command name (single token, e.g. <code>"reload-scripts"</code>)</td>
+</tr>
+<tr>
+<td><code>title</code></td>
+<td><code>str</code></td>
+<td><em>(required)</em></td>
+<td>Human-readable title shown in the Launcher</td>
+</tr>
+<tr>
+<td><code>action</code></td>
+<td><code>callable</code></td>
+<td><em>(required)</em></td>
+<td>Callback receiving args: <code>action(args_str)</code></td>
+</tr>
+<tr>
+<td><code>subtitle</code></td>
+<td><code>str</code></td>
+<td><code>""</code></td>
+<td>Description shown below the title</td>
+</tr>
+<tr>
+<td><code>icon</code></td>
+<td><code>str</code></td>
+<td><code>""</code></td>
+<td>Icon URL (<code>file://</code> or <code>data:</code> URI)</td>
+</tr>
+<tr>
+<td><code>modifiers</code></td>
+<td><code>dict</code></td>
+<td><code>None</code></td>
+<td>Modifier actions (see Commands section above)</td>
+</tr>
+<tr>
+<td><code>promoted</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>Also appear in the unprefixed main search</td>
+</tr>
+</tbody>
+</table></div>
+<pre><code class="language-python">wz.chooser.register_command(
+    name=&quot;greet&quot;,
+    title=&quot;Greet&quot;,
+    action=lambda args: wz.notify(&quot;Hello&quot;, args.strip() or &quot;World&quot;),
+    promoted=True,
+)
+</code></pre>
+<h3 id="wzchooserunregister_commandname"><a href="#wzchooserunregister_commandname" class="heading-anchor"><code>wz.chooser.unregister_command(name)</code></a></h3>
+<p>Remove a registered command by name.</p>
+<h3 id="wzchoosercommandname-title"><a href="#wzchoosercommandname-title" class="heading-anchor"><code>@wz.chooser.command(name, title, ...)</code></a></h3>
+<p>Decorator to register a function as a Launcher command. Same parameters as <code>register_command</code> except <code>action</code> (the decorated function is the action).</p>
+<pre><code class="language-python">@wz.chooser.command(&quot;greet&quot;, title=&quot;Greet&quot;, promoted=True)
+def greet(args):
+    wz.notify(&quot;Hello&quot;, args.strip() or &quot;World&quot;)
+</code></pre>
+<h3 id="wzchoosersourcename-prefixnone-priority0-description"><a href="#wzchoosersourcename-prefixnone-priority0-description" class="heading-anchor"><code>@wz.chooser.source(name, prefix=None, priority=0, description="")</code></a></h3>
+<p>Decorator to register a search function as a Launcher data source. Set <code>description</code> so the source appears in the built-in <code>help</code> command output.</p>
+<pre><code class="language-python">@wz.chooser.source(&quot;notes&quot;, prefix=&quot;n&quot;, priority=5, description=&quot;Search notes&quot;)
 def search_notes(query):
     return [{&quot;title&quot;: &quot;...&quot;, &quot;action&quot;: lambda: ...}]
 </code></pre>

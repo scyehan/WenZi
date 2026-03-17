@@ -19,6 +19,8 @@ def mock_app():
     }
     app._config_path = "/tmp/test_config.json"
     app._config_dir = "/tmp"
+    app._data_dir = "/tmp"
+    app._cache_dir = "/tmp"
     app._enhancer = MagicMock()
     app._enhancer.thinking = False
     app._enhancer.vocab_enabled = False

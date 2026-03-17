@@ -19,7 +19,7 @@ def stats_dir(tmp_path):
 
 @pytest.fixture
 def stats(stats_dir):
-    return UsageStats(stats_dir=stats_dir)
+    return UsageStats(data_dir=stats_dir)
 
 
 class TestInitialState:
@@ -211,12 +211,12 @@ class TestDailyFiles:
 
 class TestPersistence:
     def test_persistence_across_instances(self, stats_dir):
-        s1 = UsageStats(stats_dir=stats_dir)
+        s1 = UsageStats(data_dir=stats_dir)
         s1.record_transcription(mode="direct", enhance_mode="proofread")
         s1.record_confirm(modified=False)
         s1.record_token_usage({"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15})
 
-        s2 = UsageStats(stats_dir=stats_dir)
+        s2 = UsageStats(data_dir=stats_dir)
         s2.record_transcription(mode="preview", enhance_mode="translate_en")
 
         data = s2.get_stats()
@@ -250,7 +250,7 @@ class TestCorruptedFile:
 class TestDirectoryCreation:
     def test_creates_directory_if_missing(self, tmp_path):
         deep_dir = str(tmp_path / "a" / "b" / "c")
-        s = UsageStats(stats_dir=deep_dir)
+        s = UsageStats(data_dir=deep_dir)
         s.record_transcription(mode="direct")
         assert os.path.exists(os.path.join(deep_dir, "usage_stats.json"))
 

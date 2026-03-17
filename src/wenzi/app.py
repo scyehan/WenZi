@@ -13,13 +13,21 @@ from ApplicationServices import AXIsProcessTrusted, AXIsProcessTrustedWithOption
 from CoreFoundation import kCFBooleanTrue
 
 from .enhance.auto_vocab_builder import AutoVocabBuilder
-from .config import load_config, migrate_legacy_paths, resolve_config_dir, save_config, set_config_readonly
+from .config import (
+    load_config,
+    migrate_legacy_paths,
+    migrate_xdg_paths,
+    resolve_cache_dir,
+    resolve_config_dir,
+    resolve_data_dir,
+    save_config,
+    set_config_readonly,
+)
 from .controllers.enhance_controller import EnhanceController
 from .enhance.conversation_history import ConversationHistory
 from .usage_stats import UsageStats
 from .enhance.enhancer import MODE_OFF, create_enhancer
-from .ui.result_window import ResultPreviewPanel as NativeResultPreviewPanel
-from .ui.result_window_web import ResultPreviewPanel as WebResultPreviewPanel
+from .ui.result_window_web import ResultPreviewPanel
 from .ui.settings_window import SettingsPanel
 from .hotkey import MultiHotkeyListener, TapHotkeyListener, _is_fn_key
 from .transcription.model_registry import (
@@ -140,7 +148,10 @@ class WenZiApp(StatusBarApp):
 
         import os
         migrate_legacy_paths()
+        migrate_xdg_paths()
         self._config_dir = resolve_config_dir(config_dir)
+        self._data_dir = resolve_data_dir()
+        self._cache_dir = resolve_cache_dir()
         self._config_path = os.path.join(self._config_dir, "config.json")
         self._config, config_error = load_config(self._config_path)
         self._config_error = config_error
@@ -205,21 +216,17 @@ class WenZiApp(StatusBarApp):
         self._output_method = self._config["output"]["method"]
         self._append_newline = self._config["output"]["append_newline"]
         self._preview_enabled = self._config["output"].get("preview", True)
-        self._preview_type = self._config["output"].get("preview_type", "web")
         self._hotkey_listener: Optional[MultiHotkeyListener] = None
         self._busy = False
-        self._preview_panel = (
-            WebResultPreviewPanel() if self._preview_type == "web"
-            else NativeResultPreviewPanel()
-        )
-        self._conversation_history = ConversationHistory(config_dir=self._config_dir)
-        self._usage_stats = UsageStats(stats_dir=self._config_dir)
+        self._preview_panel = ResultPreviewPanel()
+        self._conversation_history = ConversationHistory(data_dir=self._data_dir)
+        self._usage_stats = UsageStats(data_dir=self._data_dir)
 
         # Feedback: sound + visual indicator
         fb_cfg = self._config.get("feedback", {})
         self._sound_manager = SoundManager(
             enabled=fb_cfg.get("sound_enabled", True),
-            volume=fb_cfg.get("sound_volume", 0.4),
+            volume=fb_cfg.get("sound_volume", 0.1),
             config_dir=self._config_dir,
         )
         self._recording_indicator = RecordingIndicatorPanel()
@@ -274,6 +281,8 @@ class WenZiApp(StatusBarApp):
         self._enhancer = create_enhancer(
             self._config,
             config_dir=self._config_dir,
+            data_dir=self._data_dir,
+            cache_dir=self._cache_dir,
             conversation_history=self._conversation_history,
         )
         ai_cfg = self._config.get("ai_enhance", {})
@@ -290,13 +299,15 @@ class WenZiApp(StatusBarApp):
 
         # Auto vocabulary builder
         vocab_cfg = ai_cfg.get("vocabulary", {})
+        self._auto_vocab_build_old_status: str | None = None
         self._auto_vocab_builder = AutoVocabBuilder(
             config=self._config,
             enabled=vocab_cfg.get("auto_build", True),
             threshold=vocab_cfg.get("auto_build_threshold", 10),
             on_build_done=self._update_vocab_title,
+            on_status_update=self._on_auto_vocab_status,
             conversation_history=self._conversation_history,
-            config_dir=self._config_dir,
+            data_dir=self._data_dir,
         )
         if self._enhancer:
             self._auto_vocab_builder.set_enhancer(self._enhancer)
@@ -536,6 +547,9 @@ class WenZiApp(StatusBarApp):
             if text.startswith("DL "):
                 symbol_name = "arrow.down.circle"
                 bar_title = text[3:]  # show "X%" next to icon
+            elif text.startswith("VB "):
+                symbol_name = "book.fill"
+                bar_title = text[3:]  # show "+N" next to icon
             else:
                 symbol_name = "mic.fill"  # safe fallback
 
@@ -847,6 +861,18 @@ class WenZiApp(StatusBarApp):
 
     def _on_enhance_thinking_toggle(self, sender) -> None:
         self._enhance_mode_controller.on_enhance_thinking_toggle(sender)
+
+    def _on_auto_vocab_status(self, status: str) -> None:
+        """Handle status updates from auto vocabulary builder."""
+        if status:
+            if self._auto_vocab_build_old_status is None:
+                self._auto_vocab_build_old_status = self._current_status
+            self._set_status(status)
+        else:
+            # Build finished — restore previous status
+            old = self._auto_vocab_build_old_status or "WZ"
+            self._auto_vocab_build_old_status = None
+            self._set_status(old)
 
     def _update_vocab_title(self) -> None:
         self._enhance_mode_controller.update_vocab_title()
@@ -1160,6 +1186,9 @@ class WenZiApp(StatusBarApp):
                 script_dir=script_dir, config=scripting_cfg
             )
             self._script_engine.start()
+            self._script_engine.wz.chooser._event_handlers.setdefault(
+                "openSettings", []
+            ).append(lambda: self._on_open_settings(None))
 
         # Start clipboard enhance hotkey listener if configured
         clip_hotkey = self._config.get("clipboard_enhance", {}).get("hotkey", "")

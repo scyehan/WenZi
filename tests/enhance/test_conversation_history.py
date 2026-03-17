@@ -19,7 +19,7 @@ def history_dir(tmp_path):
 @pytest.fixture
 def history(history_dir):
     """Return a ConversationHistory instance using a temp directory."""
-    return ConversationHistory(config_dir=history_dir)
+    return ConversationHistory(data_dir=history_dir)
 
 
 class TestConversationHistoryLog:
@@ -55,7 +55,7 @@ class TestConversationHistoryLog:
 
     def test_log_creates_directory(self, tmp_path):
         nested = str(tmp_path / "nested" / "dir")
-        h = ConversationHistory(config_dir=nested)
+        h = ConversationHistory(data_dir=nested)
         h.log("hello", None, "hello", "off", False)
         assert os.path.exists(os.path.join(nested, "conversation_history.jsonl"))
 
@@ -200,6 +200,37 @@ class TestConversationHistoryGetRecent:
         assert texts == ["a", "b", "c"]
 
 
+class TestConversationHistoryGetRecentByMode:
+    def test_filter_by_enhance_mode(self, history):
+        history.log("a", "A", "A", "proofread", True)
+        history.log("b", "B", "B", "translate_en", True)
+        history.log("c", "C", "C", "proofread", True)
+
+        results = history.get_recent(n=10, enhance_mode="proofread")
+        assert len(results) == 2
+        texts = [r["asr_text"] for r in results]
+        assert texts == ["a", "c"]
+
+    def test_filter_by_mode_returns_empty(self, history):
+        history.log("a", "A", "A", "proofread", True)
+        results = history.get_recent(n=10, enhance_mode="translate_en")
+        assert len(results) == 0
+
+    def test_no_filter_returns_all(self, history):
+        history.log("a", "A", "A", "proofread", True)
+        history.log("b", "B", "B", "translate_en", True)
+        results = history.get_recent(n=10)
+        assert len(results) == 2
+
+    def test_filter_respects_max_entries(self, history):
+        for i in range(5):
+            history.log(f"e{i}", f"E{i}", f"E{i}", "proofread", True)
+        results = history.get_recent(max_entries=3, enhance_mode="proofread")
+        assert len(results) == 3
+        # Should be the 3 most recent
+        assert results[-1]["asr_text"] == "e4"
+
+
 class TestConversationHistoryFormatForPrompt:
     def test_format_same_asr_and_final(self, history):
         entries = [
@@ -294,6 +325,52 @@ class TestConversationHistoryFormatForPrompt:
         ]
         result = history.format_for_prompt(entries, max_chars=0)
         assert len(result) <= history._MAX_PROMPT_CHARS
+
+
+class TestConversationHistoryLogCount:
+    def test_log_count_starts_at_zero(self, history):
+        assert history.log_count == 0
+
+    def test_log_count_increments_on_log(self, history):
+        history.log("a", "A", "A", "proofread", True)
+        assert history.log_count == 1
+        history.log("b", "B", "B", "proofread", True)
+        assert history.log_count == 2
+
+    def test_log_count_increments_for_non_preview(self, history):
+        """log_count increments even for non-preview entries."""
+        history.log("a", "A", "A", "proofread", False)
+        assert history.log_count == 1
+
+
+class TestConversationHistoryFormatEntryLine:
+    def test_same_asr_and_final(self):
+        entry = {"asr_text": "hello", "final_text": "hello"}
+        assert ConversationHistory.format_entry_line(entry) == "- hello"
+
+    def test_different_asr_and_final(self):
+        entry = {"asr_text": "hello", "final_text": "Hello!"}
+        assert ConversationHistory.format_entry_line(entry) == "- hello → Hello!"
+
+    def test_newlines_replaced(self):
+        entry = {"asr_text": "a\nb", "final_text": "a\nc"}
+        result = ConversationHistory.format_entry_line(entry)
+        assert "a\u23ceb → a\u23cec" in result
+
+    def test_missing_fields_use_empty_string(self):
+        result = ConversationHistory.format_entry_line({})
+        assert result == "- "
+
+    def test_consistency_with_format_for_prompt(self, history):
+        """format_entry_line output should match what format_for_prompt generates."""
+        entries = [
+            {"asr_text": "你好", "final_text": "你好"},
+            {"asr_text": "平平", "final_text": "萍萍"},
+        ]
+        prompt = history.format_for_prompt(entries, max_chars=10000)
+        for entry in entries:
+            line = ConversationHistory.format_entry_line(entry)
+            assert line in prompt
 
 
 class TestConversationHistoryGetAll:

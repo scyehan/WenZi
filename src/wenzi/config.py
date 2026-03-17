@@ -20,16 +20,26 @@ MODIFIER_KEY_CHOICES = [
 ]
 _VALID_MODIFIER_KEYS = {k for k, _ in MODIFIER_KEY_CHOICES}
 
+# XDG Base Directory paths
 DEFAULT_CONFIG_DIR = os.path.join("~", ".config", "WenZi")
+DEFAULT_DATA_DIR = os.path.join("~", ".local", "share", "WenZi")
+DEFAULT_CACHE_DIR = os.path.join("~", ".cache", "WenZi")
+
+# Config files (user-editable, suitable for Git tracking)
 DEFAULT_CONFIG_PATH = os.path.join(DEFAULT_CONFIG_DIR, "config.json")
 DEFAULT_ENHANCE_MODES_DIR = os.path.join(DEFAULT_CONFIG_DIR, "enhance_modes")
 DEFAULT_SCRIPTS_DIR = os.path.join(DEFAULT_CONFIG_DIR, "scripts")
-DEFAULT_CLIPBOARD_HISTORY_PATH = os.path.join(DEFAULT_CONFIG_DIR, "clipboard_history.json")
-DEFAULT_CLIPBOARD_IMAGES_DIR = os.path.join(DEFAULT_CONFIG_DIR, "clipboard_images")
 DEFAULT_SNIPPETS_DIR = os.path.join(DEFAULT_CONFIG_DIR, "snippets")
-DEFAULT_ICON_CACHE_DIR = os.path.join(DEFAULT_CONFIG_DIR, "icon_cache")
-DEFAULT_CHOOSER_USAGE_PATH = os.path.join(DEFAULT_CONFIG_DIR, "chooser_usage.json")
-DEFAULT_SCRIPT_DATA_PATH = os.path.join(DEFAULT_CONFIG_DIR, "script_data.json")
+
+# Data files (user-generated, not recoverable if deleted)
+DEFAULT_CLIPBOARD_HISTORY_PATH = os.path.join(DEFAULT_DATA_DIR, "clipboard_history.json")
+DEFAULT_CLIPBOARD_IMAGES_DIR = os.path.join(DEFAULT_DATA_DIR, "clipboard_images")
+DEFAULT_CHOOSER_USAGE_PATH = os.path.join(DEFAULT_DATA_DIR, "chooser_usage.json")
+DEFAULT_CHOOSER_HISTORY_PATH = os.path.join(DEFAULT_DATA_DIR, "chooser_history.json")
+DEFAULT_SCRIPT_DATA_PATH = os.path.join(DEFAULT_DATA_DIR, "script_data.json")
+
+# Cache files (can be safely deleted and regenerated)
+DEFAULT_ICON_CACHE_DIR = os.path.join(DEFAULT_CACHE_DIR, "icon_cache")
 
 # Legacy paths for migration from VoiceText → WenZi
 _LEGACY_CONFIG_DIR = os.path.join("~", ".config", "VoiceText")
@@ -91,16 +101,50 @@ def resolve_config_dir(config_dir: Optional[str] = None) -> str:
     return os.path.expanduser(DEFAULT_CONFIG_DIR)
 
 
+def resolve_data_dir() -> str:
+    """Return the expanded absolute data directory path."""
+    return os.path.expanduser(DEFAULT_DATA_DIR)
+
+
+def resolve_cache_dir() -> str:
+    """Return the expanded absolute cache directory path."""
+    return os.path.expanduser(DEFAULT_CACHE_DIR)
+
+
 def _migrate_dir(legacy: str, new: str, label: str) -> None:
     """Rename a legacy directory to the new path if applicable."""
     old = os.path.expanduser(legacy)
     dst = os.path.expanduser(new)
     if os.path.isdir(old) and not os.path.exists(dst):
         try:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
             os.rename(old, dst)
             logger.info("Migrated %s: %s -> %s", label, old, dst)
         except OSError:
             logger.warning("Failed to migrate %s: %s -> %s", label, old, dst, exc_info=True)
+
+
+def _migrate_file(src_dir: str, dst_dir: str, filename: str) -> None:
+    """Move a single file from *src_dir* to *dst_dir* if it exists.
+
+    Tries ``os.rename`` first (atomic on the same filesystem).  If that
+    fails (e.g. cross-device), falls back to copy without deleting the
+    source so the original remains as a safety net.
+    """
+    import shutil
+
+    old = os.path.join(src_dir, filename)
+    new = os.path.join(dst_dir, filename)
+    if os.path.isfile(old) and not os.path.exists(new):
+        try:
+            os.makedirs(dst_dir, exist_ok=True)
+            try:
+                os.rename(old, new)
+            except OSError:
+                shutil.copy2(old, new)
+            logger.info("Migrated file: %s -> %s", old, new)
+        except OSError:
+            logger.warning("Failed to migrate file: %s -> %s", old, new, exc_info=True)
 
 
 def migrate_legacy_paths() -> None:
@@ -135,6 +179,74 @@ def migrate_legacy_paths() -> None:
         logger.debug("NSUserDefaults migration skipped", exc_info=True)
 
 
+def _migrate_dir_safe(src: str, dst: str, label: str) -> None:
+    """Move a directory tree from *src* to *dst* if applicable.
+
+    Tries ``os.rename`` first (atomic on the same filesystem).  If that
+    fails (e.g. cross-device), falls back to ``shutil.copytree`` without
+    deleting the source so the original remains as a safety net.
+    """
+    import shutil
+
+    old = os.path.expanduser(src)
+    new = os.path.expanduser(dst)
+    if os.path.isdir(old) and not os.path.exists(new):
+        try:
+            os.makedirs(os.path.dirname(new), exist_ok=True)
+            try:
+                os.rename(old, new)
+            except OSError:
+                shutil.copytree(old, new)
+            logger.info("Migrated %s: %s -> %s", label, old, new)
+        except OSError:
+            logger.warning("Failed to migrate %s: %s -> %s", label, old, new, exc_info=True)
+
+
+def migrate_xdg_paths() -> None:
+    """Copy data and cache files from ~/.config/WenZi/ to XDG directories.
+
+    Called once at startup after ``migrate_legacy_paths()``.  Each file or
+    directory is copied only when the old path exists and the new path does
+    not.  Source files are kept as a safety fallback.
+    """
+    config = os.path.expanduser(DEFAULT_CONFIG_DIR)
+    data = os.path.expanduser(DEFAULT_DATA_DIR)
+    cache = os.path.expanduser(DEFAULT_CACHE_DIR)
+
+    # Data files: ~/.config/WenZi/* → ~/.local/share/WenZi/*
+    _migrate_file(config, data, "conversation_history.jsonl")
+    _migrate_dir_safe(
+        os.path.join(config, "conversation_history_archives"),
+        os.path.join(data, "conversation_history_archives"),
+        "history archives",
+    )
+    _migrate_file(config, data, "clipboard_history.db")
+    _migrate_file(config, data, "clipboard_history.json")
+    _migrate_dir_safe(
+        os.path.join(config, "clipboard_images"),
+        os.path.join(data, "clipboard_images"),
+        "clipboard images",
+    )
+    _migrate_file(config, data, "vocabulary.json")
+    _migrate_file(config, data, "usage_stats.json")
+    _migrate_dir_safe(
+        os.path.join(config, "usage_stats"),
+        os.path.join(data, "usage_stats"),
+        "usage stats",
+    )
+    _migrate_file(config, data, "chooser_usage.json")
+    _migrate_file(config, data, "script_data.json")
+
+    # Cache files: ~/.config/WenZi/* → ~/.cache/WenZi/*
+    _migrate_dir_safe(
+        os.path.join(config, "icon_cache"),
+        os.path.join(cache, "icon_cache"),
+        "icon cache",
+    )
+    _migrate_file(config, cache, "vocabulary_index.npz")
+    _migrate_file(config, cache, "_chooser.html")
+
+
 DEFAULT_CONFIG: Dict[str, Any] = {
     "hotkeys": {"fn": True},
     "audio": {
@@ -160,7 +272,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "method": "auto",
         "append_newline": False,
         "preview": True,
-        "preview_type": "web",
     },
     "ai_enhance": {
         "enabled": False,
@@ -185,6 +296,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
             "build_timeout": 600,
             "auto_build": True,
             "auto_build_threshold": 10,
+            "build_provider": "",
+            "build_model": "",
         },
         "conversation_history": {
             "enabled": False,
@@ -392,8 +505,6 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
         ("feedback.show_device_name", bool, None, DEFAULT_CONFIG["feedback"]["show_device_name"]),
         ("output.method", str, lambda v: v in {"auto", "paste", "clipboard"}, DEFAULT_CONFIG["output"]["method"]),
         ("output.append_newline", bool, None, DEFAULT_CONFIG["output"]["append_newline"]),
-        ("output.preview_type", str, lambda v: v in {"web", "native"},
-         DEFAULT_CONFIG["output"]["preview_type"]),
         ("asr.backend", str,
          lambda v: v in {"funasr", "mlx-whisper", "mlx_whisper", "whisper-api", "apple", "sherpa-onnx"},
          DEFAULT_CONFIG["asr"]["backend"]),

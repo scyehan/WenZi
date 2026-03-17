@@ -9,7 +9,6 @@ from wenzi.scripting.sources.app_source import (
     _APP_DIRS,
     _cache_key,
     _is_internal_app,
-    _png_to_data_uri,
     _scan_apps,
 )
 
@@ -223,6 +222,44 @@ class TestAppSource:
             result = src.search("new")
         assert len(result) == 1
 
+    def test_auto_rescan_after_ttl(self, tmp_path):
+        """New apps should be found automatically after scan TTL expires."""
+        src = self._make_source(tmp_path)
+
+        # New app installed after initial scan
+        (tmp_path / "NewApp.app").mkdir()
+
+        # Simulate TTL expiry by backdating _last_scan_time
+        src._last_scan_time -= AppSource._SCAN_TTL + 1
+
+        with patch(
+            "wenzi.scripting.sources.app_source._APP_DIRS",
+            [str(tmp_path)],
+        ), patch(
+            "wenzi.scripting.sources.app_source._get_running_app_names",
+            return_value=set(),
+        ):
+            result = src.search("new")
+        assert len(result) == 1
+
+    def test_no_rescan_within_ttl(self, tmp_path):
+        """App list should not be rescanned within the TTL window."""
+        src = self._make_source(tmp_path)
+
+        # New app installed after initial scan
+        (tmp_path / "NewApp.app").mkdir()
+
+        # TTL has NOT expired — search should NOT find the new app
+        with patch(
+            "wenzi.scripting.sources.app_source._APP_DIRS",
+            [str(tmp_path)],
+        ), patch(
+            "wenzi.scripting.sources.app_source._get_running_app_names",
+            return_value=set(),
+        ):
+            result = src.search("new")
+        assert len(result) == 0
+
     def test_search_by_display_name(self, tmp_path):
         """Should match against localized display_name as well."""
         (tmp_path / "Notes.app").mkdir()
@@ -303,11 +340,12 @@ class TestIconDiskCache:
         ):
             uri1 = src._get_icon(app_path)
 
-        assert uri1 == _png_to_data_uri(self._FAKE_PNG)
+        key = _cache_key(app_path)
+        expected_png_path = os.path.join(cache_dir, f"{key}.png")
+        assert uri1 == "file://" + expected_png_path
 
         # Verify files written to disk
-        key = _cache_key(app_path)
-        assert os.path.isfile(os.path.join(cache_dir, f"{key}.png"))
+        assert os.path.isfile(expected_png_path)
         assert os.path.isfile(os.path.join(cache_dir, f"{key}.meta"))
 
         # New instance should load from disk without calling AppKit
@@ -349,7 +387,8 @@ class TestIconDiskCache:
         ):
             uri = src2._get_icon(app_path)
 
-        assert uri == _png_to_data_uri(new_png)
+        key = _cache_key(app_path)
+        assert uri == "file://" + os.path.join(cache_dir, f"{key}.png")
 
     def test_missing_cache_dir_created(self, tmp_path):
         """Cache dir should be auto-created on first save."""

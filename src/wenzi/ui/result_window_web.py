@@ -1,7 +1,6 @@
 """Web-based floating preview panel for ASR and AI enhancement results.
 
-Uses WKWebView + WKScriptMessageHandler for a modern HTML/CSS/JS interface
-with the same public API as the original AppKit-based ResultPreviewPanel.
+Uses WKWebView + WKScriptMessageHandler for a modern HTML/CSS/JS interface.
 """
 
 from __future__ import annotations
@@ -11,6 +10,45 @@ import logging
 from typing import Callable, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_edit_menu() -> None:
+    """Ensure NSApp has a main menu with a standard Edit submenu.
+
+    Statusbar-only apps (NSApplicationActivationPolicyAccessory) have no menu
+    bar, so ⌘A/⌘C/⌘V/⌘X key equivalents are never dispatched.  Adding a
+    hidden Edit menu to the main menu restores the standard responder-chain
+    routing for these shortcuts.
+    """
+    from AppKit import NSApp, NSMenu, NSMenuItem
+
+    main_menu = NSApp.mainMenu()
+    if main_menu is None:
+        main_menu = NSMenu.alloc().init()
+        NSApp.setMainMenu_(main_menu)
+
+    # Check if Edit menu already exists
+    if main_menu.itemWithTitle_("Edit") is not None:
+        return
+
+    edit_menu = NSMenu.alloc().initWithTitle_("Edit")
+    for title, action, key in [
+        ("Undo", "undo:", "z"),
+        ("Redo", "redo:", "Z"),
+        ("Cut", "cut:", "x"),
+        ("Copy", "copy:", "c"),
+        ("Paste", "paste:", "v"),
+        ("Select All", "selectAll:", "a"),
+    ]:
+        item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            title, action, key
+        )
+        edit_menu.addItem_(item)
+
+    edit_item = NSMenuItem.alloc().init()
+    edit_item.setTitle_("Edit")
+    edit_item.setSubmenu_(edit_menu)
+    main_menu.addItem_(edit_item)
 
 # ---------------------------------------------------------------------------
 # HTML template
@@ -203,7 +241,7 @@ select {
                 <input type="checkbox" id="punc-cb" checked>
                 <span>Punc</span>
             </label>
-            <button class="btn hidden" id="play-btn" onclick="postAction('playAudio')">Play ▶</button>
+            <button class="btn hidden" id="play-btn" onclick="postAction('toggleAudio')">Play ▶</button>
             <button class="btn hidden" id="save-btn" onclick="postAction('saveAudio')">Save</button>
         </div>
     </div>
@@ -400,6 +438,15 @@ function selectMode(index) {
         btn.classList.toggle('active', i === index);
     });
     postAction('modeChange', { index: index });
+}
+
+function setActiveModeById(modeId) {
+    // Visually highlight the tab matching modeId without triggering modeChange.
+    if (!CONFIG.modes || CONFIG.modes.length === 0) return;
+    CONFIG.modes.forEach(([id], i) => {
+        document.querySelectorAll('.segment-btn')[i]
+            ?.classList.toggle('active', id === modeId);
+    });
 }
 
 function doConfirm(copyToClipboard) {
@@ -643,15 +690,16 @@ function loadHistoryRecord(data) {
     document.getElementById('asr-text').textContent = data.asrText;
     document.getElementById('asr-info').textContent = data.asrInfo || '';
 
-    // Update enhance
+    // Update enhance — switch mode tab visually, show token info in label
+    setActiveModeById(data.enhanceMode || 'off');
     const enhEl = document.getElementById('enhance-text');
     if (data.enhancedText) {
         document.getElementById('enhance-section').classList.remove('hidden');
         enhEl.textContent = data.enhancedText;
-        document.getElementById('enhance-info').textContent = data.enhanceMode || '';
+        setEnhanceInfo(data.enhanceInfo || '');
     } else {
         enhEl.textContent = '';
-        document.getElementById('enhance-info').textContent = data.enhanceMode || 'Off';
+        setEnhanceInfo('');
     }
 
     // Update final text
@@ -858,6 +906,7 @@ class ResultPreviewPanel:
         self._thinking_text: str = ""
         self._loading_timer = None
         self._loading_seconds: int = 0
+        self._playback_timer = None
         self._translate_webview = None
         self._page_loaded: bool = False
         self._pending_js: list[str] = []
@@ -967,6 +1016,7 @@ class ResultPreviewPanel:
         animate_from_frame: object = None,
     ) -> None:
         """Show the preview panel with ASR text."""
+        self._stop_playback()
         self._on_confirm = on_confirm
         self._on_cancel = on_cancel
         self._on_mode_change = on_mode_change
@@ -1199,6 +1249,7 @@ class ResultPreviewPanel:
         asr_info: str = "",
         system_prompt: str = "",
         thinking_text: str = "",
+        token_usage: dict | None = None,
     ) -> None:
         """Load a history record into the preview panel."""
         if self._webview is None:
@@ -1206,11 +1257,15 @@ class ResultPreviewPanel:
 
         from PyObjCTools import AppHelper
 
+        # Token info only — mode is shown via the segmented control tab
+        enhance_info = self._format_token_suffix(token_usage)
+
         data = {
             "asrText": asr_text,
             "enhancedText": enhanced_text,
             "finalText": final_text,
             "enhanceMode": enhance_mode,
+            "enhanceInfo": enhance_info,
             "hasAudio": has_audio,
             "asrInfo": asr_info,
             "hasPrompt": bool(system_prompt),
@@ -1448,9 +1503,12 @@ class ResultPreviewPanel:
             if self._system_prompt:
                 self._show_info_panel("System Prompt", self._system_prompt)
 
-        elif msg_type == "playAudio":
+        elif msg_type == "toggleAudio":
             if self._asr_wav_data:
-                self._play_wav(self._asr_wav_data)
+                if self._asr_sound is not None and self._asr_sound.isPlaying():
+                    self._stop_playback()
+                else:
+                    self._play_wav(self._asr_wav_data)
 
         elif msg_type == "saveAudio":
             if self._asr_wav_data:
@@ -1516,7 +1574,6 @@ class ResultPreviewPanel:
         from Foundation import NSMakeRect, NSURL
 
         # Enable ⌘C/⌘V/⌘A via Edit menu in the responder chain
-        from wenzi.ui.result_window import _ensure_edit_menu
         _ensure_edit_menu()
 
         # Calculate panel height based on content
@@ -1672,16 +1729,24 @@ class ResultPreviewPanel:
             self._loading_timer = None
 
     def _stop_playback(self) -> None:
+        had_playback = self._playback_timer is not None or self._asr_sound is not None
+        if self._playback_timer is not None:
+            self._playback_timer.invalidate()
+            self._playback_timer = None
         if self._asr_sound is not None:
             try:
                 self._asr_sound.stop()
             except Exception:
                 pass
             self._asr_sound = None
+        if had_playback:
+            self._eval_js(
+                "document.getElementById('play-btn').textContent = 'Play \\u25b6'"
+            )
 
     def _play_wav(self, wav_data: bytes) -> None:
         from AppKit import NSSound
-        from Foundation import NSData
+        from Foundation import NSData, NSTimer
 
         self._stop_playback()
         ns_data = NSData.dataWithBytes_length_(wav_data, len(wav_data))
@@ -1689,6 +1754,19 @@ class ResultPreviewPanel:
         if sound:
             sound.play()
             self._asr_sound = sound
+            self._eval_js(
+                "document.getElementById('play-btn').textContent = 'Stop \\u25a0'"
+            )
+            self._playback_timer = (
+                NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+                    0.3, self, b"tickPlaybackTimer:", None, True,
+                )
+            )
+
+    def tickPlaybackTimer_(self, timer) -> None:
+        """NSTimer callback: check if audio playback has finished."""
+        if self._asr_sound is None or not self._asr_sound.isPlaying():
+            self._stop_playback()
 
     def _save_wav(self, wav_data: bytes) -> None:
         from AppKit import NSSavePanel

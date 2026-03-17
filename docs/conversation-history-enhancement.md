@@ -65,38 +65,70 @@ Only records with `preview_enabled: true` are injected into the AI prompt. The r
 
 This is a deliberate data quality decision: **a smaller set of verified data is more valuable than a larger set of unverified data**.
 
+### Per-Mode History
+
+Each enhancement mode maintains its own conversation history. When the user uses "proofread" mode, only proofread history entries are injected; when using "translate" mode, only translation history appears. This design:
+
+- **Keeps context relevant** — Proofread correction examples (Chinese → Chinese) are not useful context for translation mode, and vice versa.
+- **Improves cache hit rate** — Switching modes does not invalidate another mode's cached prompt prefix.
+
+**Chain modes** (e.g., "proofread → translate") *read* from each step's per-mode history during execution but *do not write* any history entries. Since the user cannot verify or correct intermediate step results, logging them could mislead the LLM.
+
 ### Context Injection
 
-When conversation history is enabled, the enhancement prompt is augmented with recent history. The format is designed to be token-efficient:
+When conversation history is enabled, history and vocabulary are combined into a single context section with a unified instruction header. The format is designed for both token-efficiency and API-level prompt caching:
 
 ```
 ---
-以下是用户近期的对话记录，用于学习纠错偏好和话题上下文。
-若 ASR 识别与最终确认不同则用→分隔（识别→确认），相同则表示无需纠错：
+以下是辅助纠错的参考上下文：
+- 对话记录（优先参考）：反映用户真实的纠错偏好和话题上下文，若 ASR 识别与最终确认不同则用→分隔（识别→确认），相同则表示无需纠错。
+- 词库（仅供辅助）：以下专有名词 ASR 常误写为同音近音词，仅当输入中确实存在对应误写时才替换，不要强行套用。当词库与对话记录冲突时，以对话记录为准。
 
+对话记录：
 - 将是否开启对话历史注入的功能，做一个开关放在菜单栏里。
 - 现在测试一下历史上下文注入的功能。
 - 果果今天在公园里遇到了平平。 → 果果今天在公园里遇到了萍萍。
 - 平平对果果说我今天吃了面条。 → 萍萍对果果说我今天吃了面条。
+
+词库：
+- WenZi（语音转文字工具）
+- 萍萍（人名）
 ---
 ```
 
-Key design choices for the prompt format:
+Key design choices:
 
 - **One line per entry** — Minimizes token usage.
 - **Arrow notation for corrections** — Only shown when ASR and final text differ, making correction patterns immediately visible to the LLM.
 - **No arrow when identical** — Avoids redundant repetition of the same text.
-- **Only ASR + final text** — The AI-enhanced intermediate text is omitted from injection to save tokens. The LLM only needs to see what the user actually said (ASR) and what they actually meant (final).
+- **Only ASR + final text** — The AI-enhanced intermediate text is omitted to save tokens.
+- **History prioritized over vocabulary** — Marked as "优先参考" (primary reference) vs "仅供辅助" (supplementary), because history reflects user-verified corrections while vocabulary is an automated suggestion.
+- **Combined header** — History and vocabulary instructions are merged into one static block at the top for prompt caching (see below).
 
-### Integration with Other Context Sources
+### Prompt Caching Optimization
 
-Conversation history is injected into the system prompt **after** vocabulary context, following the same pattern:
+The system prompt is ordered by stability (most stable first) to maximize the prefix that LLM API-level caching (OpenAI, DeepSeek, etc.) can reuse:
 
 ```
-[Mode prompt]                    ← base enhancement instructions
-[Vocabulary context]             ← relevant terms from user's vocabulary (if enabled)
-[Conversation history context]   ← recent confirmed outputs (if enabled)
+[Mode prompt]                    ← static per mode
+[Thinking hint]                  ← static within session (if thinking enabled)
+[Combined context header]        ← static within session (instruction text)
+[History entries]                ← append-only (grows incrementally)
+[Vocabulary entries]             ← dynamic per request
 ```
+
+**Incremental history building**: Instead of rebuilding the history from scratch on every request, new entries are *appended* to the existing list. This keeps the prompt prefix identical across consecutive requests. When the total entry count reaches `refresh_threshold` or total characters reach `max_history_chars`, the history is rebuilt with the most recent `max_entries` as a new base.
+
+Example of prefix stability across 3 requests:
+```
+Request 1: ...header... + entry1 + entry2 |← cached prefix →| + vocab_A
+Request 2: ...header... + entry1 + entry2 + entry3 |← cached →| + vocab_B
+Request 3: ...header... + entry1 + entry2 + entry3 |← cached →| + vocab_C
+```
+
+Each request reuses the cached KV state for the stable prefix, paying only for new tokens.
+
+> **Note:** Most API providers require the cached prefix to be at least **1024 tokens** (~500–700 Chinese characters). If your enhancement mode prompt is short, consider increasing `max_entries` (e.g., to 20) so the system prompt exceeds this threshold right after a rebuild.
 
 Each context source is independently toggleable and gracefully degrades — if history retrieval fails, enhancement proceeds without it.
 
@@ -168,13 +200,17 @@ Voice Input
      │                    │   │ (monthly, append-only)    │
      │                    │   └──────────────────────────┘
      ▼                    │
-┌──────────┐              │ get_recent(n=10)
+┌──────────┐              │ get_recent(enhance_mode=current)
 │ Enhancer │◄─────────────┘ filter: preview_enabled=true
-│          │                via hot-path cache (200 records)
-│ system_prompt = base_prompt      │
-│            + vocab_context       │
-│            + history_context ◄───┘
+│          │                per-mode, via hot-path cache
 │          │
+│ system_prompt =              ┌── stable prefix (cached) ──┐
+│   mode_prompt                │                             │
+│ + thinking_hint              │  ┌─ context section ──────┐ │
+│ + context_header ────────────┤  │ instruction header     │ │
+│ + history_entries (append) ──┤  │ 对话记录: entries...    │ │
+│ + vocab_entries (dynamic) ───┘  │ 词库: entries...        │ │
+│                                 └────────────────────────┘ │
 │          │──► LLM ──► enhanced text
 └──────────┘
      │
@@ -183,8 +219,8 @@ Voice Input
 │ Preview Panel    │──► user confirms ──► type_text
 │ (preview mode)   │                        │
 └──────────────────┘                        ▼
-                                   log(preview_enabled=true,
-                                        audio_duration=N.Ns)
+                                   log(enhance_mode=current,
+                                        preview_enabled=true)
 ```
 
 ## Configuration
@@ -195,7 +231,9 @@ In `config.json` under `ai_enhance`:
 {
     "conversation_history": {
         "enabled": false,
-        "max_entries": 10
+        "max_entries": 10,
+        "refresh_threshold": 50,
+        "max_history_chars": 6000
     }
 }
 ```
@@ -203,9 +241,16 @@ In `config.json` under `ai_enhance`:
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `enabled` | bool | `false` | Toggle conversation history injection |
-| `max_entries` | int | `10` | Maximum number of recent entries to inject |
+| `max_entries` | int | `10` | Base number of entries after a rebuild (also the initial count) |
+| `refresh_threshold` | int | `50` | Max entry count before triggering a rebuild |
+| `max_history_chars` | int | `6000` | Max total characters before triggering a rebuild |
 
 The toggle is also available in the **Settings** panel (AI tab).
+
+**Tuning guide:**
+- `max_entries` controls the base size after each rebuild. Larger values mean more context but a longer "cold start" prefix. Set to 20+ if your mode prompt is short and you want to exceed the 1024-token API cache threshold immediately.
+- `refresh_threshold` controls how many entries accumulate before rebuilding. Higher values mean longer stretches of cache hits but more tokens per request.
+- `max_history_chars` acts as a safety cap for token usage, independent of entry count.
 
 ## Key Files
 

@@ -6,6 +6,7 @@ import logging
 from typing import Callable, Dict, List, Optional
 
 from wenzi.scripting.sources import ChooserItem, ChooserSource, ModifierAction
+from wenzi.scripting.sources.command_source import CommandEntry, CommandSource
 from wenzi.scripting.ui.chooser_panel import ChooserPanel
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,7 @@ class ChooserAPI:
         self._panel = ChooserPanel()
         self._panel._event_callback = self._fire_event
         self._event_handlers: Dict[str, List[Callable]] = {}
+        self._command_source = CommandSource()
 
     @property
     def panel(self) -> ChooserPanel:
@@ -67,6 +69,57 @@ class ChooserAPI:
     def _get_panel(self) -> ChooserPanel:
         """Internal access to the panel instance."""
         return self._panel
+
+    def _ensure_command_source(self) -> None:
+        """Re-register the command source if it was removed (e.g. by disable_chooser)."""
+        if "commands" not in self._panel._sources:
+            self._panel.register_source(self._command_source.as_chooser_source())
+        if "commands-promoted" not in self._panel._sources:
+            self._panel.register_source(
+                self._command_source.as_promoted_chooser_source(),
+            )
+        if "help" not in self._command_source._commands:
+            self._register_help_command()
+
+    def _register_help_command(self) -> None:
+        """Register the built-in help command."""
+
+        def _help_action(args: str) -> None:
+            # Snapshot sources on the calling thread
+            sources = list(self._panel._sources.values())
+            items = []
+            for src in sorted(sources, key=lambda s: (s.prefix or "")):
+                if not src.prefix:
+                    continue
+                desc = src.description or src.name
+                # Filter by args if provided
+                if args.strip():
+                    from wenzi.scripting.sources import fuzzy_match
+
+                    m1, _ = fuzzy_match(args.strip(), desc)
+                    m2, _ = fuzzy_match(args.strip(), src.prefix)
+                    if not m1 and not m2:
+                        continue
+                items.append({
+                    "title": desc,
+                    "subtitle": f"{src.prefix} <query>",
+                    "item_id": f"help:{src.name}",
+                    "action": lambda p=src.prefix: self.show_source(p),
+                })
+            if items:
+                self.pick(
+                    items,
+                    callback=lambda _: None,
+                    placeholder="Available prefixes...",
+                )
+
+        self._command_source.register(CommandEntry(
+            name="help",
+            title="Help",
+            subtitle="Show available prefixes",
+            action=_help_action,
+            promoted=True,
+        ))
 
     def register_source(self, source: ChooserSource) -> None:
         """Register a data source."""
@@ -120,10 +173,10 @@ class ChooserAPI:
     # pick() — use the chooser as a generic selection UI
     # ------------------------------------------------------------------
 
-    # Reserved prefix for pick() mode.  Using ``>`` keeps the UI clean
-    # (resembles a command prompt) while isolating pick items from other
-    # sources.  User-defined sources should avoid this prefix.
-    _PICK_PREFIX = ">"
+    # Reserved prefix for pick() mode.  Using ``?`` isolates pick items
+    # from other sources.  ``>`` is reserved for the command source.
+    # User-defined sources should avoid both prefixes.
+    _PICK_PREFIX = "?"
 
     def pick(
         self,
@@ -137,7 +190,7 @@ class ChooserAPI:
         dict.  If the user dismisses the panel without selecting, *callback*
         is called with ``None``.
 
-        The pick source is isolated via a reserved ``>`` prefix so that
+        The pick source is isolated via a reserved ``?`` prefix so that
         other registered sources do not contribute results.
 
         Args:
@@ -248,23 +301,110 @@ class ChooserAPI:
     # Source decorator
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Command registration
+    # ------------------------------------------------------------------
+
+    def register_command(
+        self,
+        name: str,
+        title: str,
+        action: Callable[[str], None],
+        subtitle: str = "",
+        icon: str = "",
+        modifiers: Optional[Dict] = None,
+        promoted: bool = False,
+    ) -> None:
+        """Register a named command in the command palette (``>`` prefix).
+
+        Args:
+            name: Unique command name (single token, e.g. ``"reload-scripts"``).
+            title: Human-readable title shown in the launcher.
+            action: Callback receiving the args string: ``action(args)``.
+            subtitle: Optional description shown below the title.
+            icon: Optional icon (``file://`` URL or ``data:`` URI).
+            modifiers: Optional modifier actions, e.g.
+                ``{"alt": {"subtitle": "Force", "action": callable}}``.
+            promoted: If ``True``, also appear in the unprefixed main search.
+        """
+        entry = CommandEntry(
+            name=name,
+            title=title,
+            subtitle=subtitle,
+            icon=icon,
+            action=action,
+            modifiers=_parse_modifiers(modifiers),
+            promoted=promoted,
+        )
+        self._command_source.register(entry)
+
+    def unregister_command(self, name: str) -> None:
+        """Remove a registered command by name."""
+        self._command_source.unregister(name)
+
+    def command(
+        self,
+        name: str,
+        title: str,
+        subtitle: str = "",
+        icon: str = "",
+        modifiers: Optional[Dict] = None,
+        promoted: bool = False,
+    ) -> Callable:
+        """Decorator to register a function as a chooser command.
+
+        The decorated function receives a single ``args`` string::
+
+            @wz.chooser.command("greet", title="Greet")
+            def greet(args):
+                name = args.strip() or "World"
+                wz.notify.show(f"Hello, {name}!")
+
+        Set ``promoted=True`` to also show in the unprefixed main search::
+
+            @wz.chooser.command("reload", title="Reload Scripts", promoted=True)
+            def reload(args):
+                wz.reload()
+        """
+
+        def decorator(func: Callable[[str], None]) -> Callable:
+            self.register_command(
+                name=name,
+                title=title,
+                action=func,
+                subtitle=subtitle,
+                icon=icon,
+                modifiers=modifiers,
+                promoted=promoted,
+            )
+            return func
+
+        return decorator
+
+    # ------------------------------------------------------------------
+    # Source decorator
+    # ------------------------------------------------------------------
+
     def source(
         self,
         name: str,
         prefix: Optional[str] = None,
         priority: int = 0,
+        action_hints: Optional[dict] = None,
+        description: str = "",
     ) -> Callable:
         """Decorator to register a search function as a chooser source.
 
         The decorated function receives a query string and returns a list of
         item dicts.  All :class:`ChooserItem` fields are supported::
 
-            @wz.chooser.source("todos", prefix="td", priority=5)
+            @wz.chooser.source("todos", prefix="td", priority=5,
+                               description="Search TODOs")
             def search_todos(query):
                 return [{
                     "title": "Fix bug #123",
                     "subtitle": "backend",
-                    "icon": "data:image/png;base64,...",
+                    "icon": "file:///path/to/icon.png",
                     "item_id": "todo-123",
                     "action": lambda: ...,
                     "secondary_action": lambda: ...,
@@ -290,6 +430,8 @@ class ChooserAPI:
                 prefix=prefix,
                 search=_search,
                 priority=priority,
+                description=description,
+                action_hints=action_hints,
             )
             self._panel.register_source(src)
             logger.info("User script registered chooser source: %s", name)

@@ -52,6 +52,7 @@ body { display: flex; flex-direction: column; }
     display: flex; flex-direction: column;
     min-height: 0;
 }
+.left-panel.full-width { width: 100%; }
 .preview-panel {
     flex: 1; display: flex; flex-direction: column;
     align-items: center; justify-content: center;
@@ -59,6 +60,7 @@ body { display: flex; flex-direction: column; }
     padding: 16px; overflow: hidden;
     min-height: 0;
 }
+.preview-panel.hidden { display: none; }
 .preview-panel.empty {
     color: var(--secondary); font-size: 13px;
 }
@@ -131,7 +133,14 @@ body { display: flex; flex-direction: column; }
     border-radius: 6px;
     image-rendering: -webkit-optimize-contrast;
 }
-.result-item:hover { background: var(--item-hover); }
+.result-item .icon-placeholder {
+    background-color: var(--secondary);
+    -webkit-mask-size: 20px 20px;
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    opacity: 0.35;
+}
+#placeholder-mask-style { display: none; }
 .result-item.selected { background: var(--item-selected); }
 .result-item .left {
     display: flex; flex-direction: column; gap: 1px;
@@ -168,7 +177,6 @@ body { display: flex; flex-direction: column; }
     cursor: pointer; opacity: 0; transition: opacity 0.15s;
     padding: 0;
 }
-.result-item:hover .delete-btn,
 .result-item.selected .delete-btn { opacity: 0.6; }
 .result-item .delete-btn:hover {
     opacity: 1; background: var(--item-hover); color: var(--text);
@@ -206,13 +214,13 @@ body { display: flex; flex-direction: column; }
 </div>
 
 <div class="main-content">
-    <div class="left-panel">
+    <div class="left-panel full-width">
         <div class="result-list" id="result-list"></div>
         <div class="empty-state" id="empty-state" style="display:none;">
             Type to search
         </div>
     </div>
-    <div class="preview-panel empty" id="preview-panel">
+    <div class="preview-panel empty hidden" id="preview-panel">
         Select an item to preview
     </div>
 </div>
@@ -227,8 +235,25 @@ body { display: flex; flex-direction: column; }
 var items = [];
 var selectedIndex = -1;
 var itemsVersion = 0;
+var hasAnyIcon = false;  // true when at least one item has an icon
+var _lastMouseX = -1, _lastMouseY = -1;  // suppress scroll-induced hover
+var _PLACEHOLDER_SVG = "data:image/svg+xml,"
+    + "%3Csvg xmlns='http://www.w3.org/2000/svg' "
+    + "viewBox='0 0 24 24' fill='none' stroke='black' "
+    + "stroke-width='1.5' stroke-linecap='round' "
+    + "stroke-linejoin='round'%3E"
+    + "%3Crect x='3' y='2' width='18' height='20' rx='2.5'/%3E"
+    + "%3Cline x1='7' y1='8' x2='17' y2='8'/%3E"
+    + "%3Cline x1='7' y1='12' x2='17' y2='12'/%3E"
+    + "%3Cline x1='7' y1='16' x2='13' y2='16'/%3E"
+    + "%3C/svg%3E";
 var prefixHints = [];
 var activeModifier = null;  // "alt", "ctrl", "shift" or null
+var qlPreviewOpen = false;  // Shift-toggle Quick Look preview
+var _shiftAlone = false;    // true when Shift pressed without other keys
+var _shiftDownTime = 0;
+var inHistoryMode = false;
+var _settingHistoryValue = false;
 
 // --- Virtual scrolling ---
 var ITEM_HEIGHT = 0;  // measured from first rendered row
@@ -250,144 +275,156 @@ function post(type, data) {
     );
 }
 
+// --- Placeholder mask: inject once into a <style> element ---
+var _phStyle = document.createElement('style');
+_phStyle.textContent = '.icon-placeholder{-webkit-mask-image:url("'
+    + _PLACEHOLDER_SVG + '")}';
+document.head.appendChild(_phStyle);
+
+// --- Rendering (innerHTML-based for speed) ---
+
+function _escHtml(s) {
+    // Minimal HTML escaping for user text in innerHTML templates
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;');
+}
+
+function _buildRowHtml(item, i) {
+    var cls = 'result-item' + (i === selectedIndex ? ' selected' : '');
+    var h = ITEM_HEIGHT || ITEM_HEIGHT_DEFAULT;
+    var parts = ['<div class="', cls,
+        '" style="position:absolute;top:', (i * h),
+        'px;left:0;right:0;height:', h, 'px" data-idx="', i, '">'];
+
+    if (item.icon) {
+        parts.push('<img class="icon" draggable="false" src="',
+                   _escHtml(item.icon), '">');
+    } else if (hasAnyIcon) {
+        parts.push('<div class="icon icon-placeholder"></div>');
+    }
+
+    parts.push('<div class="left"><div class="title">',
+               _escHtml(item.title), '</div>');
+    if (item.subtitle) {
+        parts.push('<div class="subtitle-text">',
+                   _escHtml(item.subtitle), '</div>');
+    }
+    parts.push('</div><div class="right-group">');
+
+    if (item.badge) {
+        parts.push('<span class="badge">', _escHtml(item.badge), '</span>');
+    }
+    if (i < 9) {
+        parts.push('<span class="shortcut">\u2318', (i + 1), '</span>');
+    }
+    if (item.deletable) {
+        parts.push('<button class="delete-btn">\u00d7</button>');
+    }
+    parts.push('</div></div>');
+    return parts.join('');
+}
+
+var _spacer = null;  // reuse spacer element across renders
+
 function renderItems() {
-    // Cancel any pending scroll-triggered render
     if (_scrollRafId) {
         cancelAnimationFrame(_scrollRafId);
         _scrollRafId = null;
     }
-    resultList.innerHTML = '';
     if (items.length === 0) {
+        if (_spacer) { _spacer.innerHTML = ''; _spacer.style.height = '0'; }
         resultList.style.display = 'none';
         emptyState.style.display = 'flex';
-        emptyState.textContent = searchInput.value.trim() ? 'No results' : 'Type to search';
+        emptyState.textContent = searchInput.value.trim()
+            ? 'No results' : 'Type to search';
         setPreview(null);
         return;
     }
     resultList.style.display = '';
     emptyState.style.display = 'none';
 
-    // Measure actual row height from a sample row if not yet measured
+    // Measure row height once
     if (!ITEM_HEIGHT && items.length > 0) {
-        var sample = _createRow(items[0], 0);
-        sample.style.visibility = 'hidden';
-        sample.style.position = 'absolute';
-        resultList.appendChild(sample);
-        ITEM_HEIGHT = sample.offsetHeight || ITEM_HEIGHT_DEFAULT;
-        resultList.removeChild(sample);
+        if (!_spacer) {
+            _spacer = document.createElement('div');
+            _spacer.style.position = 'relative';
+            resultList.appendChild(_spacer);
+        }
+        _spacer.innerHTML = _buildRowHtml(items[0], 0);
+        ITEM_HEIGHT = _spacer.firstChild.offsetHeight || ITEM_HEIGHT_DEFAULT;
+        _spacer.innerHTML = '';
     }
 
-    var h = ITEM_HEIGHT || ITEM_HEIGHT_DEFAULT;
-    // Create spacer for virtual scrolling
-    var totalHeight = items.length * h;
-    var spacer = document.createElement('div');
-    spacer.style.height = totalHeight + 'px';
-    spacer.style.position = 'relative';
-    resultList.appendChild(spacer);
+    // Create or reuse spacer
+    if (!_spacer) {
+        _spacer = document.createElement('div');
+        _spacer.style.position = 'relative';
+        resultList.appendChild(_spacer);
+    }
+    _spacer.style.height = (items.length * (ITEM_HEIGHT || ITEM_HEIGHT_DEFAULT)) + 'px';
 
     _renderVisibleRows();
-
-    // Update preview for selected item
     updatePreview();
 }
 
 function _renderVisibleRows() {
-    var spacer = resultList.firstChild;
-    if (!spacer) return;
-
-    // Remove old rows from spacer
-    spacer.innerHTML = '';
+    if (!_spacer) return;
 
     var h = ITEM_HEIGHT || ITEM_HEIGHT_DEFAULT;
     var scrollTop = resultList.scrollTop;
     var viewportHeight = resultList.clientHeight;
 
     var startIdx = Math.max(0, Math.floor(scrollTop / h) - BUFFER_COUNT);
-    var endIdx = Math.min(items.length, Math.ceil((scrollTop + viewportHeight) / h) + BUFFER_COUNT);
+    var endIdx = Math.min(items.length,
+        Math.ceil((scrollTop + viewportHeight) / h) + BUFFER_COUNT);
 
-    var frag = document.createDocumentFragment();
+    var htmlParts = [];
     for (var i = startIdx; i < endIdx; i++) {
-        var row = _createRow(items[i], i);
-        row.style.position = 'absolute';
-        row.style.top = (i * h) + 'px';
-        row.style.left = '0';
-        row.style.right = '0';
-        row.style.height = h + 'px';
-        frag.appendChild(row);
+        htmlParts.push(_buildRowHtml(items[i], i));
     }
-    spacer.appendChild(frag);
+    _spacer.innerHTML = htmlParts.join('');
 }
 
-function _createRow(item, i) {
-    var row = document.createElement('div');
-    row.className = 'result-item' + (i === selectedIndex ? ' selected' : '');
+// --- Event delegation on resultList (replaces per-row listeners) ---
+resultList.addEventListener('mousemove', function(e) {
+    if (e.clientX === _lastMouseX && e.clientY === _lastMouseY) return;
+    _lastMouseX = e.clientX;
+    _lastMouseY = e.clientY;
+    var row = e.target.closest('.result-item');
+    if (!row) return;
+    var idx = parseInt(row.getAttribute('data-idx'), 10);
+    if (isNaN(idx) || idx === selectedIndex) return;
+    // Swap selected class without full re-render
+    var prev = _spacer.querySelector('.result-item.selected');
+    if (prev) prev.className = 'result-item';
+    row.className = 'result-item selected';
+    selectedIndex = idx;
+    updatePreview();
+}, false);
 
-    if (item.icon) {
-        var img = document.createElement('img');
-        img.className = 'icon';
-        img.src = item.icon;
-        img.draggable = false;
-        row.appendChild(img);
+resultList.addEventListener('click', function(e) {
+    // Delete button
+    if (e.target.classList.contains('delete-btn')) {
+        e.stopPropagation();
+        var row = e.target.closest('.result-item');
+        if (row) {
+            var idx = parseInt(row.getAttribute('data-idx'), 10);
+            if (!isNaN(idx)) {
+                post('deleteItem', { index: idx, version: itemsVersion });
+            }
+        }
+        return;
     }
-
-    var left = document.createElement('div');
-    left.className = 'left';
-
-    var title = document.createElement('div');
-    title.className = 'title';
-    title.textContent = item.title;
-    left.appendChild(title);
-
-    if (item.subtitle) {
-        var sub = document.createElement('div');
-        sub.className = 'subtitle-text';
-        sub.textContent = item.subtitle;
-        left.appendChild(sub);
+    // Row click
+    var row = e.target.closest('.result-item');
+    if (row) {
+        var idx = parseInt(row.getAttribute('data-idx'), 10);
+        if (!isNaN(idx)) {
+            selectedIndex = idx;
+            post('execute', { index: idx, version: itemsVersion });
+        }
     }
-
-    row.appendChild(left);
-
-    // Right group: badge + shortcut number
-    var rightGroup = document.createElement('div');
-    rightGroup.className = 'right-group';
-
-    if (item.badge) {
-        var badge = document.createElement('span');
-        badge.className = 'badge';
-        badge.textContent = item.badge;
-        rightGroup.appendChild(badge);
-    }
-
-    // Show Cmd+N shortcut for first 9 items
-    if (i < 9) {
-        var shortcut = document.createElement('span');
-        shortcut.className = 'shortcut';
-        shortcut.textContent = '\u2318' + (i + 1);
-        rightGroup.appendChild(shortcut);
-    }
-
-    // Delete button for deletable items
-    if (item.deletable) {
-        var delBtn = document.createElement('button');
-        delBtn.className = 'delete-btn';
-        delBtn.textContent = '\u00d7';
-        delBtn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            post('deleteItem', { index: i, version: itemsVersion });
-        });
-        rightGroup.appendChild(delBtn);
-    }
-
-    row.appendChild(rightGroup);
-
-    row.addEventListener('click', function() {
-        selectedIndex = i;
-        _renderVisibleRows();
-        post('execute', { index: i, version: itemsVersion });
-    });
-
-    return row;
-}
+}, false);
 
 // Virtual scroll handler
 var _scrollRafId = null;
@@ -405,7 +442,6 @@ function updatePreview() {
         if (item.preview) {
             setPreview(item.preview);
         } else {
-            // Request preview from Python (for lazy-loaded content)
             post('requestPreview', { index: selectedIndex });
         }
     } else {
@@ -464,11 +500,31 @@ function updateSelection(newIndex) {
     }
     _renderVisibleRows();
     updatePreview();
+    if (qlPreviewOpen) {
+        post('qlNavigate', { index: selectedIndex });
+    }
+}
+
+// --- Panel resize (collapsed ↔ expanded) ---
+var _panelExpanded = false;
+
+function _checkPanelResize() {
+    var shouldExpand = searchInput.value.length > 0;
+    if (shouldExpand !== _panelExpanded) {
+        _panelExpanded = shouldExpand;
+        post('panelResize', { expanded: shouldExpand });
+    }
 }
 
 // --- Input handling (with debounce for longer queries) ---
 var _debounceTimer = null;
 searchInput.addEventListener('input', function() {
+    if (_settingHistoryValue) return;
+    if (inHistoryMode) {
+        inHistoryMode = false;
+        post('exitHistory');
+    }
+    _checkPanelResize();
     var query = searchInput.value;
     if (_debounceTimer) { clearTimeout(_debounceTimer); _debounceTimer = null; }
     // Short queries (<=3 chars): search immediately (prefix activation like "f ")
@@ -484,23 +540,48 @@ searchInput.addEventListener('input', function() {
 
 // --- Keyboard navigation ---
 document.addEventListener('keydown', function(e) {
+    // Discard leading space when input is empty
+    if (e.key === ' ' && searchInput.value === '') {
+        e.preventDefault();
+        return;
+    }
     if (e.key === 'Escape') {
         e.preventDefault();
+        if (qlPreviewOpen) {
+            qlPreviewOpen = false;
+            post('shiftPreview', { open: false, index: selectedIndex });
+        }
         post('close');
         return;
     }
     if (e.key === 'ArrowDown') {
         e.preventDefault();
-        updateSelection(selectedIndex + 1);
+        if (inHistoryMode) {
+            post('historyDown');
+        } else {
+            updateSelection(selectedIndex + 1);
+        }
         return;
     }
     if (e.key === 'ArrowUp') {
         e.preventDefault();
-        updateSelection(selectedIndex - 1);
+        if (inHistoryMode || (searchInput.value === '' && items.length === 0)) {
+            post('historyUp');
+        } else {
+            updateSelection(selectedIndex - 1);
+        }
+        return;
+    }
+    if (e.key === 'Tab') {
+        e.preventDefault();
+        if (selectedIndex >= 0 && selectedIndex < items.length) {
+            post('tab', { index: selectedIndex });
+        }
         return;
     }
     if (e.key === 'Enter') {
         e.preventDefault();
+        inHistoryMode = false;
         if (selectedIndex >= 0 && selectedIndex < items.length) {
             if (e.metaKey) {
                 post('reveal', {
@@ -517,7 +598,13 @@ document.addEventListener('keydown', function(e) {
         }
         return;
     }
-    // Cmd+1 through Cmd+9: quick select
+    // Cmd+, : open Settings
+    if (e.metaKey && e.key === ',') {
+        e.preventDefault();
+        post('openSettings');
+        return;
+    }
+    // Cmd+1 through Cmd+9: quick select and execute
     if (e.metaKey && e.key >= '1' && e.key <= '9') {
         var idx = parseInt(e.key) - 1;
         if (idx < items.length) {
@@ -525,6 +612,17 @@ document.addEventListener('keydown', function(e) {
             selectedIndex = idx;
             renderItems();
             post('execute', { index: idx, version: itemsVersion });
+        }
+        return;
+    }
+    // Delete/Backspace (not in search input): delete selected item
+    if ((e.key === 'Delete' || e.key === 'Backspace') && e.metaKey) {
+        if (selectedIndex >= 0 && selectedIndex < items.length
+            && items[selectedIndex].deletable) {
+            e.preventDefault();
+            post('deleteItem', {
+                index: selectedIndex, version: itemsVersion
+            });
         }
         return;
     }
@@ -539,6 +637,14 @@ function getModifierName(e) {
 }
 
 document.addEventListener('keydown', function(e) {
+    // Track Shift-alone for Quick Look toggle
+    if (e.key === 'Shift' && !e.metaKey && !e.altKey && !e.ctrlKey) {
+        _shiftAlone = true;
+        _shiftDownTime = Date.now();
+    } else if (e.key !== 'Shift') {
+        _shiftAlone = false;
+    }
+
     if (e.key === 'Alt' || e.key === 'Control' || e.key === 'Shift') {
         var mod = getModifierName(e);
         if (mod !== activeModifier) {
@@ -553,6 +659,15 @@ document.addEventListener('keydown', function(e) {
 }, true);
 
 document.addEventListener('keyup', function(e) {
+    // Shift-alone tap toggles Quick Look preview
+    if (e.key === 'Shift' && _shiftAlone
+            && (Date.now() - _shiftDownTime < 400)) {
+        _shiftAlone = false;
+        qlPreviewOpen = !qlPreviewOpen;
+        post('shiftPreview', { open: qlPreviewOpen, index: selectedIndex });
+    }
+    _shiftAlone = false;
+
     if (e.key === 'Alt' || e.key === 'Control' || e.key === 'Shift') {
         if (activeModifier !== null) {
             activeModifier = null;
@@ -570,6 +685,7 @@ document.addEventListener('keyup', function(e) {
 function setResults(newItems, version, selectedIdx) {
     items = newItems || [];
     itemsVersion = version || 0;
+    hasAnyIcon = items.some(function(it) { return !!it.icon; });
     if (typeof selectedIdx === 'number') {
         // Preserve scroll position for delete/refresh operations
         selectedIndex = Math.max(0, Math.min(selectedIdx, items.length - 1));
@@ -598,17 +714,6 @@ function setResults(newItems, version, selectedIdx) {
 
 function setPrefixHints(hints) {
     prefixHints = hints || [];
-    if (hints.length > 0) {
-        footerRight.textContent = hints.join('  ');
-    } else {
-        footerRight.textContent = '';
-    }
-    // Update placeholder with prefix hints
-    if (hints.length > 0) {
-        searchInput.placeholder = 'Search...  (' + hints.join(', ') + ')';
-    } else {
-        searchInput.placeholder = 'Search...';
-    }
 }
 
 function setModifierSubtitle(index, subtitle) {
@@ -648,24 +753,69 @@ function focusInput() {
 
 function clearInput() {
     searchInput.value = '';
+    inHistoryMode = false;
     items = [];
     selectedIndex = -1;
     renderItems();
+    _checkPanelResize();
 }
 
 function setInputValue(value) {
     searchInput.value = value;
     searchInput.setSelectionRange(value.length, value.length);
+    _checkPanelResize();
     post('search', { query: value });
 }
 
+function setHistoryQuery(value) {
+    _settingHistoryValue = true;
+    searchInput.value = value;
+    searchInput.setSelectionRange(value.length, value.length);
+    _settingHistoryValue = false;
+    inHistoryMode = true;
+    _checkPanelResize();
+    post('search', { query: value });
+}
+
+function exitHistoryMode() {
+    inHistoryMode = false;
+}
+
+// --- Action hints (dynamic per source) ---
+function setActionHints(hints) {
+    var parts = ['<kbd>\u2191\u2193</kbd> Navigate'];
+    if (hints.enter) {
+        parts.push('<kbd>\u21b5</kbd> ' + hints.enter);
+    }
+    if (hints.cmd_enter) {
+        parts.push('<kbd>\u2318\u21b5</kbd> ' + hints.cmd_enter);
+    }
+    if (hints['delete']) {
+        parts.push('<kbd>\u2318\u232b</kbd> ' + hints['delete']);
+    }
+    if (hints.shift) {
+        parts.push('<kbd>\u21e7</kbd> ' + hints.shift);
+    }
+    if (hints.tab) {
+        parts.push('<kbd>\u21e5</kbd> ' + hints.tab);
+    }
+    parts.push('<kbd>Esc</kbd> Close');
+    footerLeft.innerHTML = parts.join('  ');
+}
+
+function setPreviewVisible(visible) {
+    var leftPanel = document.querySelector('.left-panel');
+    if (visible) {
+        previewPanel.classList.remove('hidden');
+        leftPanel.classList.remove('full-width');
+    } else {
+        previewPanel.classList.add('hidden');
+        leftPanel.classList.add('full-width');
+    }
+}
+
 // --- Init ---
-footerLeft.innerHTML =
-    '<kbd>\u2191\u2193</kbd> Navigate ' +
-    '<kbd>\u21b5</kbd> Open ' +
-    '<kbd>\u2318\u21b5</kbd> Reveal ' +
-    '<kbd>\u23181-9</kbd> Select ' +
-    '<kbd>Esc</kbd> Close';
+setActionHints({ enter: 'Open', cmd_enter: 'Reveal' });
 searchInput.focus();
 </script>
 </body>

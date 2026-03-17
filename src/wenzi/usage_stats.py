@@ -9,7 +9,7 @@ import threading
 from datetime import date, datetime, timezone
 from typing import Any, Callable, Dict
 
-from .config import DEFAULT_CONFIG_DIR
+from .config import DEFAULT_DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +67,8 @@ def _empty_daily(day: str) -> Dict[str, Any]:
 class UsageStats:
     """Thread-safe usage statistics with cumulative + daily file storage."""
 
-    def __init__(self, stats_dir: str = DEFAULT_CONFIG_DIR) -> None:
-        self._base_dir = os.path.expanduser(stats_dir)
+    def __init__(self, data_dir: str = DEFAULT_DATA_DIR) -> None:
+        self._base_dir = os.path.expanduser(data_dir)
         self._cumulative_path = os.path.join(self._base_dir, "usage_stats.json")
         self._daily_dir = os.path.join(self._base_dir, "usage_stats")
         self._lock = threading.Lock()

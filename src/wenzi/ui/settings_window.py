@@ -104,6 +104,7 @@ class SettingsPanel:
         self._restart_key_popup = None
         self._cancel_key_popup = None
         self._auto_build_check = None
+        self._vocab_build_model_popup = None
         self._history_check = None
         self._config_dir_field = None
 
@@ -160,6 +161,8 @@ class SettingsPanel:
                 - on_vocab_toggle: (enabled) -> None
                 - on_auto_build_toggle: (enabled) -> None
                 - on_history_toggle: (enabled) -> None
+                - on_history_max_entries: (value) -> None
+                - on_history_refresh_threshold: (value) -> None
                 - on_vocab_build: () -> None
                 - on_reveal_config_folder: () -> None
         """
@@ -505,17 +508,6 @@ class SettingsPanel:
         )
         y = self._add_hint(
             "Show a preview panel before inserting text, allowing edits",
-            pad + 12, y, content_w - 24, doc_view,
-        )
-
-        y -= (self._CONTROL_HEIGHT + self._ROW_GAP)
-        self._web_preview_check = self._make_switch(
-            "Web Preview", pad + 12, y, content_w - 24,
-            state.get("preview_type", "web") == "web", small_font,
-            b"webPreviewCheckChanged:", doc_view,
-        )
-        y = self._add_hint(
-            "Use web-based preview (HTML/CSS); disable for native AppKit preview",
             pad + 12, y, content_w - 24, doc_view,
         )
 
@@ -910,6 +902,29 @@ class SettingsPanel:
             pad + 12, y, content_w - 24, doc_view,
         )
 
+        # Vocab build model popup
+        y -= (self._CONTROL_HEIGHT + self._ROW_GAP)
+        bm_label = self._make_label(
+            "Build Model", pad + 28, y, 90, small_font,
+        )
+        doc_view.addSubview_(bm_label)
+
+        llm_models = state.get("llm_models", [])
+        current_build_model = state.get("vocab_build_model")  # (provider, model) or None
+        bm_items = [(("", ""), "Default")]
+        for provider, model, display_name in sorted(llm_models, key=lambda x: x[2]):
+            bm_items.append(((provider, model), display_name))
+
+        self._vocab_build_model_popup = self._make_popup(
+            bm_items, current_build_model or ("", ""),
+            pad + 28 + 90, y, content_w - 28 - 90 - 12, small_font,
+            b"vocabBuildModelChanged:", doc_view,
+        )
+        y = self._add_hint(
+            "LLM used for vocabulary extraction (Default = same as AI enhance)",
+            pad + 28, y, content_w - 40, doc_view,
+        )
+
         y -= (self._CONTROL_HEIGHT + self._ROW_GAP)
         self._history_check = self._make_switch(
             "Conversation History", pad + 12, y, content_w - 24,
@@ -919,6 +934,41 @@ class SettingsPanel:
         y = self._add_hint(
             "Include recent conversation context for better AI enhancement",
             pad + 12, y, content_w - 24, doc_view,
+        )
+
+        # History cache tuning: base entries + max entries before rebuild
+        label_x = pad + 28
+        popup_w = 70
+        y -= (self._CONTROL_HEIGHT + self._ROW_GAP)
+
+        base_label = self._make_label(
+            "Base entries", label_x, y, 90, small_font,
+        )
+        doc_view.addSubview_(base_label)
+
+        base_items = [(v, str(v)) for v in (5, 10, 15, 20, 30, 50)]
+        current_base = state.get("history_max_entries", 10)
+        self._history_base_popup = self._make_popup(
+            base_items, current_base,
+            label_x + 90, y, popup_w, small_font,
+            b"historyBaseChanged:", doc_view,
+        )
+
+        max_label = self._make_label(
+            "Max entries", label_x + 90 + popup_w + 16, y, 90, small_font,
+        )
+        doc_view.addSubview_(max_label)
+
+        max_items = [(v, str(v)) for v in (20, 30, 50, 80, 100, 200)]
+        current_max = state.get("history_refresh_threshold", 50)
+        self._history_max_popup = self._make_popup(
+            max_items, current_max,
+            label_x + 90 + popup_w + 16 + 90, y, popup_w, small_font,
+            b"historyMaxChanged:", doc_view,
+        )
+        y = self._add_hint(
+            "Base: entries kept after rebuild. Max: triggers a rebuild for cache optimization.",
+            pad + 28, y, content_w - 40, doc_view,
         )
 
         y -= (self._CONTROL_HEIGHT + self._ROW_GAP)
@@ -1566,9 +1616,6 @@ class SettingsPanel:
     def previewCheckChanged_(self, sender):
         self._call("on_preview_toggle", bool(sender.state()))
 
-    def webPreviewCheckChanged_(self, sender):
-        self._call("on_preview_type_toggle", bool(sender.state()))
-
     def sttModelSelected_(self, sender):
         meta = self._get_meta(sender)
         preset_id = meta.get("preset_id")
@@ -1636,8 +1683,25 @@ class SettingsPanel:
     def autoBuildCheckChanged_(self, sender):
         self._call("on_auto_build_toggle", bool(sender.state()))
 
+    def vocabBuildModelChanged_(self, sender):
+        value = sender.selectedItem().representedObject()
+        if value is None:
+            value = ("", "")
+        provider, model = value
+        self._call("on_vocab_build_model_select", provider, model)
+
     def historyCheckChanged_(self, sender):
         self._call("on_history_toggle", bool(sender.state()))
+
+    def historyBaseChanged_(self, sender):
+        value = sender.selectedItem().representedObject()
+        if value is not None:
+            self._call("on_history_max_entries", int(value))
+
+    def historyMaxChanged_(self, sender):
+        value = sender.selectedItem().representedObject()
+        if value is not None:
+            self._call("on_history_refresh_threshold", int(value))
 
     def buildVocabClicked_(self, sender):
         self._call("on_vocab_build")

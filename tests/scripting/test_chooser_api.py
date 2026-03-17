@@ -199,17 +199,17 @@ class TestChooserAPI:
         with patch("PyObjCTools.AppHelper.callAfter") as mock_call:
             api.pick(items, callback=lambda item: results.append(item))
             mock_call.assert_called_once()
-            # Should pre-fill with "> " prefix for source isolation
+            # Should pre-fill with "? " prefix for source isolation
             _, kwargs = mock_call.call_args
-            assert kwargs.get("initial_query") == "> "
+            assert kwargs.get("initial_query") == "? "
             assert kwargs.get("placeholder") == "Choose..."
 
-        # A temporary source should be registered with prefix ">"
+        # A temporary source should be registered with prefix "?"
         source_names = list(api.panel._sources.keys())
         pick_sources = [n for n in source_names if n.startswith("__pick_")]
         assert len(pick_sources) == 1
         src = api.panel._sources[pick_sources[0]]
-        assert src.prefix == ">"
+        assert src.prefix == "?"
 
         # Search should return items when query is empty
         found = src.search("")
@@ -363,3 +363,251 @@ class TestChooserAPI:
             api.pick([{"title": "A"}], callback=lambda item: None)
             _, kwargs = mock_call.call_args
             assert kwargs.get("placeholder") == "Choose..."
+
+
+    def test_open_settings_event(self):
+        """Cmd+, in JS sends openSettings → panel fires event → handler called."""
+        api = ChooserAPI()
+        called = []
+        api._event_handlers.setdefault("openSettings", []).append(
+            lambda: called.append(True)
+        )
+        # Simulate the JS message that Cmd+, would send
+        with patch("PyObjCTools.AppHelper.callAfter"):
+            api.panel._handle_js_message({"type": "openSettings"})
+        assert called == [True]
+
+
+class TestChooserAPICommands:
+    def test_register_command(self):
+        api = ChooserAPI()
+        api.register_command(
+            name="test-cmd",
+            title="Test Command",
+            action=lambda args: None,
+        )
+        assert "test-cmd" in api._command_source._commands
+
+    def test_unregister_command(self):
+        api = ChooserAPI()
+        api.register_command(
+            name="test-cmd",
+            title="Test Command",
+            action=lambda args: None,
+        )
+        api.unregister_command("test-cmd")
+        assert "test-cmd" not in api._command_source._commands
+
+    def test_command_decorator(self):
+        api = ChooserAPI()
+        called = []
+
+        @api.command("greet", title="Greet", subtitle="Say hello")
+        def greet(args):
+            called.append(args)
+
+        assert "greet" in api._command_source._commands
+        entry = api._command_source._commands["greet"]
+        assert entry.title == "Greet"
+        assert entry.subtitle == "Say hello"
+        entry.action("World")
+        assert called == ["World"]
+
+    def test_command_decorator_with_modifiers(self):
+        api = ChooserAPI()
+        alt_called = []
+
+        @api.command(
+            "deploy", title="Deploy",
+            modifiers={"alt": {"subtitle": "Force", "action": lambda a: alt_called.append(a)}},
+        )
+        def deploy(args):
+            pass
+
+        entry = api._command_source._commands["deploy"]
+        assert entry.modifiers is not None
+        assert "alt" in entry.modifiers
+        assert entry.modifiers["alt"].subtitle == "Force"
+
+    def test_command_source_not_registered_on_init(self):
+        api = ChooserAPI()
+        # Command source is registered lazily via _ensure_command_source
+        assert "commands" not in api.panel._sources
+
+    def test_ensure_command_source_registers(self):
+        api = ChooserAPI()
+        api._ensure_command_source()
+        assert "commands" in api.panel._sources
+        assert "commands-promoted" in api.panel._sources
+        src = api.panel._sources["commands"]
+        assert src.prefix == ">"
+        promoted_src = api.panel._sources["commands-promoted"]
+        assert promoted_src.prefix is None
+
+    def test_ensure_command_source_after_clear(self):
+        api = ChooserAPI()
+        api.panel._sources.clear()
+        assert "commands" not in api.panel._sources
+        api._ensure_command_source()
+        assert "commands" in api.panel._sources
+        assert "commands-promoted" in api.panel._sources
+
+    def test_promoted_command(self):
+        api = ChooserAPI()
+        api._ensure_command_source()
+        called = []
+
+        @api.command("reload", title="Reload Scripts", promoted=True)
+        def reload(args):
+            called.append(args)
+
+        entry = api._command_source._commands["reload"]
+        assert entry.promoted is True
+
+        # Should appear in promoted (unprefixed) source
+        promoted_src = api.panel._sources["commands-promoted"]
+        items = promoted_src.search("reload")
+        assert len(items) == 1
+        assert items[0].title == "Reload Scripts"
+
+    def test_non_promoted_command_not_in_main_search(self):
+        api = ChooserAPI()
+        api._ensure_command_source()
+        api.register_command(
+            name="debug-log", title="Debug Log",
+            action=lambda args: None,
+        )
+        promoted_src = api.panel._sources["commands-promoted"]
+        items = promoted_src.search("debug")
+        assert items == []
+
+
+class TestHelpCommand:
+    def test_help_registered_on_ensure(self):
+        api = ChooserAPI()
+        api._ensure_command_source()
+        assert "help" in api._command_source._commands
+        entry = api._command_source._commands["help"]
+        assert entry.promoted is True
+
+    def test_help_not_re_registered(self):
+        """Calling _ensure_command_source twice should not trigger overwrite."""
+        api = ChooserAPI()
+        api._ensure_command_source()
+        entry1 = api._command_source._commands["help"]
+        api._ensure_command_source()
+        entry2 = api._command_source._commands["help"]
+        assert entry1 is entry2
+
+    def test_help_visible_in_promoted_search(self):
+        api = ChooserAPI()
+        api._ensure_command_source()
+        promoted_src = api.panel._sources["commands-promoted"]
+        items = promoted_src.search("help")
+        assert len(items) == 1
+        assert items[0].title == "Help"
+
+    def test_help_visible_in_prefixed_search(self):
+        api = ChooserAPI()
+        api._ensure_command_source()
+        cmd_src = api.panel._sources["commands"]
+        items = cmd_src.search("help")
+        assert any(i.title == "Help" for i in items)
+
+    def test_help_action_calls_pick_with_prefixed_sources(self):
+        api = ChooserAPI()
+        api._ensure_command_source()
+
+        # Register a source with prefix and description
+        src = ChooserSource(
+            name="clipboard", prefix="cb", search=lambda q: [],
+            description="Clipboard history",
+        )
+        api.register_source(src)
+
+        pick_calls = []
+
+        def mock_pick(items, callback, placeholder="Choose..."):
+            pick_calls.append(items)
+
+        api.pick = mock_pick
+
+        # Execute help action
+        entry = api._command_source._commands["help"]
+        entry.action("")
+
+        assert len(pick_calls) == 1
+        items = pick_calls[0]
+        # Should include "cb" (clipboard) and ">" (commands)
+        prefixes = [i["subtitle"] for i in items]
+        assert any("cb" in p for p in prefixes)
+        assert any(">" in p for p in prefixes)
+
+    def test_help_action_filters_by_args(self):
+        api = ChooserAPI()
+        api._ensure_command_source()
+
+        api.register_source(ChooserSource(
+            name="clipboard", prefix="cb", search=lambda q: [],
+            description="Clipboard history",
+        ))
+        api.register_source(ChooserSource(
+            name="files", prefix="f", search=lambda q: [],
+            description="Search files",
+        ))
+
+        pick_calls = []
+        api.pick = lambda items, callback, placeholder="": pick_calls.append(items)
+
+        entry = api._command_source._commands["help"]
+        entry.action("clip")
+
+        assert len(pick_calls) == 1
+        items = pick_calls[0]
+        # Only clipboard should match "clip"
+        assert len(items) == 1
+        assert items[0]["title"] == "Clipboard history"
+
+    def test_help_action_skips_sources_without_prefix(self):
+        api = ChooserAPI()
+        api._ensure_command_source()
+
+        # App source has no prefix
+        api.register_source(ChooserSource(
+            name="apps", prefix=None, search=lambda q: [],
+            description="Search applications",
+        ))
+        api.register_source(ChooserSource(
+            name="clipboard", prefix="cb", search=lambda q: [],
+            description="Clipboard history",
+        ))
+
+        pick_calls = []
+        api.pick = lambda items, callback, placeholder="": pick_calls.append(items)
+
+        entry = api._command_source._commands["help"]
+        entry.action("")
+
+        items = pick_calls[0]
+        titles = [i["title"] for i in items]
+        assert "Search applications" not in titles
+        assert "Clipboard history" in titles
+
+    def test_help_uses_source_name_as_fallback(self):
+        api = ChooserAPI()
+        api._ensure_command_source()
+
+        api.register_source(ChooserSource(
+            name="my-source", prefix="ms", search=lambda q: [],
+            # No description
+        ))
+
+        pick_calls = []
+        api.pick = lambda items, callback, placeholder="": pick_calls.append(items)
+
+        entry = api._command_source._commands["help"]
+        entry.action("")
+
+        items = pick_calls[0]
+        titles = [i["title"] for i in items]
+        assert "my-source" in titles

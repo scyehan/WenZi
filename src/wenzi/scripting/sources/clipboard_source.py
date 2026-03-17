@@ -6,13 +6,15 @@ ClipboardMonitor. Activated via ">cb" prefix or Tab key switching.
 
 from __future__ import annotations
 
-import base64
 import logging
 import os
 import time
-from typing import List, Optional
+from typing import Dict, List, Optional
 
-from wenzi.scripting.clipboard_monitor import ClipboardMonitor
+from wenzi.scripting.clipboard_monitor import (
+    ClipboardMonitor,
+    _icon_cache_path,
+)
 from wenzi.scripting.sources import ChooserItem, ChooserSource
 
 logger = logging.getLogger(__name__)
@@ -75,46 +77,6 @@ def _format_file_size(size_bytes: int) -> str:
     if size_bytes < 1024 * 1024:
         return f"{size_bytes / 1024:.1f} KB"
     return f"{size_bytes / (1024 * 1024):.1f} MB"
-
-
-def _make_thumbnail_data_uri(image_path: str, max_dim: int = 480) -> str:
-    """Read a PNG file, resize to fit *max_dim*, return as base64 data URI."""
-    from AppKit import NSBitmapImageRep, NSPNGFileType
-
-    with open(image_path, "rb") as f:
-        raw = f.read()
-
-    from Foundation import NSData
-
-    ns_data = NSData.dataWithBytes_length_(raw, len(raw))
-    rep = NSBitmapImageRep.imageRepWithData_(ns_data)
-    if rep is None:
-        return ""
-
-    w, h = int(rep.pixelsWide()), int(rep.pixelsHigh())
-    if max(w, h) > max_dim:
-        scale = max_dim / max(w, h)
-        new_w, new_h = int(w * scale), int(h * scale)
-        from AppKit import NSGraphicsContext, NSImage
-        from Foundation import NSMakeRect, NSMakeSize
-
-        img = NSImage.alloc().initWithSize_(NSMakeSize(new_w, new_h))
-        img.lockFocus()
-        NSGraphicsContext.currentContext().setImageInterpolation_(3)  # High
-        rep.drawInRect_(NSMakeRect(0, 0, new_w, new_h))
-        img.unlockFocus()
-
-        tiff_data = img.TIFFRepresentation()
-        rep = NSBitmapImageRep.imageRepWithData_(tiff_data)
-        if rep is None:
-            return ""
-
-    png_data = rep.representationUsingType_properties_(NSPNGFileType, {})
-    if png_data is None:
-        return ""
-
-    b64 = base64.b64encode(bytes(png_data)).decode("ascii")
-    return f"data:image/png;base64,{b64}"
 
 
 def _paste_image(image_path: str) -> None:
@@ -182,7 +144,7 @@ class ClipboardSource:
     Supports substring filtering and pastes the selected entry on execute.
     """
 
-    _DEFAULT_MAX_RESULTS = 50
+    _DEFAULT_MAX_RESULTS = 30
 
     _CACHE_TTL = 10.0  # seconds before time-ago strings become stale
 
@@ -194,6 +156,44 @@ class ClipboardSource:
         self._empty_cache: Optional[List[ChooserItem]] = None
         self._empty_cache_version: int = -1
         self._empty_cache_time: float = 0.0
+        self._icon_mem_cache: Dict[str, str] = {}  # bundle_id → data URI or ""
+        self._icon_miss_until: Dict[str, float] = {}  # bundle_id → retry-after ts
+
+    _ICON_MISS_TTL = 30.0  # seconds before rechecking disk for a missed icon
+
+    def _get_icon_uri(self, bundle_id: str) -> str:
+        """Return a file:// URL for an app icon.
+
+        Checks memory cache → disk existence (pre-populated by the
+        polling thread via ClipboardMonitor._cache_app_icon).
+        Never reads file content or does base64 encoding; the browser
+        loads the file natively via file:// URL with its own cache.
+        """
+        if not bundle_id:
+            return ""
+        if bundle_id in self._icon_mem_cache:
+            return self._icon_mem_cache[bundle_id]
+
+        # Avoid repeated disk checks for icons we recently failed to find
+        now = time.time()
+        miss_until = self._icon_miss_until.get(bundle_id, 0.0)
+        if now < miss_until:
+            return ""
+
+        icon_dir = self._monitor.icon_cache_dir
+
+        # Check disk cache (normally pre-populated by polling thread)
+        png_path = _icon_cache_path(icon_dir, bundle_id)
+        if os.path.isfile(png_path):
+            uri = "file://" + png_path
+            self._icon_mem_cache[bundle_id] = uri
+            self._icon_miss_until.pop(bundle_id, None)
+            return uri
+
+        # Icon not cached yet — suppress disk checks for a while.
+        # Polling thread will cache it on the next clipboard change.
+        self._icon_miss_until[bundle_id] = now + self._ICON_MISS_TTL
+        return ""
 
     def search(self, query: str) -> List[ChooserItem]:
         """Search clipboard history entries."""
@@ -245,14 +245,18 @@ class ClipboardSource:
                 def _do_delete_img(ip=ep, m=monitor):
                     m.delete_image(ip)
 
-                preview = self._make_preview(entry)
+                _entry = entry  # capture for lambda
+
+                def _lazy_preview(e=_entry):
+                    return self._make_preview(e)
 
                 results.append(
                     ChooserItem(
                         title=display,
                         subtitle=f"{subtitle}  {time_ago}".strip() if subtitle else time_ago,
+                        icon=self._get_icon_uri(entry.source_bundle_id),
                         item_id=f"cb:img:{ep}",
-                        preview=preview,
+                        preview=_lazy_preview,
                         action=_do_paste_img,
                         secondary_action=_do_copy_img,
                         delete_action=_do_delete_img,
@@ -283,16 +287,15 @@ class ClipboardSource:
                 def _do_delete_text(t=text, m=monitor):
                     m.delete_text(t)
 
-                preview = self._make_preview(entry)
-
                 # Use first 64 chars of text as stable id
                 text_key = text[:64].replace("\n", " ")
                 results.append(
                     ChooserItem(
                         title=display,
                         subtitle=f"{subtitle}  {time_ago}".strip() if subtitle else time_ago,
+                        icon=self._get_icon_uri(entry.source_bundle_id),
                         item_id=f"cb:txt:{text_key}",
-                        preview=preview,
+                        preview={"type": "text", "content": text},
                         action=_do_paste,
                         secondary_action=_do_copy,
                         delete_action=_do_delete_text,
@@ -328,21 +331,17 @@ class ClipboardSource:
         return {"type": "text", "content": entry.text}
 
     def _make_image_preview(self, entry) -> dict:
-        """Build an image preview dict with a base64 data URI thumbnail."""
-        full_path = os.path.join(self._monitor.image_dir, entry.image_path)
-
+        """Build an image preview dict with a file:// URL."""
         info_parts = []
         if entry.image_width and entry.image_height:
             info_parts.append(f"{entry.image_width}\u00d7{entry.image_height}")
         if entry.image_size:
             info_parts.append(_format_file_size(entry.image_size))
 
-        src = ""
-        try:
-            if os.path.isfile(full_path):
-                src = _make_thumbnail_data_uri(full_path)
-        except Exception:
-            logger.debug("Failed to create thumbnail for %s", full_path, exc_info=True)
+        full_path = os.path.join(
+            self._monitor.image_dir, entry.image_path,
+        )
+        src = "file://" + full_path if os.path.isfile(full_path) else ""
 
         return {
             "type": "image",
@@ -357,4 +356,11 @@ class ClipboardSource:
             prefix=prefix,
             search=self.search,
             priority=5,
+            description="Clipboard history",
+            action_hints={
+                "enter": "Paste",
+                "cmd_enter": "Copy",
+                "delete": "Delete",
+            },
+            show_preview=True,
         )

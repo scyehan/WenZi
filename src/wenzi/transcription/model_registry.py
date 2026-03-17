@@ -148,8 +148,6 @@ def resolve_preset_from_config(
 
 def get_model_cache_dir(preset: ModelPreset) -> Path:
     """Get the cache directory path for a preset's model files."""
-    home = Path.home()
-
     if preset.backend == "funasr":
         # FunASR models are cached under modelscope
         from modelscope.utils.file_utils import get_modelscope_cache_dir
@@ -172,7 +170,8 @@ def get_model_cache_dir(preset: ModelPreset) -> Path:
         from .sherpa import _get_model_dir
         return _get_model_dir(preset.model)
 
-    return home / ".cache" / "wenzi" / preset.id
+    from wenzi.config import DEFAULT_CACHE_DIR
+    return Path(DEFAULT_CACHE_DIR).expanduser() / preset.id
 
 
 def is_model_cached(preset: ModelPreset) -> bool:

@@ -80,6 +80,58 @@ class PreviewController:
             })
         return items
 
+    def _log_with_chain_steps(
+        self,
+        app: WenZiApp,
+        *,
+        result_holder: dict,
+        asr_text: str,
+        final_text: str,
+        audio_duration: float = 0.0,
+    ) -> str | None:
+        """Log enhancement result to conversation history.
+
+        Returns:
+            The timestamp of the logged record, or ``None`` for chain modes.
+        """
+        if result_holder.get("is_chain"):
+            # Design decision: chain modes do NOT write to conversation history.
+            #
+            # Why:
+            #   In a chain like "proofread → translate", the user only sees and
+            #   can edit the final output (translation).  Intermediate results
+            #   (e.g. the proofread text) are never shown to the user for
+            #   verification.  If we logged these unverified intermediate
+            #   results as "confirmed" conversation history, the LLM would
+            #   treat them as ground-truth correction examples in future
+            #   requests — potentially reinforcing errors the user never
+            #   approved.
+            #
+            # What chain modes DO:
+            #   During execution, each step *reads* from its own mode's
+            #   per-mode history (built from standalone usage of that mode).
+            #   This gives each step useful context without polluting the
+            #   history with unverified data.
+            #
+            # If this needs to change:
+            #   The key constraint is user verification.  If the UI is updated
+            #   to let users review/edit intermediate step results before
+            #   confirming, then those verified results CAN be logged under
+            #   each step's enhance_mode.
+            return None
+
+        return app._conversation_history.log(
+            asr_text=asr_text,
+            enhanced_text=result_holder.get("enhanced_text"),
+            final_text=final_text,
+            enhance_mode=app._enhance_mode,
+            preview_enabled=True,
+            stt_model=app._current_stt_model(),
+            llm_model=app._current_llm_model(),
+            user_corrected=bool(result_holder.get("user_corrected")),
+            audio_duration=audio_duration,
+        )
+
     def _save_to_preview_history(
         self,
         timestamp: str | None,
@@ -121,6 +173,7 @@ class PreviewController:
             source=source,
             system_prompt=result_holder.get("system_prompt", ""),
             thinking_text=result_holder.get("thinking_text", ""),
+            token_usage=result_holder.get("token_usage"),
         )
         self._preview_history.add(record)
 
@@ -165,6 +218,15 @@ class PreviewController:
         # Update internal state so confirm uses the correct ASR text
         app._current_preview_asr_text = record.asr_text
 
+        # Sync result_holder with the selected history record so that
+        # _handle_history_confirm sees the record's own values (not stale
+        # data from the current session's initial enhancement).
+        if self._result_holder is not None:
+            self._result_holder["enhanced_text"] = record.enhanced_text
+            self._result_holder["system_prompt"] = record.system_prompt
+            self._result_holder["thinking_text"] = record.thinking_text
+            self._result_holder["token_usage"] = record.token_usage
+
         # Load WAV data so Play/Save buttons work
         app._preview_panel._asr_wav_data = record.wav_data
 
@@ -182,6 +244,7 @@ class PreviewController:
             asr_info=asr_info,
             system_prompt=record.system_prompt,
             thinking_text=record.thinking_text,
+            token_usage=record.token_usage,
         )
 
     def _handle_history_confirm(
@@ -225,7 +288,11 @@ class PreviewController:
                 except Exception as e:
                     logger.error("Failed to update conversation history: %s", e)
         else:
-            # Record was from a cancel — create a new conversation history entry
+            # Record was from a cancel — create a new conversation history entry.
+            # Note: chain mode step results are not available here (preview
+            # history only stores the final result), so we log as a single
+            # entry under the current mode.  This is acceptable for a low-
+            # frequency path (re-confirming cancelled previews).
             try:
                 ts = app._conversation_history.log(
                     asr_text=record.asr_text,
@@ -253,6 +320,8 @@ class PreviewController:
             record.system_prompt = result_holder["system_prompt"]
         if "thinking_text" in result_holder:
             record.thinking_text = result_holder["thinking_text"]
+        if "token_usage" in result_holder:
+            record.token_usage = result_holder["token_usage"]
 
         # Move to front so it won't be evicted first
         self._preview_history.move_to_front(history_index)
@@ -587,15 +656,11 @@ class PreviewController:
                 # Normal confirm — log to conversation history, then save to preview history
                 ts = None
                 try:
-                    ts = app._conversation_history.log(
+                    ts = self._log_with_chain_steps(
+                        app,
+                        result_holder=result_holder,
                         asr_text=app._current_preview_asr_text,
-                        enhanced_text=result_holder["enhanced_text"],
                         final_text=final_text,
-                        enhance_mode=app._enhance_mode,
-                        preview_enabled=True,
-                        stt_model=app._current_stt_model(),
-                        llm_model=app._current_llm_model(),
-                        user_corrected=bool(result_holder.get("user_corrected")),
                         audio_duration=getattr(app, "_preview_audio_duration", 0.0),
                     )
                 except Exception as e:
@@ -844,15 +909,12 @@ class PreviewController:
             else:
                 ts = None
                 try:
-                    ts = app._conversation_history.log(
+                    ts = self._log_with_chain_steps(
+                        app,
+                        result_holder=result_holder,
                         asr_text=clipboard_text,
-                        enhanced_text=result_holder.get("enhanced_text"),
                         final_text=final_text,
-                        enhance_mode=app._enhance_mode,
-                        preview_enabled=True,
-                        stt_model=app._current_stt_model(),
-                        llm_model=app._current_llm_model(),
-                        user_corrected=bool(result_holder.get("user_corrected")),
+                        audio_duration=0.0,
                     )
                 except Exception as e:
                     logger.error("Failed to log conversation: %s", e)
@@ -931,6 +993,7 @@ class PreviewController:
                 self._result_holder["enhanced_text"] = None
                 self._result_holder["system_prompt"] = ""
                 self._result_holder["thinking_text"] = ""
+                self._result_holder["token_usage"] = None
             return
 
         # Show loading state immediately as visual feedback
@@ -947,6 +1010,7 @@ class PreviewController:
                 self._result_holder["enhanced_text"] = cached.final_text
                 self._result_holder["system_prompt"] = cached.system_prompt
                 self._result_holder["thinking_text"] = cached.thinking_text
+                self._result_holder["token_usage"] = cached.usage
             return
 
         AppHelper.callAfter(app._preview_panel.set_enhance_loading)

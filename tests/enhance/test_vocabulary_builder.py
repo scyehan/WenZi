@@ -88,7 +88,7 @@ class TestReadCorrections:
             for r in records:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = builder._read_corrections()
         assert len(result) == 3
 
@@ -99,13 +99,13 @@ class TestReadCorrections:
             for r in records:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = builder._read_corrections(since="2026-01-01T10:00:00+00:00")
         assert len(result) == 2
         assert result[0]["asr_text"] == "库伯尼特斯容器"
 
     def test_read_no_file(self, tmp_path):
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = builder._read_corrections()
         assert result == []
 
@@ -116,7 +116,7 @@ class TestReadCorrections:
             f.write("invalid json line\n")
             f.write('{"timestamp": "2026-01-01T11:00:00", "asr_text": "world", "user_corrected": true}\n')
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = builder._read_corrections()
         assert len(result) == 2
 
@@ -128,7 +128,7 @@ class TestReadCorrections:
             f.write("\n")
             f.write('{"timestamp": "2026-01-01T11:00:00", "asr_text": "world", "user_corrected": true}\n')
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = builder._read_corrections()
         assert len(result) == 2
 
@@ -139,7 +139,7 @@ class TestReadCorrections:
             f.write('{"timestamp": "2026-01-01T11:00:00", "asr_text": "b", "user_corrected": false}\n')
             f.write('{"timestamp": "2026-01-01T12:00:00", "asr_text": "c", "user_corrected": true}\n')
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = builder._read_corrections()
         assert len(result) == 2
         assert result[0]["asr_text"] == "a"
@@ -405,7 +405,7 @@ class TestMergeEntries:
 
 class TestBuild:
     def test_build_no_records(self, tmp_path):
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = asyncio.run(builder.build())
         assert result["new_records"] == 0
 
@@ -424,7 +424,7 @@ class TestBuild:
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = asyncio.run(builder.build())
 
@@ -462,7 +462,7 @@ class TestBuild:
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = asyncio.run(builder.build())
 
@@ -497,7 +497,7 @@ class TestBuild:
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = asyncio.run(
                 builder.build(full_rebuild=True)
@@ -544,7 +544,7 @@ class TestBuildWithCancel:
         mock_client = MagicMock()
         mock_client.chat.completions.create = mock_create
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = asyncio.run(
                 builder.build(cancel_event=cancel_event)
@@ -566,7 +566,7 @@ class TestBuildWithCancel:
         cancel_event = threading.Event()
         cancel_event.set()
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = asyncio.run(
             builder.build(cancel_event=cancel_event)
         )
@@ -693,7 +693,7 @@ class TestBuildWithCallbacks:
             on_stream_chunk=on_stream_chunk,
         )
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = asyncio.run(
                 builder.build(callbacks=callbacks)
@@ -723,7 +723,7 @@ class TestBuildExtractionPrompt:
 
 class TestSaveLoadVocabulary:
     def test_save_and_load(self, tmp_path):
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         vocab = {
             "last_processed_timestamp": "2026-01-01T00:00:00",
             "entries": [{"term": "Python", "category": "tech"}],
@@ -734,6 +734,284 @@ class TestSaveLoadVocabulary:
         assert loaded["entries"][0]["term"] == "Python"
 
     def test_load_nonexistent(self, tmp_path):
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = builder._load_existing_vocabulary()
         assert result == {}
+
+
+class TestBuildRetryAndAbort:
+    def _write_corrections(self, tmp_path, count=25):
+        corrections_path = tmp_path / "conversation_history.jsonl"
+        records = []
+        for i in range(count):
+            records.append({
+                "timestamp": f"2026-01-01T{i:02d}:00:00+00:00",
+                "asr_text": f"test{i}",
+                "final_text": f"test{i}",
+                "user_corrected": True,
+            })
+        with open(corrections_path, "w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        return records
+
+    def test_retry_succeeds_on_second_attempt(self, tmp_path):
+        """First attempt fails, retry succeeds — batch results are kept."""
+        self._write_corrections(tmp_path, count=5)
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = _PIPE_RESPONSE_ONE
+        mock_response.usage = None
+
+        call_count = 0
+
+        async def mock_create(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ConnectionError("server down")
+            return mock_response
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = mock_create
+
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
+        with patch("openai.AsyncOpenAI", return_value=mock_client):
+            result = asyncio.run(builder.build())
+
+        assert result["new_entries"] == 1
+        assert result.get("aborted") is None
+        assert call_count == 2
+
+    def test_abort_after_two_failures(self, tmp_path):
+        """Both attempts fail — build aborts, no entries saved."""
+        self._write_corrections(tmp_path, count=5)
+
+        async def mock_create(**kwargs):
+            raise ConnectionError("server down")
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = mock_create
+
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
+        with patch("openai.AsyncOpenAI", return_value=mock_client):
+            result = asyncio.run(builder.build())
+
+        assert result.get("aborted") is True
+        assert result["new_entries"] == 0
+        assert result["new_records"] == 0
+        # vocabulary.json should NOT be created (no successful batch)
+        assert not (tmp_path / "vocabulary.json").exists()
+
+    def test_timestamp_not_advanced_on_abort(self, tmp_path):
+        """Verify last_processed_timestamp is not advanced when build aborts."""
+        self._write_corrections(tmp_path, count=5)
+
+        # Pre-existing vocabulary with old timestamp
+        vocab_path = tmp_path / "vocabulary.json"
+        vocab_path.write_text(json.dumps({
+            "last_processed_timestamp": "2025-01-01T00:00:00+00:00",
+            "entries": [{"term": "OldTerm", "category": "other", "variants": [], "context": "", "frequency": 1}],
+        }), encoding="utf-8")
+
+        async def mock_create(**kwargs):
+            raise ConnectionError("server down")
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = mock_create
+
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
+        with patch("openai.AsyncOpenAI", return_value=mock_client):
+            result = asyncio.run(builder.build())
+
+        assert result.get("aborted") is True
+        # Timestamp should NOT have advanced
+        data = json.loads(vocab_path.read_text(encoding="utf-8"))
+        assert data["last_processed_timestamp"] == "2025-01-01T00:00:00+00:00"
+        assert len(data["entries"]) == 1  # OldTerm still there
+
+    def test_partial_progress_saved_on_abort(self, tmp_path):
+        """First batch succeeds, second batch aborts — first batch is saved."""
+        self._write_corrections(tmp_path, count=25)  # 2 batches of 20+5
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = _PIPE_RESPONSE_ONE
+        mock_response.usage = None
+
+        call_count = 0
+
+        async def mock_create(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 1:
+                return mock_response
+            # Fail on all subsequent attempts (batch 2 + retry)
+            raise ConnectionError("server down")
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = mock_create
+
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
+        with patch("openai.AsyncOpenAI", return_value=mock_client):
+            result = asyncio.run(builder.build())
+
+        assert result.get("aborted") is True
+        assert result["new_entries"] == 1  # from first batch
+        assert result["new_records"] == 20  # first batch only
+
+        # vocabulary.json should have first batch's results
+        data = json.loads((tmp_path / "vocabulary.json").read_text(encoding="utf-8"))
+        assert len(data["entries"]) == 1
+        # Timestamp advanced to first batch's last record, not beyond
+        assert data["last_processed_timestamp"] == "2026-01-01T19:00:00+00:00"
+
+    def test_per_batch_save(self, tmp_path):
+        """Each successful batch saves immediately to vocabulary.json."""
+        self._write_corrections(tmp_path, count=25)  # 2 batches
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = _PIPE_RESPONSE_ONE
+        mock_response.usage = None
+
+        save_timestamps = []
+        original_save = VocabularyBuilder._save_vocabulary
+
+        def tracking_save(self_inner, vocab):
+            save_timestamps.append(vocab["last_processed_timestamp"])
+            original_save(self_inner, vocab)
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
+        with patch("openai.AsyncOpenAI", return_value=mock_client), \
+             patch.object(VocabularyBuilder, "_save_vocabulary", tracking_save):
+            asyncio.run(builder.build())
+
+        # Should have saved twice (once per batch)
+        assert len(save_timestamps) == 2
+        # First save covers batch 1 (records 0-19), second covers batch 2 (records 20-24)
+        assert save_timestamps[0] == "2026-01-01T19:00:00+00:00"
+        assert save_timestamps[1] == "2026-01-01T24:00:00+00:00"
+
+    def test_batch_retry_callback(self, tmp_path):
+        """on_batch_retry callback is called before retry."""
+        self._write_corrections(tmp_path, count=5)
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = _PIPE_RESPONSE_ONE
+        mock_response.usage = None
+
+        call_count = 0
+
+        async def mock_create(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ConnectionError("transient error")
+            return mock_response
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = mock_create
+
+        retry_calls = []
+        callbacks = BuildCallbacks(
+            on_batch_retry=lambda i, t: retry_calls.append((i, t)),
+        )
+
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
+        with patch("openai.AsyncOpenAI", return_value=mock_client):
+            result = asyncio.run(builder.build(callbacks=callbacks))
+
+        assert len(retry_calls) == 1
+        assert retry_calls[0] == (1, 1)
+        assert result["new_entries"] == 1
+
+
+class TestBuildModelSelection:
+    def _make_multi_provider_config(self, **vocab_overrides):
+        cfg = {
+            "default_provider": "ollama",
+            "default_model": "qwen2.5:7b",
+            "providers": {
+                "ollama": {
+                    "base_url": "http://localhost:11434/v1",
+                    "api_key": "ollama",
+                    "models": ["qwen2.5:7b"],
+                },
+                "openai": {
+                    "base_url": "https://api.openai.com/v1",
+                    "api_key": "sk-test",
+                    "models": ["gpt-4o", "gpt-4o-mini"],
+                },
+            },
+            "vocabulary": vocab_overrides,
+        }
+        return cfg
+
+    def test_default_uses_enhance_model(self):
+        """Without build_provider/model, uses default_provider/model."""
+        cfg = self._make_multi_provider_config()
+        builder = VocabularyBuilder(cfg)
+        pcfg = builder._get_provider_config()
+        assert pcfg["model"] == "qwen2.5:7b"
+        assert pcfg["base_url"] == "http://localhost:11434/v1"
+        assert builder._get_active_provider_name() == "ollama"
+
+    def test_build_model_overrides_default(self):
+        """build_provider/model overrides the default."""
+        cfg = self._make_multi_provider_config(
+            build_provider="openai", build_model="gpt-4o",
+        )
+        builder = VocabularyBuilder(cfg)
+        pcfg = builder._get_provider_config()
+        assert pcfg["model"] == "gpt-4o"
+        assert pcfg["base_url"] == "https://api.openai.com/v1"
+        assert pcfg["api_key"] == "sk-test"
+        assert builder._get_active_provider_name() == "openai"
+
+    def test_empty_build_model_falls_back(self):
+        """Empty build_provider/model falls back to default."""
+        cfg = self._make_multi_provider_config(
+            build_provider="", build_model="",
+        )
+        builder = VocabularyBuilder(cfg)
+        pcfg = builder._get_provider_config()
+        assert pcfg["model"] == "qwen2.5:7b"
+        assert builder._get_active_provider_name() == "ollama"
+
+    def test_partial_build_config_falls_back(self):
+        """Only build_provider set (no build_model) falls back to default."""
+        cfg = self._make_multi_provider_config(
+            build_provider="openai", build_model="",
+        )
+        builder = VocabularyBuilder(cfg)
+        pcfg = builder._get_provider_config()
+        # Should fall back to default, not use openai with wrong model
+        assert pcfg["model"] == "qwen2.5:7b"
+        assert builder._get_active_provider_name() == "ollama"
+
+    def test_removed_provider_falls_back(self):
+        """build_provider pointing to non-existent provider falls back."""
+        cfg = self._make_multi_provider_config(
+            build_provider="removed", build_model="some-model",
+        )
+        builder = VocabularyBuilder(cfg)
+        pcfg = builder._get_provider_config()
+        assert pcfg["model"] == "qwen2.5:7b"
+        assert builder._get_active_provider_name() == "ollama"
+
+    def test_build_model_not_in_provider_list(self):
+        """build_model not in provider's model list falls back to first model."""
+        cfg = self._make_multi_provider_config(
+            build_provider="openai", build_model="nonexistent-model",
+        )
+        builder = VocabularyBuilder(cfg)
+        pcfg = builder._get_provider_config()
+        # Provider is openai (valid), but model falls back to first in list
+        assert pcfg["base_url"] == "https://api.openai.com/v1"
+        assert pcfg["model"] == "gpt-4o"

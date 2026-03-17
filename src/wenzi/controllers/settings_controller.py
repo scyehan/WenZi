@@ -92,7 +92,7 @@ class SettingsController:
         if app._enhancer and app._enhancer.vocab_index is not None:
             vocab_count = app._enhancer.vocab_index.entry_count
         if vocab_count == 0:
-            vocab_count = get_vocab_entry_count(app._config_dir)
+            vocab_count = get_vocab_entry_count(app._data_dir)
 
         ui_cfg = app._config.get("ui", {})
         last_tab = ui_cfg.get("settings_last_tab", "general")
@@ -107,7 +107,6 @@ class SettingsController:
             "visual_indicator": app._recording_indicator.enabled,
             "show_device_name": app._recording_indicator.show_device_name,
             "preview": app._preview_enabled,
-            "preview_type": app._preview_type,
             "current_preset_id": app._current_preset_id,
             "current_remote_asr": app._current_remote_asr,
             "stt_presets": stt_presets,
@@ -120,8 +119,15 @@ class SettingsController:
             "vocab_enabled": bool(app._enhancer and app._enhancer.vocab_enabled),
             "vocab_count": vocab_count,
             "auto_build": app._auto_vocab_builder._enabled,
+            "vocab_build_model": self._get_vocab_build_model(llm_models),
             "history_enabled": bool(
                 app._enhancer and app._enhancer.history_enabled
+            ),
+            "history_max_entries": (
+                app._enhancer.history_max_entries if app._enhancer else 10
+            ),
+            "history_refresh_threshold": (
+                app._enhancer.history_refresh_threshold if app._enhancer else 50
             ),
             "config_dir": app._config_dir,
             "scripting_enabled": app._config.get("scripting", {}).get(
@@ -142,7 +148,6 @@ class SettingsController:
             "on_visual_toggle": self.visual_toggle,
             "on_device_name_toggle": self.show_device_name_toggle,
             "on_preview_toggle": self.preview_toggle,
-            "on_preview_type_toggle": self.preview_type_toggle,
             "on_stt_select": self.stt_select,
             "on_stt_remote_select": self.stt_remote_select,
             "on_stt_add_provider": lambda: app._model_controller.on_asr_add_provider(None),
@@ -157,6 +162,9 @@ class SettingsController:
             "on_vocab_toggle": self.vocab_toggle,
             "on_auto_build_toggle": self.auto_build_toggle,
             "on_history_toggle": self.history_toggle,
+            "on_history_max_entries": self.history_max_entries_change,
+            "on_history_refresh_threshold": self.history_refresh_threshold_change,
+            "on_vocab_build_model_select": self.vocab_build_model_select,
             "on_vocab_build": lambda: app._on_vocab_build(None),
             "on_tab_change": self.tab_change,
             "on_reveal_config_folder": self.reveal_config_folder,
@@ -311,24 +319,6 @@ class SettingsController:
         app._config["output"]["preview"] = enabled
         self._save_and_reload()
         logger.info("Preview set to: %s (from settings)", enabled)
-
-    def preview_type_toggle(self, use_web: bool) -> None:
-        """Handle preview type toggle from Settings panel."""
-        from wenzi.ui.result_window import ResultPreviewPanel as NativePanel
-        from wenzi.ui.result_window_web import ResultPreviewPanel as WebPanel
-
-        app = self._app
-        new_type = "web" if use_web else "native"
-        if new_type == app._preview_type:
-            return
-
-        app._preview_type = new_type
-        app._preview_panel = WebPanel() if use_web else NativePanel()
-        app._enhance_controller._preview_panel = app._preview_panel
-
-        app._config["output"]["preview_type"] = new_type
-        self._save_and_reload()
-        logger.info("Preview type set to: %s (from settings)", new_type)
 
     def stt_select(self, preset_id: str) -> None:
         """Handle STT model selection from Settings panel."""
@@ -726,6 +716,29 @@ class SettingsController:
         self._save_and_reload()
         logger.info("Vocabulary set to: %s (from settings)", enabled)
 
+    def _get_vocab_build_model(self, llm_models) -> tuple | None:
+        """Return the current (provider, model) for vocab building, or None for default."""
+        app = self._app
+        vocab_cfg = app._config.get("ai_enhance", {}).get("vocabulary", {})
+        bp = vocab_cfg.get("build_provider", "")
+        bm = vocab_cfg.get("build_model", "")
+        if bp and bm:
+            # Verify the pair still exists in available models
+            for provider, model, _ in llm_models:
+                if provider == bp and model == bm:
+                    return (bp, bm)
+        return None
+
+    def vocab_build_model_select(self, provider: str, model: str) -> None:
+        """Handle vocab build model selection from Settings panel."""
+        app = self._app
+        app._config.setdefault("ai_enhance", {})
+        app._config["ai_enhance"].setdefault("vocabulary", {})
+        app._config["ai_enhance"]["vocabulary"]["build_provider"] = provider
+        app._config["ai_enhance"]["vocabulary"]["build_model"] = model
+        self._save_and_reload()
+        logger.info("Vocabulary build model set to: %s / %s (from settings)", provider or "default", model or "default")
+
     def auto_build_toggle(self, enabled: bool) -> None:
         """Handle auto build toggle from Settings panel."""
         app = self._app
@@ -751,6 +764,30 @@ class SettingsController:
         app._config["ai_enhance"]["conversation_history"]["enabled"] = enabled
         self._save_and_reload()
         logger.info("Conversation history set to: %s (from settings)", enabled)
+
+    def history_max_entries_change(self, value: int) -> None:
+        """Handle history max_entries change from Settings panel."""
+        app = self._app
+        if not app._enhancer:
+            return
+        app._enhancer.history_max_entries = value
+        app._config.setdefault("ai_enhance", {})
+        app._config["ai_enhance"].setdefault("conversation_history", {})
+        app._config["ai_enhance"]["conversation_history"]["max_entries"] = value
+        self._save_and_reload()
+        logger.info("History max_entries set to: %d (from settings)", value)
+
+    def history_refresh_threshold_change(self, value: int) -> None:
+        """Handle history refresh_threshold change from Settings panel."""
+        app = self._app
+        if not app._enhancer:
+            return
+        app._enhancer.history_refresh_threshold = value
+        app._config.setdefault("ai_enhance", {})
+        app._config["ai_enhance"].setdefault("conversation_history", {})
+        app._config["ai_enhance"]["conversation_history"]["refresh_threshold"] = value
+        self._save_and_reload()
+        logger.info("History refresh_threshold set to: %d (from settings)", value)
 
     def reveal_config_folder(self) -> None:
         """Open the config directory in Finder."""
@@ -984,9 +1021,8 @@ class SettingsController:
         import shutil
 
         # Clear app icon disk cache
-        icon_cache_dir = os.path.expanduser(
-            "~/.config/WenZi/icon_cache"
-        )
+        from wenzi.config import DEFAULT_ICON_CACHE_DIR
+        icon_cache_dir = os.path.expanduser(DEFAULT_ICON_CACHE_DIR)
         if os.path.isdir(icon_cache_dir):
             shutil.rmtree(icon_cache_dir, ignore_errors=True)
             logger.info("Cleared app icon cache: %s", icon_cache_dir)
