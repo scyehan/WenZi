@@ -205,6 +205,7 @@ class ClipboardSource:
         self._empty_cache_time: float = 0.0
         self._icon_mem_cache: Dict[str, str] = {}  # bundle_id → data URI or ""
         self._icon_miss_until: Dict[str, float] = {}  # bundle_id → retry-after ts
+        self._thumbnail_cache: Dict[str, str] = {}  # image_path → data URI
 
     _ICON_MISS_TTL = 30.0  # seconds before rechecking disk for a missed icon
 
@@ -385,20 +386,28 @@ class ClipboardSource:
 
     def _make_image_preview(self, entry) -> dict:
         """Build an image preview dict with a base64 data URI thumbnail."""
-        full_path = os.path.join(self._monitor.image_dir, entry.image_path)
-
         info_parts = []
         if entry.image_width and entry.image_height:
             info_parts.append(f"{entry.image_width}\u00d7{entry.image_height}")
         if entry.image_size:
             info_parts.append(_format_file_size(entry.image_size))
 
-        src = ""
-        try:
-            if os.path.isfile(full_path):
-                src = _make_thumbnail_data_uri(full_path)
-        except Exception:
-            logger.debug("Failed to create thumbnail for %s", full_path, exc_info=True)
+        # Use cached thumbnail if available
+        src = self._thumbnail_cache.get(entry.image_path, None)
+        if src is None:
+            src = ""
+            full_path = os.path.join(
+                self._monitor.image_dir, entry.image_path,
+            )
+            try:
+                if os.path.isfile(full_path):
+                    src = _make_thumbnail_data_uri(full_path)
+            except Exception:
+                logger.debug(
+                    "Failed to create thumbnail for %s",
+                    full_path, exc_info=True,
+                )
+            self._thumbnail_cache[entry.image_path] = src
 
         return {
             "type": "image",

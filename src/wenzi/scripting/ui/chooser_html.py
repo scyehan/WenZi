@@ -138,6 +138,7 @@ body { display: flex; flex-direction: column; }
     -webkit-mask-position: center;
     opacity: 0.35;
 }
+#placeholder-mask-style { display: none; }
 .result-item.selected { background: var(--item-selected); }
 .result-item .left {
     display: flex; flex-direction: column; gap: 1px;
@@ -268,162 +269,168 @@ function post(type, data) {
     );
 }
 
+// --- Placeholder mask: inject once into a <style> element ---
+var _phStyle = document.createElement('style');
+_phStyle.textContent = '.icon-placeholder{-webkit-mask-image:url("'
+    + _PLACEHOLDER_SVG + '")}';
+document.head.appendChild(_phStyle);
+
+// --- Rendering (innerHTML-based for speed) ---
+
+function _escHtml(s) {
+    // Minimal HTML escaping for user text in innerHTML templates
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;');
+}
+
+function _buildRowHtml(item, i) {
+    var cls = 'result-item' + (i === selectedIndex ? ' selected' : '');
+    var h = ITEM_HEIGHT || ITEM_HEIGHT_DEFAULT;
+    var parts = ['<div class="', cls,
+        '" style="position:absolute;top:', (i * h),
+        'px;left:0;right:0;height:', h, 'px" data-idx="', i, '">'];
+
+    // Icons: use data-ik attr; src set after innerHTML to avoid
+    // browser decoding base64 during HTML parsing.
+    if (item.iconKey && _iconCache[item.iconKey]) {
+        parts.push('<img class="icon" draggable="false" data-ik="',
+                   _escHtml(item.iconKey), '">');
+    } else if (hasAnyIcon) {
+        parts.push('<div class="icon icon-placeholder"></div>');
+    }
+
+    parts.push('<div class="left"><div class="title">',
+               _escHtml(item.title), '</div>');
+    if (item.subtitle) {
+        parts.push('<div class="subtitle-text">',
+                   _escHtml(item.subtitle), '</div>');
+    }
+    parts.push('</div><div class="right-group">');
+
+    if (item.badge) {
+        parts.push('<span class="badge">', _escHtml(item.badge), '</span>');
+    }
+    if (i < 9) {
+        parts.push('<span class="shortcut">\u2318', (i + 1), '</span>');
+    }
+    if (item.deletable) {
+        parts.push('<button class="delete-btn">\u00d7</button>');
+    }
+    parts.push('</div></div>');
+    return parts.join('');
+}
+
+function _applyIconSrc(container) {
+    // Set img.src from cache AFTER innerHTML is parsed
+    var imgs = container.querySelectorAll('img[data-ik]');
+    for (var j = 0; j < imgs.length; j++) {
+        var key = imgs[j].getAttribute('data-ik');
+        if (key && _iconCache[key]) imgs[j].src = _iconCache[key];
+    }
+}
+
+var _spacer = null;  // reuse spacer element across renders
+
 function renderItems() {
-    // Cancel any pending scroll-triggered render
     if (_scrollRafId) {
         cancelAnimationFrame(_scrollRafId);
         _scrollRafId = null;
     }
-    resultList.innerHTML = '';
     if (items.length === 0) {
+        if (_spacer) { _spacer.innerHTML = ''; _spacer.style.height = '0'; }
         resultList.style.display = 'none';
         emptyState.style.display = 'flex';
-        emptyState.textContent = searchInput.value.trim() ? 'No results' : 'Type to search';
+        emptyState.textContent = searchInput.value.trim()
+            ? 'No results' : 'Type to search';
         setPreview(null);
         return;
     }
     resultList.style.display = '';
     emptyState.style.display = 'none';
 
-    // Measure actual row height from a sample row if not yet measured
+    // Measure row height once
     if (!ITEM_HEIGHT && items.length > 0) {
-        var sample = _createRow(items[0], 0);
-        sample.style.visibility = 'hidden';
-        sample.style.position = 'absolute';
-        resultList.appendChild(sample);
-        ITEM_HEIGHT = sample.offsetHeight || ITEM_HEIGHT_DEFAULT;
-        resultList.removeChild(sample);
+        if (!_spacer) {
+            _spacer = document.createElement('div');
+            _spacer.style.position = 'relative';
+            resultList.appendChild(_spacer);
+        }
+        _spacer.innerHTML = _buildRowHtml(items[0], 0);
+        ITEM_HEIGHT = _spacer.firstChild.offsetHeight || ITEM_HEIGHT_DEFAULT;
+        _spacer.innerHTML = '';
     }
 
-    var h = ITEM_HEIGHT || ITEM_HEIGHT_DEFAULT;
-    // Create spacer for virtual scrolling
-    var totalHeight = items.length * h;
-    var spacer = document.createElement('div');
-    spacer.style.height = totalHeight + 'px';
-    spacer.style.position = 'relative';
-    resultList.appendChild(spacer);
+    // Create or reuse spacer
+    if (!_spacer) {
+        _spacer = document.createElement('div');
+        _spacer.style.position = 'relative';
+        resultList.appendChild(_spacer);
+    }
+    _spacer.style.height = (items.length * (ITEM_HEIGHT || ITEM_HEIGHT_DEFAULT)) + 'px';
 
     _renderVisibleRows();
-
-    // Update preview for selected item
     updatePreview();
 }
 
 function _renderVisibleRows() {
-    var spacer = resultList.firstChild;
-    if (!spacer) return;
-
-    // Remove old rows from spacer
-    spacer.innerHTML = '';
+    if (!_spacer) return;
 
     var h = ITEM_HEIGHT || ITEM_HEIGHT_DEFAULT;
     var scrollTop = resultList.scrollTop;
     var viewportHeight = resultList.clientHeight;
 
     var startIdx = Math.max(0, Math.floor(scrollTop / h) - BUFFER_COUNT);
-    var endIdx = Math.min(items.length, Math.ceil((scrollTop + viewportHeight) / h) + BUFFER_COUNT);
+    var endIdx = Math.min(items.length,
+        Math.ceil((scrollTop + viewportHeight) / h) + BUFFER_COUNT);
 
-    var frag = document.createDocumentFragment();
+    var htmlParts = [];
     for (var i = startIdx; i < endIdx; i++) {
-        var row = _createRow(items[i], i);
-        row.style.position = 'absolute';
-        row.style.top = (i * h) + 'px';
-        row.style.left = '0';
-        row.style.right = '0';
-        row.style.height = h + 'px';
-        frag.appendChild(row);
+        htmlParts.push(_buildRowHtml(items[i], i));
     }
-    spacer.appendChild(frag);
+    _spacer.innerHTML = htmlParts.join('');
+    if (hasAnyIcon) _applyIconSrc(_spacer);
 }
 
-function _createRow(item, i) {
-    var row = document.createElement('div');
-    row.className = 'result-item' + (i === selectedIndex ? ' selected' : '');
+// --- Event delegation on resultList (replaces per-row listeners) ---
+resultList.addEventListener('mousemove', function(e) {
+    if (e.clientX === _lastMouseX && e.clientY === _lastMouseY) return;
+    _lastMouseX = e.clientX;
+    _lastMouseY = e.clientY;
+    var row = e.target.closest('.result-item');
+    if (!row) return;
+    var idx = parseInt(row.getAttribute('data-idx'), 10);
+    if (isNaN(idx) || idx === selectedIndex) return;
+    // Swap selected class without full re-render
+    var prev = _spacer.querySelector('.result-item.selected');
+    if (prev) prev.className = 'result-item';
+    row.className = 'result-item selected';
+    selectedIndex = idx;
+    updatePreview();
+}, false);
 
-    var _iconSrc = item.iconKey ? _iconCache[item.iconKey] : null;
-    if (_iconSrc) {
-        var img = document.createElement('img');
-        img.className = 'icon';
-        img.src = _iconSrc;
-        img.draggable = false;
-        row.appendChild(img);
-    } else if (hasAnyIcon) {
-        var ph = document.createElement('div');
-        ph.className = 'icon icon-placeholder';
-        ph.style.webkitMaskImage = 'url("' + _PLACEHOLDER_SVG + '")';
-        row.appendChild(ph);
-    }
-
-    var left = document.createElement('div');
-    left.className = 'left';
-
-    var title = document.createElement('div');
-    title.className = 'title';
-    title.textContent = item.title;
-    left.appendChild(title);
-
-    if (item.subtitle) {
-        var sub = document.createElement('div');
-        sub.className = 'subtitle-text';
-        sub.textContent = item.subtitle;
-        left.appendChild(sub);
-    }
-
-    row.appendChild(left);
-
-    // Right group: badge + shortcut number
-    var rightGroup = document.createElement('div');
-    rightGroup.className = 'right-group';
-
-    if (item.badge) {
-        var badge = document.createElement('span');
-        badge.className = 'badge';
-        badge.textContent = item.badge;
-        rightGroup.appendChild(badge);
-    }
-
-    // Show Cmd+N shortcut for first 9 items
-    if (i < 9) {
-        var shortcut = document.createElement('span');
-        shortcut.className = 'shortcut';
-        shortcut.textContent = '\u2318' + (i + 1);
-        rightGroup.appendChild(shortcut);
-    }
-
-    // Delete button for deletable items
-    if (item.deletable) {
-        var delBtn = document.createElement('button');
-        delBtn.className = 'delete-btn';
-        delBtn.textContent = '\u00d7';
-        delBtn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            post('deleteItem', { index: i, version: itemsVersion });
-        });
-        rightGroup.appendChild(delBtn);
-    }
-
-    row.appendChild(rightGroup);
-
-    row.addEventListener('mousemove', function(e) {
-        // Only react when the mouse physically moved (ignore scroll-induced)
-        if (e.clientX === _lastMouseX && e.clientY === _lastMouseY) return;
-        _lastMouseX = e.clientX;
-        _lastMouseY = e.clientY;
-        if (selectedIndex !== i) {
-            selectedIndex = i;
-            _renderVisibleRows();
-            updatePreview();
+resultList.addEventListener('click', function(e) {
+    // Delete button
+    if (e.target.classList.contains('delete-btn')) {
+        e.stopPropagation();
+        var row = e.target.closest('.result-item');
+        if (row) {
+            var idx = parseInt(row.getAttribute('data-idx'), 10);
+            if (!isNaN(idx)) {
+                post('deleteItem', { index: idx, version: itemsVersion });
+            }
         }
-    });
-
-    row.addEventListener('click', function() {
-        selectedIndex = i;
-        _renderVisibleRows();
-        post('execute', { index: i, version: itemsVersion });
-    });
-
-    return row;
-}
+        return;
+    }
+    // Row click
+    var row = e.target.closest('.result-item');
+    if (row) {
+        var idx = parseInt(row.getAttribute('data-idx'), 10);
+        if (!isNaN(idx)) {
+            selectedIndex = idx;
+            post('execute', { index: idx, version: itemsVersion });
+        }
+    }
+}, false);
 
 // Virtual scroll handler
 var _scrollRafId = null;
