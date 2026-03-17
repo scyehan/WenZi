@@ -80,7 +80,8 @@
 <li><a href="#_7">内置数据源</a></li>
 <li><a href="#_8">键盘快捷键</a></li>
 <li><a href="#_9">自定义数据源</a></li>
-<li><a href="#_10">使用学习</a></li>
+<li><a href="#_10">命令</a></li>
+<li><a href="#_11">使用学习</a></li>
 </ul>
 </li>
 <li><a href="#api">API 参考</a><ul>
@@ -106,23 +107,26 @@
 <li><a href="#wzchooserunregister_sourcename">wz.chooser.unregister_source(name)</a></li>
 <li><a href="#wzchooserpickitems-callback-placeholderchoose">wz.chooser.pick(items, callback, placeholder="Choose...")</a></li>
 <li><a href="#wzchooseronevent">@wz.chooser.on(event)</a></li>
-<li><a href="#wzchoosersourcename-prefixnone-priority0">@wz.chooser.source(name, prefix=None, priority=0)</a></li>
+<li><a href="#wzchooserregister_commandname-title-action">wz.chooser.register_command(name, title, action, ...)</a></li>
+<li><a href="#wzchooserunregister_commandname">wz.chooser.unregister_command(name)</a></li>
+<li><a href="#wzchoosercommandname-title">@wz.chooser.command(name, title, ...)</a></li>
+<li><a href="#wzchoosersourcename-prefixnone-priority0-description">@wz.chooser.source(name, prefix=None, priority=0, description="")</a></li>
 </ul>
 </li>
-<li><a href="#_11">使用示例</a><ul>
-<li><a href="#_12">应用启动器</a></li>
-<li><a href="#_13">工具快捷键</a></li>
-<li><a href="#_14">定时提醒</a></li>
-<li><a href="#_15">全局快捷键</a></li>
+<li><a href="#_12">使用示例</a><ul>
+<li><a href="#_13">应用启动器</a></li>
+<li><a href="#_14">工具快捷键</a></li>
+<li><a href="#_15">定时提醒</a></li>
+<li><a href="#_16">全局快捷键</a></li>
 </ul>
 </li>
-<li><a href="#_16">启动器配置</a></li>
-<li><a href="#_17">脚本运行环境</a><ul>
-<li><a href="#_18">多文件脚本</a></li>
+<li><a href="#_17">启动器配置</a></li>
+<li><a href="#_18">脚本运行环境</a><ul>
+<li><a href="#_19">多文件脚本</a></li>
 </ul>
 </li>
-<li><a href="#_19">安全说明</a></li>
-<li><a href="#_20">常见问题</a></li>
+<li><a href="#_20">安全说明</a></li>
+<li><a href="#_21">常见问题</a></li>
 </ul>
 </div>
 
@@ -282,9 +286,24 @@ wz.leader(&quot;alt_r&quot;, [...])   # 右 Alt 执行工具操作
 <td>搜索已安装的应用。全局搜索时始终参与。</td>
 </tr>
 <tr>
+<td><strong>计算器</strong></td>
+<td><em>（无）</em></td>
+<td>数学运算和单位转换。全局搜索时始终参与。</td>
+</tr>
+<tr>
+<td><strong>命令</strong></td>
+<td><code>&gt;</code></td>
+<td>命令面板——脚本在此注册命名命令。</td>
+</tr>
+<tr>
 <td><strong>文件</strong></td>
 <td><code>f</code></td>
 <td>通过 macOS Spotlight 按文件名搜索。</td>
+</tr>
+<tr>
+<td><strong>文件夹</strong></td>
+<td><code>fd</code></td>
+<td>通过 macOS Spotlight 搜索文件夹。</td>
 </tr>
 <tr>
 <td><strong>剪贴板</strong></td>
@@ -303,7 +322,7 @@ wz.leader(&quot;alt_r&quot;, [...])   # 右 Alt 执行工具操作
 </tr>
 </tbody>
 </table></div>
-<p>前缀可通过配置 <code>scripting.chooser.prefixes</code> 修改。</p>
+<p>前缀可通过配置 <code>scripting.chooser.prefixes</code> 修改。<code>&gt;</code> 前缀保留给命令面板，不可更改。</p>
 <h3 id="_8"><a href="#_8" class="heading-anchor">键盘快捷键</a></h3>
 <div class="table-wrapper"><table>
 <thead>
@@ -330,6 +349,10 @@ wz.leader(&quot;alt_r&quot;, [...])   # 右 Alt 执行工具操作
 <td>按位置快速选择</td>
 </tr>
 <tr>
+<td><code>Tab</code></td>
+<td>自动补全（如在 <code>&gt;</code> 模式下补全命令名）</td>
+</tr>
+<tr>
 <td><code>Esc</code></td>
 <td>关闭启动器</td>
 </tr>
@@ -348,7 +371,40 @@ def search_todos(query):
         {&quot;title&quot;: &quot;写文档&quot;, &quot;subtitle&quot;: &quot;前端&quot;, &quot;action&quot;: lambda: ...},
     ]
 </code></pre>
-<h3 id="_10"><a href="#_10" class="heading-anchor">使用学习</a></h3>
+<h3 id="_10"><a href="#_10" class="heading-anchor">命令</a></h3>
+<p>脚本可以注册命名命令，这些命令会出现在命令面板中（在启动器中输入 <code>&gt;</code> 激活）。命令支持参数传递、修饰键和 Tab 补全。</p>
+<pre><code class="language-python"># 装饰器方式
+@wz.chooser.command(&quot;greet&quot;, title=&quot;Greet&quot;, subtitle=&quot;Say hello&quot;)
+def greet(args):
+    name = args.strip() or &quot;World&quot;
+    wz.notify(&quot;Hello&quot;, f&quot;Hello, {name}!&quot;)
+
+# 直接注册
+wz.chooser.register_command(
+    name=&quot;open-url&quot;,
+    title=&quot;Open URL&quot;,
+    subtitle=&quot;Open a URL in browser&quot;,
+    action=lambda args: wz.execute(f&quot;open {args.strip()}&quot;),
+)
+</code></pre>
+<p><strong>参数传递：</strong> 输入完整命令名后加空格即可进入参数模式。例如 <code>&gt; greet Alice</code> 会将 <code>"Alice"</code> 作为 <code>args</code> 参数传递。Tab 补全命令名后也会自动进入参数模式。</p>
+<p><strong>修饰键：</strong> 命令可以为修饰键定义替代动作：</p>
+<pre><code class="language-python">wz.chooser.register_command(
+    name=&quot;deploy&quot;,
+    title=&quot;Deploy&quot;,
+    action=lambda args: deploy(args),
+    modifiers={
+        &quot;alt&quot;: {&quot;subtitle&quot;: &quot;Force deploy&quot;, &quot;action&quot;: lambda args: force_deploy(args)},
+    },
+)
+</code></pre>
+<p><strong>推广命令（promoted）：</strong> 默认情况下，命令仅在 <code>&gt;</code> 前缀激活时显示。设置 <code>promoted=True</code> 可使其同时出现在主搜索中（与应用等并列）：</p>
+<pre><code class="language-python">@wz.chooser.command(&quot;reload&quot;, title=&quot;Reload Scripts&quot;, promoted=True)
+def reload(args):
+    wz.reload()
+</code></pre>
+<p><strong>内置 help 命令：</strong> 系统始终提供一个推广的 <code>help</code> 命令。在启动器中输入 "help" 并按回车，即可查看所有可用的前缀及其说明。</p>
+<h3 id="_11"><a href="#_11" class="heading-anchor">使用学习</a></h3>
 <p>启用后（默认开启），启动器会跟踪你对每个查询选择了哪些项目，并在后续搜索中提升常用项目的排名。数据存储在 <code>~/.config/WenZi/chooser_usage.json</code>。</p>
 <h2 id="api"><a href="#api" class="heading-anchor">API 参考</a></h2>
 <h3 id="wzleadertrigger_key-mappings"><a href="#wzleadertrigger_key-mappings" class="heading-anchor"><code>wz.leader(trigger_key, mappings)</code></a></h3>
@@ -449,14 +505,85 @@ wz.chooser.show(initial_query=&quot;f readme&quot;)
 def on_select(item_info):
     print(f&quot;选中了: {item_info['title']}&quot;)
 </code></pre>
-<h3 id="wzchoosersourcename-prefixnone-priority0"><a href="#wzchoosersourcename-prefixnone-priority0" class="heading-anchor"><code>@wz.chooser.source(name, prefix=None, priority=0)</code></a></h3>
-<p>装饰器，将搜索函数注册为启动器数据源。</p>
-<pre><code class="language-python">@wz.chooser.source(&quot;notes&quot;, prefix=&quot;n&quot;, priority=5)
+<h3 id="wzchooserregister_commandname-title-action"><a href="#wzchooserregister_commandname-title-action" class="heading-anchor"><code>wz.chooser.register_command(name, title, action, ...)</code></a></h3>
+<p>在命令面板（<code>&gt;</code> 前缀）中注册一个命名命令。</p>
+<div class="table-wrapper"><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td><code>str</code></td>
+<td><em>（必填）</em></td>
+<td>唯一命令名（单个 token，如 <code>"reload-scripts"</code>）</td>
+</tr>
+<tr>
+<td><code>title</code></td>
+<td><code>str</code></td>
+<td><em>（必填）</em></td>
+<td>显示在启动器中的标题</td>
+</tr>
+<tr>
+<td><code>action</code></td>
+<td><code>callable</code></td>
+<td><em>（必填）</em></td>
+<td>回调函数，接收参数字符串：<code>action(args_str)</code></td>
+</tr>
+<tr>
+<td><code>subtitle</code></td>
+<td><code>str</code></td>
+<td><code>""</code></td>
+<td>标题下方的描述</td>
+</tr>
+<tr>
+<td><code>icon</code></td>
+<td><code>str</code></td>
+<td><code>""</code></td>
+<td>图标 URL（<code>file://</code> 或 <code>data:</code> URI）</td>
+</tr>
+<tr>
+<td><code>modifiers</code></td>
+<td><code>dict</code></td>
+<td><code>None</code></td>
+<td>修饰键动作（见上方命令章节）</td>
+</tr>
+<tr>
+<td><code>promoted</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>同时出现在无前缀的主搜索中</td>
+</tr>
+</tbody>
+</table></div>
+<pre><code class="language-python">wz.chooser.register_command(
+    name=&quot;greet&quot;,
+    title=&quot;Greet&quot;,
+    action=lambda args: wz.notify(&quot;Hello&quot;, args.strip() or &quot;World&quot;),
+    promoted=True,
+)
+</code></pre>
+<h3 id="wzchooserunregister_commandname"><a href="#wzchooserunregister_commandname" class="heading-anchor"><code>wz.chooser.unregister_command(name)</code></a></h3>
+<p>按名称移除已注册的命令。</p>
+<h3 id="wzchoosercommandname-title"><a href="#wzchoosercommandname-title" class="heading-anchor"><code>@wz.chooser.command(name, title, ...)</code></a></h3>
+<p>装饰器，将函数注册为启动器命令。参数与 <code>register_command</code> 相同，但不需要 <code>action</code>（被装饰的函数即为 action）。</p>
+<pre><code class="language-python">@wz.chooser.command(&quot;greet&quot;, title=&quot;Greet&quot;, promoted=True)
+def greet(args):
+    wz.notify(&quot;Hello&quot;, args.strip() or &quot;World&quot;)
+</code></pre>
+<h3 id="wzchoosersourcename-prefixnone-priority0-description"><a href="#wzchoosersourcename-prefixnone-priority0-description" class="heading-anchor"><code>@wz.chooser.source(name, prefix=None, priority=0, description="")</code></a></h3>
+<p>装饰器，将搜索函数注册为启动器数据源。设置 <code>description</code> 可使该源出现在内置 <code>help</code> 命令的输出中。</p>
+<pre><code class="language-python">@wz.chooser.source(&quot;notes&quot;, prefix=&quot;n&quot;, priority=5, description=&quot;Search notes&quot;)
 def search_notes(query):
     return [{&quot;title&quot;: &quot;...&quot;, &quot;action&quot;: lambda: ...}]
 </code></pre>
-<h2 id="_11"><a href="#_11" class="heading-anchor">使用示例</a></h2>
-<h3 id="_12"><a href="#_12" class="heading-anchor">应用启动器</a></h3>
+<h2 id="_12"><a href="#_12" class="heading-anchor">使用示例</a></h2>
+<h3 id="_13"><a href="#_13" class="heading-anchor">应用启动器</a></h3>
 <pre><code class="language-python">wz.leader(&quot;cmd_r&quot;, [
     {&quot;key&quot;: &quot;1&quot;, &quot;app&quot;: &quot;1Password&quot;},
     {&quot;key&quot;: &quot;b&quot;, &quot;app&quot;: &quot;Obsidian&quot;},
@@ -471,7 +598,7 @@ def search_notes(query):
     {&quot;key&quot;: &quot;z&quot;, &quot;app&quot;: &quot;zoom.us&quot;},
 ])
 </code></pre>
-<h3 id="_13"><a href="#_13" class="heading-anchor">工具快捷键</a></h3>
+<h3 id="_14"><a href="#_14" class="heading-anchor">工具快捷键</a></h3>
 <pre><code class="language-python">wz.leader(&quot;alt_r&quot;, [
     {&quot;key&quot;: &quot;d&quot;, &quot;desc&quot;: &quot;日期 → 剪贴板&quot;, &quot;func&quot;: lambda: (
         wz.pasteboard.set(wz.date(&quot;%Y-%m-%d&quot;)),
@@ -484,15 +611,15 @@ def search_notes(query):
     {&quot;key&quot;: &quot;r&quot;, &quot;desc&quot;: &quot;重载脚本&quot;, &quot;func&quot;: lambda: wz.reload()},
 ])
 </code></pre>
-<h3 id="_14"><a href="#_14" class="heading-anchor">定时提醒</a></h3>
+<h3 id="_15"><a href="#_15" class="heading-anchor">定时提醒</a></h3>
 <pre><code class="language-python"># 每 30 分钟提醒休息
 wz.timer.every(1800, lambda: wz.notify(&quot;休息&quot;, &quot;站起来活动一下！&quot;))
 </code></pre>
-<h3 id="_15"><a href="#_15" class="heading-anchor">全局快捷键</a></h3>
+<h3 id="_16"><a href="#_16" class="heading-anchor">全局快捷键</a></h3>
 <pre><code class="language-python"># Ctrl+Cmd+N 打开备忘录
 wz.hotkey.bind(&quot;ctrl+cmd+n&quot;, lambda: wz.execute(&quot;open -a Notes&quot;))
 </code></pre>
-<h2 id="_16"><a href="#_16" class="heading-anchor">启动器配置</a></h2>
+<h2 id="_17"><a href="#_17" class="heading-anchor">启动器配置</a></h2>
 <p>启动器的配置位于 <code>config.json</code> 的 <code>scripting.chooser</code> 下：</p>
 <pre><code class="language-json">{
   &quot;scripting&quot;: {
@@ -582,7 +709,7 @@ wz.hotkey.bind(&quot;ctrl+cmd+n&quot;, lambda: wz.execute(&quot;open -a Notes&qu
 </tr>
 </tbody>
 </table></div>
-<h2 id="_17"><a href="#_17" class="heading-anchor">脚本运行环境</a></h2>
+<h2 id="_18"><a href="#_18" class="heading-anchor">脚本运行环境</a></h2>
 <ul>
 <li>脚本作为标准 Python 代码运行，可以使用 <code>import</code> 导入任何模块</li>
 <li><code>wz</code> 对象在 <code>init.py</code> 中作为全局变量直接可用，无需导入</li>
@@ -592,7 +719,7 @@ wz.hotkey.bind(&quot;ctrl+cmd+n&quot;, lambda: wz.execute(&quot;open -a Notes&qu
 <li>脚本路径：<code>~/.config/WenZi/scripts/init.py</code></li>
 <li>可通过 <code>"scripting": {"script_dir": "/path/to/scripts"}</code> 自定义脚本目录</li>
 </ul>
-<h3 id="_18"><a href="#_18" class="heading-anchor">多文件脚本</a></h3>
+<h3 id="_19"><a href="#_19" class="heading-anchor">多文件脚本</a></h3>
 <p>可以将脚本拆分为多个 <code>.py</code> 文件。<code>init.py</code> 是入口文件，同目录下的其他文件可通过标准 <code>import</code> 语句导入：</p>
 <pre><code>~/.config/WenZi/scripts/
 ├── init.py          # 入口文件
@@ -621,7 +748,7 @@ def build_source():
 <p><strong>注意：</strong> 仅支持绝对导入（<code>import helper</code>、<code>from utils import foo</code>）。不支持相对导入（<code>from . import foo</code>），因为 <code>init.py</code> 不是作为 Python 包加载的。</p>
 <p><strong>注意：</strong> 不要在用户脚本中定义 PyObjC 的 <code>NSObject</code> 子类。Objective-C 运行时不支持重复注册同名类，重载时会导致崩溃。</p>
 </blockquote>
-<h2 id="_19"><a href="#_19" class="heading-anchor">安全说明</a></h2>
+<h2 id="_20"><a href="#_20" class="heading-anchor">安全说明</a></h2>
 <p>脚本以<strong>未沙箱化的 Python</strong> 运行，拥有与 闻字 相同的系统权限。这意味着脚本可以：</p>
 <ul>
 <li>读写你的用户账户能访问的任何文件</li>
@@ -632,7 +759,7 @@ def build_source():
 </ul>
 <p><strong>请只运行你自己编写或仔细审查过的脚本。</strong> 不要从不可信的来源直接复制粘贴脚本。恶意脚本可能会在你不知情的情况下窃取数据、安装软件或修改文件。</p>
 <p>出于安全考虑，脚本系统默认处于禁用状态。</p>
-<h2 id="_20"><a href="#_20" class="heading-anchor">常见问题</a></h2>
+<h2 id="_21"><a href="#_21" class="heading-anchor">常见问题</a></h2>
 <p><strong>脚本没有加载？</strong>
 - 确认 <code>config.json</code> 中 <code>"scripting": {"enabled": true}</code> 已设置
 - 启用后需要重启闻字

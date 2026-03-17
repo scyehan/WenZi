@@ -102,12 +102,15 @@ The Launcher supports two search modes:
 | Source | Prefix | Description |
 |--------|--------|-------------|
 | **Apps** | *(none)* | Search installed applications. Always active in global search. |
+| **Calculator** | *(none)* | Math evaluation and unit conversion. Always active in global search. |
+| **Commands** | `>` | Command palette — scripts register named commands here. |
 | **Files** | `f` | Search files by name via macOS Spotlight. |
+| **Folders** | `fd` | Search folders via macOS Spotlight. |
 | **Clipboard** | `cb` | Browse clipboard history (text and images). |
 | **Snippets** | `sn` | Search text snippets with keyword expansion. |
 | **Bookmarks** | `bm` | Search browser bookmarks (Chrome, Safari, Arc, Edge, Brave, Firefox). |
 
-Prefixes are configurable via `scripting.chooser.prefixes` in config.
+Prefixes are configurable via `scripting.chooser.prefixes` in config. The `>` prefix is reserved for commands and cannot be changed.
 
 ### Keyboard Shortcuts
 
@@ -117,6 +120,7 @@ Prefixes are configurable via `scripting.chooser.prefixes` in config.
 | `Enter` | Open / execute selected item |
 | `⌘+Enter` | Reveal in Finder (for file-based items) |
 | `⌘1` – `⌘9` | Quick select by position |
+| `Tab` | Auto-complete (e.g. complete command name in `>` mode) |
 | `Esc` | Close the Launcher |
 | `Alt` / `Ctrl` / `Shift` (hold) | Show alternative action for selected item |
 
@@ -132,6 +136,51 @@ def search_todos(query):
         {"title": "Write docs", "subtitle": "frontend", "action": lambda: ...},
     ]
 ```
+
+### Commands
+
+Scripts can register named commands that appear in the command palette (activated by typing `> ` in the Launcher). Commands support argument passing, modifier keys, and Tab completion.
+
+```python
+# Decorator style
+@wz.chooser.command("greet", title="Greet", subtitle="Say hello")
+def greet(args):
+    name = args.strip() or "World"
+    wz.notify("Hello", f"Hello, {name}!")
+
+# Direct registration
+wz.chooser.register_command(
+    name="open-url",
+    title="Open URL",
+    subtitle="Open a URL in browser",
+    action=lambda args: wz.execute(f"open {args.strip()}"),
+)
+```
+
+**Argument passing:** Type the full command name followed by a space to enter args mode. For example, `> greet Alice` passes `"Alice"` as the `args` parameter. Tab-completing a command name also enters args mode.
+
+**Modifier keys:** Commands can define alternative actions for modifier keys:
+
+```python
+wz.chooser.register_command(
+    name="deploy",
+    title="Deploy",
+    action=lambda args: deploy(args),
+    modifiers={
+        "alt": {"subtitle": "Force deploy", "action": lambda args: force_deploy(args)},
+    },
+)
+```
+
+**Promoted commands:** By default, commands only appear when the `>` prefix is active. Set `promoted=True` to also show them in the main (unprefixed) search alongside apps and other results:
+
+```python
+@wz.chooser.command("reload", title="Reload Scripts", promoted=True)
+def reload(args):
+    wz.reload()
+```
+
+**Built-in help:** A promoted `help` command is always available. Type "help" in the Launcher and press Enter to see all available prefixes and their descriptions.
 
 ### Usage Learning
 
@@ -318,12 +367,49 @@ def on_select(item_info):
     print(f"Selected: {item_info['title']}")
 ```
 
-### `@wz.chooser.source(name, prefix=None, priority=0)`
+### `wz.chooser.register_command(name, title, action, ...)`
 
-Decorator to register a search function as a Launcher data source.
+Register a named command in the command palette (`>` prefix).
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | `str` | *(required)* | Unique command name (single token, e.g. `"reload-scripts"`) |
+| `title` | `str` | *(required)* | Human-readable title shown in the Launcher |
+| `action` | `callable` | *(required)* | Callback receiving args: `action(args_str)` |
+| `subtitle` | `str` | `""` | Description shown below the title |
+| `icon` | `str` | `""` | Icon URL (`file://` or `data:` URI) |
+| `modifiers` | `dict` | `None` | Modifier actions (see Commands section above) |
+| `promoted` | `bool` | `False` | Also appear in the unprefixed main search |
 
 ```python
-@wz.chooser.source("notes", prefix="n", priority=5)
+wz.chooser.register_command(
+    name="greet",
+    title="Greet",
+    action=lambda args: wz.notify("Hello", args.strip() or "World"),
+    promoted=True,
+)
+```
+
+### `wz.chooser.unregister_command(name)`
+
+Remove a registered command by name.
+
+### `@wz.chooser.command(name, title, ...)`
+
+Decorator to register a function as a Launcher command. Same parameters as `register_command` except `action` (the decorated function is the action).
+
+```python
+@wz.chooser.command("greet", title="Greet", promoted=True)
+def greet(args):
+    wz.notify("Hello", args.strip() or "World")
+```
+
+### `@wz.chooser.source(name, prefix=None, priority=0, description="")`
+
+Decorator to register a search function as a Launcher data source. Set `description` so the source appears in the built-in `help` command output.
+
+```python
+@wz.chooser.source("notes", prefix="n", priority=5, description="Search notes")
 def search_notes(query):
     return [{"title": "...", "action": lambda: ...}]
 ```

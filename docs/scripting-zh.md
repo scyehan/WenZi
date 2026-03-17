@@ -102,12 +102,15 @@ wz.leader("alt_r", [...])   # 右 Alt 执行工具操作
 | 数据源 | 前缀 | 说明 |
 |--------|------|------|
 | **应用** | *（无）* | 搜索已安装的应用。全局搜索时始终参与。 |
+| **计算器** | *（无）* | 数学运算和单位转换。全局搜索时始终参与。 |
+| **命令** | `>` | 命令面板——脚本在此注册命名命令。 |
 | **文件** | `f` | 通过 macOS Spotlight 按文件名搜索。 |
+| **文件夹** | `fd` | 通过 macOS Spotlight 搜索文件夹。 |
 | **剪贴板** | `cb` | 浏览剪贴板历史（文本和图片）。 |
 | **代码片段** | `sn` | 搜索文本片段，支持关键词自动展开。 |
 | **书签** | `bm` | 搜索浏览器书签（Chrome、Safari、Arc、Edge、Brave、Firefox）。 |
 
-前缀可通过配置 `scripting.chooser.prefixes` 修改。
+前缀可通过配置 `scripting.chooser.prefixes` 修改。`>` 前缀保留给命令面板，不可更改。
 
 ### 键盘快捷键
 
@@ -117,6 +120,7 @@ wz.leader("alt_r", [...])   # 右 Alt 执行工具操作
 | `Enter` | 打开/执行选中项 |
 | `⌘+Enter` | 在 Finder 中显示（适用于文件类项目） |
 | `⌘1` – `⌘9` | 按位置快速选择 |
+| `Tab` | 自动补全（如在 `>` 模式下补全命令名） |
 | `Esc` | 关闭启动器 |
 | `Alt` / `Ctrl` / `Shift`（按住） | 显示选中项的替代操作 |
 
@@ -132,6 +136,51 @@ def search_todos(query):
         {"title": "写文档", "subtitle": "前端", "action": lambda: ...},
     ]
 ```
+
+### 命令
+
+脚本可以注册命名命令，这些命令会出现在命令面板中（在启动器中输入 `> ` 激活）。命令支持参数传递、修饰键和 Tab 补全。
+
+```python
+# 装饰器方式
+@wz.chooser.command("greet", title="Greet", subtitle="Say hello")
+def greet(args):
+    name = args.strip() or "World"
+    wz.notify("Hello", f"Hello, {name}!")
+
+# 直接注册
+wz.chooser.register_command(
+    name="open-url",
+    title="Open URL",
+    subtitle="Open a URL in browser",
+    action=lambda args: wz.execute(f"open {args.strip()}"),
+)
+```
+
+**参数传递：** 输入完整命令名后加空格即可进入参数模式。例如 `> greet Alice` 会将 `"Alice"` 作为 `args` 参数传递。Tab 补全命令名后也会自动进入参数模式。
+
+**修饰键：** 命令可以为修饰键定义替代动作：
+
+```python
+wz.chooser.register_command(
+    name="deploy",
+    title="Deploy",
+    action=lambda args: deploy(args),
+    modifiers={
+        "alt": {"subtitle": "Force deploy", "action": lambda args: force_deploy(args)},
+    },
+)
+```
+
+**推广命令（promoted）：** 默认情况下，命令仅在 `>` 前缀激活时显示。设置 `promoted=True` 可使其同时出现在主搜索中（与应用等并列）：
+
+```python
+@wz.chooser.command("reload", title="Reload Scripts", promoted=True)
+def reload(args):
+    wz.reload()
+```
+
+**内置 help 命令：** 系统始终提供一个推广的 `help` 命令。在启动器中输入 "help" 并按回车，即可查看所有可用的前缀及其说明。
 
 ### 使用学习
 
@@ -318,12 +367,49 @@ def on_select(item_info):
     print(f"选中了: {item_info['title']}")
 ```
 
-### `@wz.chooser.source(name, prefix=None, priority=0)`
+### `wz.chooser.register_command(name, title, action, ...)`
 
-装饰器，将搜索函数注册为启动器数据源。
+在命令面板（`>` 前缀）中注册一个命名命令。
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `name` | `str` | *（必填）* | 唯一命令名（单个 token，如 `"reload-scripts"`） |
+| `title` | `str` | *（必填）* | 显示在启动器中的标题 |
+| `action` | `callable` | *（必填）* | 回调函数，接收参数字符串：`action(args_str)` |
+| `subtitle` | `str` | `""` | 标题下方的描述 |
+| `icon` | `str` | `""` | 图标 URL（`file://` 或 `data:` URI） |
+| `modifiers` | `dict` | `None` | 修饰键动作（见上方命令章节） |
+| `promoted` | `bool` | `False` | 同时出现在无前缀的主搜索中 |
 
 ```python
-@wz.chooser.source("notes", prefix="n", priority=5)
+wz.chooser.register_command(
+    name="greet",
+    title="Greet",
+    action=lambda args: wz.notify("Hello", args.strip() or "World"),
+    promoted=True,
+)
+```
+
+### `wz.chooser.unregister_command(name)`
+
+按名称移除已注册的命令。
+
+### `@wz.chooser.command(name, title, ...)`
+
+装饰器，将函数注册为启动器命令。参数与 `register_command` 相同，但不需要 `action`（被装饰的函数即为 action）。
+
+```python
+@wz.chooser.command("greet", title="Greet", promoted=True)
+def greet(args):
+    wz.notify("Hello", args.strip() or "World")
+```
+
+### `@wz.chooser.source(name, prefix=None, priority=0, description="")`
+
+装饰器，将搜索函数注册为启动器数据源。设置 `description` 可使该源出现在内置 `help` 命令的输出中。
+
+```python
+@wz.chooser.source("notes", prefix="n", priority=5, description="Search notes")
 def search_notes(query):
     return [{"title": "...", "action": lambda: ...}]
 ```
