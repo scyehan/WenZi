@@ -1,5 +1,7 @@
 # 闻字 (WenZi)
 
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/XbNSPEHc)
+
 A macOS menubar speech-to-text application. Hold a hotkey to record, release to transcribe and automatically type the result into the active application.
 
 - **Offline-first**: Uses [FunASR](https://github.com/modelscope/FunASR) Chinese-optimized ONNX by default — fully offline, no cloud dependency

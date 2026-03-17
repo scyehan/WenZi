@@ -31,6 +31,10 @@ dependencies = [
 # but fastembed works fine at runtime with numpy 1.26.4. The override below
 # forces the resolver to accept numpy 1.26.4 for both.
 
+[project.urls]
+Homepage = "https://github.com/Airead/WenZi"
+Discord = "https://discord.gg/XbNSPEHc"
+
 [project.scripts]
 wenzi = "wenzi.app:main"
 
