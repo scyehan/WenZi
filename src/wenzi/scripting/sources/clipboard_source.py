@@ -416,4 +416,9 @@ class ClipboardSource:
             prefix=prefix,
             search=self.search,
             priority=5,
+            action_hints={
+                "enter": "Paste",
+                "cmd_enter": "Copy",
+                "delete": "Delete",
+            },
         )

@@ -45,6 +45,9 @@ class ChooserSource:
     prefix: Optional[str] = None
     search: Callable[[str], List[ChooserItem]] = field(default=None, repr=False)
     priority: int = 0  # Higher values appear first
+    action_hints: Optional[Dict[str, str]] = field(default=None, repr=False)
+    # action_hints keys: "enter", "cmd_enter", "delete"
+    # e.g. {"enter": "Paste", "cmd_enter": "Copy", "delete": "Delete"}
 
 
 # ---------------------------------------------------------------------------

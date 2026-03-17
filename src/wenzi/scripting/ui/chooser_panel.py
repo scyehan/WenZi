@@ -373,6 +373,7 @@ class ChooserPanel:
             self._boost_by_usage(query)
 
         self._push_items_to_js()
+        self._push_action_hints(source)
 
     def _boost_by_usage(self, query: str) -> None:
         """Re-sort items by usage frequency while preserving source order."""
@@ -409,6 +410,22 @@ class ChooserPanel:
         self._eval_js(
             f"setResults({json.dumps(js_items, ensure_ascii=False)},"
             f"{self._items_version}{idx_arg})"
+        )
+
+    _DEFAULT_ACTION_HINTS = {
+        "enter": "Open",
+        "cmd_enter": "Reveal",
+    }
+
+    def _push_action_hints(self, source) -> None:
+        """Send source-specific action hints to the JS footer."""
+        hints = (
+            source.action_hints
+            if source is not None and source.action_hints
+            else self._DEFAULT_ACTION_HINTS
+        )
+        self._eval_js(
+            f"setActionHints({json.dumps(hints, ensure_ascii=False)})"
         )
 
     # ------------------------------------------------------------------

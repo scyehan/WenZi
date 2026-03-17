@@ -547,4 +547,7 @@ class BookmarkSource:
             prefix=prefix,
             search=self.search,
             priority=5,
+            action_hints={
+                "enter": "Open",
+            },
         )

@@ -551,7 +551,7 @@ document.addEventListener('keydown', function(e) {
         }
         return;
     }
-    // Cmd+1 through Cmd+9: quick select
+    // Cmd+1 through Cmd+9: quick select and execute
     if (e.metaKey && e.key >= '1' && e.key <= '9') {
         var idx = parseInt(e.key) - 1;
         if (idx < items.length) {
@@ -559,6 +559,17 @@ document.addEventListener('keydown', function(e) {
             selectedIndex = idx;
             renderItems();
             post('execute', { index: idx, version: itemsVersion });
+        }
+        return;
+    }
+    // Delete/Backspace (not in search input): delete selected item
+    if ((e.key === 'Delete' || e.key === 'Backspace') && e.metaKey) {
+        if (selectedIndex >= 0 && selectedIndex < items.length
+            && items[selectedIndex].deletable) {
+            e.preventDefault();
+            post('deleteItem', {
+                index: selectedIndex, version: itemsVersion
+            });
         }
         return;
     }
@@ -694,13 +705,24 @@ function setInputValue(value) {
     post('search', { query: value });
 }
 
+// --- Action hints (dynamic per source) ---
+function setActionHints(hints) {
+    var parts = ['<kbd>\u2191\u2193</kbd> Navigate'];
+    if (hints.enter) {
+        parts.push('<kbd>\u21b5</kbd> ' + hints.enter);
+    }
+    if (hints.cmd_enter) {
+        parts.push('<kbd>\u2318\u21b5</kbd> ' + hints.cmd_enter);
+    }
+    if (hints['delete']) {
+        parts.push('<kbd>\u2318\u232b</kbd> ' + hints['delete']);
+    }
+    parts.push('<kbd>Esc</kbd> Close');
+    footerLeft.innerHTML = parts.join('  ');
+}
+
 // --- Init ---
-footerLeft.innerHTML =
-    '<kbd>\u2191\u2193</kbd> Navigate ' +
-    '<kbd>\u21b5</kbd> Open ' +
-    '<kbd>\u2318\u21b5</kbd> Reveal ' +
-    '<kbd>\u23181-9</kbd> Select ' +
-    '<kbd>Esc</kbd> Close';
+setActionHints({ enter: 'Open', cmd_enter: 'Reveal' });
 searchInput.focus();
 </script>
 </body>

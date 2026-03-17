@@ -116,6 +116,10 @@ class FileSource:
             prefix=prefix,
             search=self.search,
             priority=3,
+            action_hints={
+                "enter": "Open",
+                "cmd_enter": "Reveal",
+            },
         )
 
 

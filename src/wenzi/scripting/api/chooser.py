@@ -253,6 +253,7 @@ class ChooserAPI:
         name: str,
         prefix: Optional[str] = None,
         priority: int = 0,
+        action_hints: Optional[dict] = None,
     ) -> Callable:
         """Decorator to register a search function as a chooser source.
 
@@ -290,6 +291,7 @@ class ChooserAPI:
                 prefix=prefix,
                 search=_search,
                 priority=priority,
+                action_hints=action_hints,
             )
             self._panel.register_source(src)
             logger.info("User script registered chooser source: %s", name)

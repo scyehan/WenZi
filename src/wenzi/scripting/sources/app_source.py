@@ -368,4 +368,8 @@ class AppSource:
             prefix=None,
             search=self.search,
             priority=10,
+            action_hints={
+                "enter": "Launch",
+                "cmd_enter": "Reveal",
+            },
         )

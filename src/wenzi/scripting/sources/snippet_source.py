@@ -751,4 +751,8 @@ class SnippetSource:
             prefix=prefix,
             search=self.search,
             priority=3,
+            action_hints={
+                "enter": "Paste",
+                "cmd_enter": "Copy",
+            },
         )
