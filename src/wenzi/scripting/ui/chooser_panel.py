@@ -160,6 +160,7 @@ class ChooserPanel:
     _PANEL_WIDTH_WIDE = 960  # With preview panel
     _PANEL_WIDTH_NARROW = 600  # Without preview panel
     _PANEL_HEIGHT_EXPANDED = 400
+    _PANEL_HEIGHT_COMPACT = 120  # Search bar + one result row + footer
     _PANEL_HEIGHT_COLLAPSED = 48
     _MAX_TOTAL_RESULTS = 50
 
@@ -193,33 +194,46 @@ class ChooserPanel:
         self._esc_source = None  # CFRunLoopSource for ESC tap
         self._is_expanded: bool = False  # Panel height state
         self._show_preview: bool = False  # Preview panel visibility
+        self._compact_results: bool = False  # Compact height for calc-only results
 
     # ------------------------------------------------------------------
     # Panel resize (collapsed ↔ expanded, narrow ↔ wide)
     # ------------------------------------------------------------------
 
     def _resize_panel(
-        self, expanded: bool, show_preview: Optional[bool] = None,
+        self,
+        expanded: bool,
+        show_preview: Optional[bool] = None,
+        compact: Optional[bool] = None,
     ) -> None:
         """Resize the panel in one step (height and/or width)."""
         if self._panel is None:
             return
         if show_preview is None:
             show_preview = self._show_preview
+        if compact is None:
+            compact = self._compact_results
 
-        if self._is_expanded == expanded and self._show_preview == show_preview:
+        if (
+            self._is_expanded == expanded
+            and self._show_preview == show_preview
+            and self._compact_results == compact
+        ):
             return
 
         self._is_expanded = expanded
         self._show_preview = show_preview
+        self._compact_results = compact
 
         from Foundation import NSMakeRect
 
         old = self._panel.frame()
-        new_height = (
-            self._PANEL_HEIGHT_EXPANDED if expanded
-            else self._PANEL_HEIGHT_COLLAPSED
-        )
+        if not expanded:
+            new_height = self._PANEL_HEIGHT_COLLAPSED
+        elif compact:
+            new_height = self._PANEL_HEIGHT_COMPACT
+        else:
+            new_height = self._PANEL_HEIGHT_EXPANDED
         new_width = (
             self._PANEL_WIDTH_WIDE if show_preview
             else self._PANEL_WIDTH_NARROW
@@ -519,6 +533,7 @@ class ChooserPanel:
         self._history_index = -1
         self._is_expanded = False
         self._show_preview = False
+        self._compact_results = False
         self._closing = False
 
         # Reactivate the previous app's focused window, then restore accessory mode.
@@ -582,6 +597,7 @@ class ChooserPanel:
             if not query.strip():
                 self._current_items = []
                 self._calc_sticky = False
+                self._compact_results = False
                 if self._show_preview:
                     self._resize_panel(self._is_expanded, show_preview=False)
                 self._eval_js("setResults([]);setPreviewVisible(false)")
@@ -622,10 +638,29 @@ class ChooserPanel:
 
         self._update_hides_on_deactivate()
 
-        # Determine preview mode from active source
+        # Determine preview mode and compact mode
+        # Once in compact mode, stay until input is cleared (handled by
+        # the empty-query early return above).
         show_preview = source.show_preview if source is not None else False
-        if self._show_preview != show_preview:
-            self._resize_panel(self._is_expanded, show_preview=show_preview)
+        if not self._compact_results:
+            compact = (
+                bool(self._current_items)
+                and all(
+                    item.item_id.startswith("calc:")
+                    for item in self._current_items
+                )
+            )
+        else:
+            compact = True
+        if (
+            self._show_preview != show_preview
+            or self._compact_results != compact
+        ):
+            self._resize_panel(
+                self._is_expanded,
+                show_preview=show_preview,
+                compact=compact,
+            )
 
         self._push_items_to_js(source=source)
 
@@ -697,11 +732,18 @@ class ChooserPanel:
             f"{self._items_version}{idx_arg})"
         )
 
-        hints = (
-            source.action_hints
-            if source is not None and source.action_hints
-            else self._DEFAULT_ACTION_HINTS
-        )
+        # Use the active source's hints, or fall back to the calculator
+        # source's hints when all results are calc items (general search
+        # has source=None, so calc hints would otherwise be lost).
+        if source is not None and source.action_hints:
+            hints = source.action_hints
+        elif self._compact_results and "calculator" in self._sources:
+            hints = (
+                self._sources["calculator"].action_hints
+                or self._DEFAULT_ACTION_HINTS
+            )
+        else:
+            hints = self._DEFAULT_ACTION_HINTS
         parts.append(
             f"setActionHints({json.dumps(hints, ensure_ascii=False)})"
         )

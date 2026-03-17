@@ -1495,3 +1495,144 @@ class TestPanelPreviewWidth:
         # new_x = 200 + (600 - 960)/2 = 200 - 180 = 20
         assert frame_arg[0][0] == 20
         assert frame_arg[1][0] == panel._PANEL_WIDTH_WIDE
+
+
+# ---------------------------------------------------------------------------
+# Compact height for calculator-only results
+# ---------------------------------------------------------------------------
+
+
+class TestCompactCalcHeight:
+    def test_calc_only_results_use_compact_height(self):
+        """When all results are calc items, panel should use compact height."""
+        panel = _make_panel()
+        mock_panel = MagicMock()
+        mock_panel.frame.return_value = MagicMock(
+            origin=MagicMock(x=200, y=148),
+            size=MagicMock(width=600, height=400),
+        )
+        panel._panel = mock_panel
+        panel._is_expanded = True
+        calc_source = _make_source(
+            "calculator", items=[_make_calc_item()], priority=12,
+        )
+        panel.register_source(calc_source)
+
+        panel._do_search("2 + 3")
+
+        assert panel._compact_results is True
+        mock_panel.setFrame_display_.assert_called_once()
+        frame_arg = mock_panel.setFrame_display_.call_args[0][0]
+        assert frame_arg[1][1] == panel._PANEL_HEIGHT_COMPACT
+
+    def test_calc_results_use_calc_action_hints(self):
+        """Calc-only results should show calculator action hints, not defaults."""
+        panel = _make_panel()
+        panel._panel = MagicMock()
+        panel._is_expanded = True
+        calc_source = _make_source(
+            "calculator", items=[_make_calc_item()], priority=12,
+        )
+        calc_source.action_hints = {"enter": "Paste", "cmd_enter": "Copy"}
+        panel.register_source(calc_source)
+
+        panel._do_search("2 + 3")
+
+        js_call = panel._eval_js.call_args[0][0]
+        assert '"Copy"' in js_call
+        assert '"Paste"' in js_call
+        assert '"Open"' not in js_call
+
+    def test_mixed_results_do_not_enter_compact(self):
+        """When calc + non-calc results from scratch, should NOT enter compact."""
+        panel = _make_panel()
+        mock_panel = MagicMock()
+        panel._panel = mock_panel
+        panel._is_expanded = True
+
+        # Source returns both calc and non-calc items
+        def mixed_search(query):
+            return [
+                _make_calc_item(),
+                ChooserItem(title="Safari"),
+            ]
+
+        mixed_src = ChooserSource(name="mixed", search=mixed_search)
+        panel.register_source(mixed_src)
+
+        panel._do_search("2")
+
+        assert panel._compact_results is False
+
+    def test_non_calc_results_not_compact(self):
+        """Non-calc results should not trigger compact mode."""
+        panel = _make_panel()
+        mock_panel = MagicMock()
+        panel._panel = mock_panel
+        panel._is_expanded = True
+        panel.register_source(
+            _make_source("apps", items=[ChooserItem(title="Safari")])
+        )
+
+        panel._do_search("Safari")
+
+        assert panel._compact_results is False
+
+    def test_compact_stays_during_incomplete_expression(self):
+        """Once compact, should stay compact even with no results (incomplete expr)."""
+        panel = _make_panel()
+        mock_panel = MagicMock()
+        panel._panel = mock_panel
+        panel._is_expanded = True
+        panel._compact_results = True  # Was in compact from "2+3"
+
+        # Typing "2+3+" yields no results
+        panel.register_source(_make_source("apps"))
+        panel._do_search("2+3+")
+
+        # Should stay compact
+        assert panel._compact_results is True
+
+    def test_compact_stays_when_typing_non_calc_query(self):
+        """Once compact, should stay compact even if user types non-calc text."""
+        panel = _make_panel()
+        mock_panel = MagicMock()
+        panel._panel = mock_panel
+        panel._is_expanded = True
+        panel._compact_results = True
+
+        panel.register_source(
+            _make_source("apps", items=[ChooserItem(title="Safari")])
+        )
+        panel._do_search("Safari")
+
+        # Still compact — only clearing input exits compact mode
+        assert panel._compact_results is True
+
+    def test_compact_cleared_on_empty_query(self):
+        """Clearing input should exit compact mode."""
+        panel = _make_panel()
+        panel._compact_results = True
+
+        panel._do_search("")
+
+        assert panel._compact_results is False
+
+    def test_empty_results_not_compact(self):
+        """No results from scratch should not be compact."""
+        panel = _make_panel()
+        panel.register_source(_make_source("apps"))
+
+        panel._do_search("xyzzy")
+
+        assert panel._compact_results is False
+
+    def test_close_resets_compact(self):
+        """close() should reset _compact_results."""
+        panel = _make_panel()
+        panel._compact_results = True
+        with patch("PyObjCTools.AppHelper.callAfter", side_effect=lambda fn, *a, **kw: fn(*a, **kw)), \
+             patch("wenzi.scripting.ui.chooser_panel.reactivate_app"), \
+             patch("wenzi.scripting.ui.chooser_panel.restore_accessory"):
+            panel.close()
+        assert panel._compact_results is False

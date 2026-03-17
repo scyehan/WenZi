@@ -214,8 +214,8 @@ class CalculatorSource:
             search=self.search,
             priority=12,
             action_hints={
-                "enter": "Copy",
-                "cmd_enter": "Paste",
+                "enter": "Paste",
+                "cmd_enter": "Copy",
             },
         )
 
@@ -252,8 +252,8 @@ class CalculatorSource:
             subtitle="Unit Conversion",
             icon=icon,
             item_id=f"calc:{expr}",
-            action=lambda t=raw_text: _copy_to_clipboard(t),
-            secondary_action=lambda t=raw_text: _paste_text(t),
+            action=lambda t=raw_text: _paste_text(t),
+            secondary_action=lambda t=raw_text: _copy_to_clipboard(t),
         )
 
     # -- math expression -----------------------------------------------------
@@ -288,6 +288,6 @@ class CalculatorSource:
             subtitle="Calculator",
             icon=icon,
             item_id=f"calc:{expr}",
-            action=lambda t=raw: _copy_to_clipboard(t),
-            secondary_action=lambda t=raw: _paste_text(t),
+            action=lambda t=raw: _paste_text(t),
+            secondary_action=lambda t=raw: _copy_to_clipboard(t),
         )

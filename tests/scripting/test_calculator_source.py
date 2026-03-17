@@ -218,7 +218,7 @@ class TestChooserSource:
         assert cs.name == "calculator"
         assert cs.prefix is None
         assert cs.priority == 12
-        assert cs.action_hints == {"enter": "Copy", "cmd_enter": "Paste"}
+        assert cs.action_hints == {"enter": "Paste", "cmd_enter": "Copy"}
 
     def test_search_callable(self, calc):
         cs = calc.as_chooser_source()
@@ -247,13 +247,14 @@ class TestChooserItem:
         assert len(items) == 1
         # title shows formatted display
         assert "1,000,000" in items[0].title
-        # Inspect what the action closure would copy — extract from closure defaults
-        action_closure = items[0].action
+        # Inspect what the copy closure would copy — extract from closure defaults
+        # secondary_action is the copy action (Cmd+Enter)
+        copy_closure = items[0].secondary_action
         # The default arg 't' captured in 'lambda t=raw: ...'
-        raw_value = action_closure.__defaults__[0] if hasattr(action_closure, "__defaults__") else None
+        raw_value = copy_closure.__defaults__[0] if hasattr(copy_closure, "__defaults__") else None
         if raw_value is None:
             # Fallback: check via __code__.co_freevars / __closure__
-            for cell in (action_closure.__closure__ or []):
+            for cell in (copy_closure.__closure__ or []):
                 val = cell.cell_contents
                 if isinstance(val, str) and val.isdigit():
                     raw_value = val
