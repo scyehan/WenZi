@@ -150,8 +150,13 @@ This mirrors the CI pipeline in `.github/workflows/test.yml`.
 ## Release Process
 
 1. Ensure all changes are committed and tests pass (`uv run pytest tests/`)
-2. Update version in `pyproject.toml` (single source of truth — all other files read from it dynamically)
-3. Run `uv lock` to sync `uv.lock` with the new version — this is **required** because `uv.lock` records the package version and won't update until `uv lock` is explicitly run
-4. Commit the version bump together with `uv.lock`: `git add pyproject.toml uv.lock && git commit -m "chore: bump version to X.Y.Z"`
-5. Tag: `git tag vX.Y.Z`
-6. Push: `git push && git push --tags`
+2. Review and update `WenZi.spec` — this step is critical to avoid runtime errors in the packaged app:
+   - **`hiddenimports`**: sync with all current wenzi modules (scan `src/wenzi/` for new `.py` files) and any lazily/conditionally imported third-party packages
+   - **`datas`**: ensure non-Python resource files referenced via `os.path.dirname(__file__)` are included (e.g. `src/wenzi/audio/sounds` → `wenzi/audio/sounds`). PyInstaller does NOT auto-bundle data files from source directories
+   - **`collect_all`**: use for third-party packages with native extensions or bundled data (e.g. `mlx`, `sherpa_onnx`, `librosa`, `fastembed`). Without this, native `.so/.dylib` or data files will be missing at runtime
+   - **Removed modules**: delete entries for modules that no longer exist in the codebase
+3. Update version in `pyproject.toml` (single source of truth — all other files read from it dynamically)
+4. Run `uv lock` to sync `uv.lock` with the new version — this is **required** because `uv.lock` records the package version and won't update until `uv lock` is explicitly run
+5. Commit the version bump together with `uv.lock`: `git add pyproject.toml uv.lock && git commit -m "chore: bump version to X.Y.Z"`
+6. Tag: `git tag vX.Y.Z`
+7. Push: `git push && git push --tags`

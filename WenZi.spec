@@ -19,17 +19,21 @@ _version = _pyproject['project']['version']
 
 block_cipher = None
 
-# Collect mlx native extensions (.so, .dylib, .metallib) and data files
+# Collect native extensions (.so, .dylib, .metallib) and data files
 mlx_datas, mlx_binaries, mlx_hiddenimports = collect_all('mlx')
 mlx_whisper_datas, mlx_whisper_binaries, mlx_whisper_hiddenimports = collect_all('mlx_whisper')
 fastembed_datas, fastembed_binaries, fastembed_hiddenimports = collect_all('fastembed')
+sherpa_datas, sherpa_binaries, sherpa_hiddenimports = collect_all('sherpa_onnx')
+librosa_datas, librosa_binaries, librosa_hiddenimports = collect_all('librosa')
 
 a = Analysis(
     ['src/wenzi/__main__.py'],
     pathex=['src'],
-    binaries=mlx_binaries + mlx_whisper_binaries + fastembed_binaries,
-    datas=mlx_datas + mlx_whisper_datas + fastembed_datas,
-    hiddenimports=mlx_hiddenimports + mlx_whisper_hiddenimports + fastembed_hiddenimports + [
+    binaries=mlx_binaries + mlx_whisper_binaries + fastembed_binaries + sherpa_binaries + librosa_binaries,
+    datas=mlx_datas + mlx_whisper_datas + fastembed_datas + sherpa_datas + librosa_datas + [
+        ('src/wenzi/audio/sounds', 'wenzi/audio/sounds'),
+    ],
+    hiddenimports=mlx_hiddenimports + mlx_whisper_hiddenimports + fastembed_hiddenimports + sherpa_hiddenimports + librosa_hiddenimports + [
         # wenzi core
         'wenzi',
         'wenzi._build_info',
@@ -145,6 +149,8 @@ a = Analysis(
         'tiktoken',
         'huggingface_hub',
         'sherpa_onnx',
+        'modelscope.utils.file_utils',
+        'modelscope.hub.snapshot_download',
         'openai',
         'simpleeval',
         'pint',
@@ -156,6 +162,7 @@ a = Analysis(
         'AppKit',
         'Speech',
         'WebKit',
+        'Foundation',
         'AVFoundation',
         'PyObjCTools',
         'PyObjCTools.AppHelper',
