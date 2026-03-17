@@ -246,7 +246,7 @@ class TestItemExecution:
         ]
         # Mock close to avoid NSApp calls
         panel.close = MagicMock()
-        with patch("PyObjCTools.AppHelper.callAfter", side_effect=lambda fn: fn()):
+        with patch("PyObjCTools.AppHelper.callAfter", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
             panel._execute_item(0)
         # Action runs in a deferred thread with 0.15s delay
         time.sleep(0.3)
@@ -258,7 +258,7 @@ class TestItemExecution:
         panel = _make_panel()
         panel._current_items = [ChooserItem(title="No Action")]
         panel.close = MagicMock()
-        with patch("PyObjCTools.AppHelper.callAfter", side_effect=lambda fn: fn()):
+        with patch("PyObjCTools.AppHelper.callAfter", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
             panel._execute_item(0)  # Should not raise
 
     def test_execute_item_out_of_range(self):
