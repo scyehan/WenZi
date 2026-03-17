@@ -1180,3 +1180,92 @@ class TestCalcMode:
             panel.close()
         assert panel._calc_mode is False
         panel._stop_esc_tap.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Panel resize (collapsed ↔ expanded)
+# ---------------------------------------------------------------------------
+
+
+class TestPanelResize:
+    def test_initial_state_is_collapsed(self):
+        panel = _make_panel()
+        assert panel._is_expanded is False
+
+    def test_resize_expand(self):
+        """panelResize expand should set _is_expanded and call setFrame_display_."""
+        panel = _make_panel()
+        mock_panel = MagicMock()
+        mock_panel.frame.return_value = MagicMock(
+            origin=MagicMock(x=100, y=500),
+            size=MagicMock(width=960, height=48),
+        )
+        panel._panel = mock_panel
+        panel._is_expanded = False
+
+        panel._handle_js_message({"type": "panelResize", "expanded": True})
+
+        assert panel._is_expanded is True
+        mock_panel.setFrame_display_.assert_called_once()
+        frame_arg = mock_panel.setFrame_display_.call_args[0][0]
+        # Height should be expanded (400)
+        assert frame_arg[1][1] == panel._PANEL_HEIGHT_EXPANDED
+        # Top edge preserved: new_y = 500 + 48 - 400 = 148
+        assert frame_arg[0][1] == 148
+
+    def test_resize_collapse(self):
+        """panelResize collapse should set _is_expanded and call setFrame_display_."""
+        panel = _make_panel()
+        mock_panel = MagicMock()
+        mock_panel.frame.return_value = MagicMock(
+            origin=MagicMock(x=100, y=148),
+            size=MagicMock(width=960, height=400),
+        )
+        panel._panel = mock_panel
+        panel._is_expanded = True
+
+        panel._handle_js_message({"type": "panelResize", "expanded": False})
+
+        assert panel._is_expanded is False
+        mock_panel.setFrame_display_.assert_called_once()
+        frame_arg = mock_panel.setFrame_display_.call_args[0][0]
+        # Height should be collapsed (48)
+        assert frame_arg[1][1] == panel._PANEL_HEIGHT_COLLAPSED
+        # Top edge preserved: new_y = 148 + 400 - 48 = 500
+        assert frame_arg[0][1] == 500
+
+    def test_resize_noop_when_already_expanded(self):
+        """Redundant expand should not call setFrame_display_."""
+        panel = _make_panel()
+        mock_panel = MagicMock()
+        panel._panel = mock_panel
+        panel._is_expanded = True
+
+        panel._resize_panel(True)
+        mock_panel.setFrame_display_.assert_not_called()
+
+    def test_resize_noop_when_already_collapsed(self):
+        """Redundant collapse should not call setFrame_display_."""
+        panel = _make_panel()
+        mock_panel = MagicMock()
+        panel._panel = mock_panel
+        panel._is_expanded = False
+
+        panel._resize_panel(False)
+        mock_panel.setFrame_display_.assert_not_called()
+
+    def test_resize_noop_when_no_panel(self):
+        """Resize with panel=None should not crash."""
+        panel = _make_panel()
+        panel._panel = None
+        panel._resize_panel(True)  # Should not raise
+
+    def test_close_resets_is_expanded(self):
+        """close() should reset _is_expanded to False."""
+        panel = _make_panel()
+        panel._is_expanded = True
+        with patch("PyObjCTools.AppHelper.callAfter", side_effect=lambda fn, *a, **kw: fn(*a, **kw)), \
+             patch("wenzi.scripting.ui.chooser_panel.reactivate_app"), \
+             patch("wenzi.scripting.ui.chooser_panel.restore_accessory"):
+            panel.close()
+        assert panel._is_expanded is False

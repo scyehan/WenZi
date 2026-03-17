@@ -503,6 +503,17 @@ function updateSelection(newIndex) {
     }
 }
 
+// --- Panel resize (collapsed ↔ expanded) ---
+var _panelExpanded = false;
+
+function _checkPanelResize() {
+    var shouldExpand = searchInput.value.length > 0;
+    if (shouldExpand !== _panelExpanded) {
+        _panelExpanded = shouldExpand;
+        post('panelResize', { expanded: shouldExpand });
+    }
+}
+
 // --- Input handling (with debounce for longer queries) ---
 var _debounceTimer = null;
 searchInput.addEventListener('input', function() {
@@ -511,6 +522,7 @@ searchInput.addEventListener('input', function() {
         inHistoryMode = false;
         post('exitHistory');
     }
+    _checkPanelResize();
     var query = searchInput.value;
     if (_debounceTimer) { clearTimeout(_debounceTimer); _debounceTimer = null; }
     // Short queries (<=3 chars): search immediately (prefix activation like "f ")
@@ -736,11 +748,13 @@ function clearInput() {
     items = [];
     selectedIndex = -1;
     renderItems();
+    _checkPanelResize();
 }
 
 function setInputValue(value) {
     searchInput.value = value;
     searchInput.setSelectionRange(value.length, value.length);
+    _checkPanelResize();
     post('search', { query: value });
 }
 
@@ -750,6 +764,7 @@ function setHistoryQuery(value) {
     searchInput.setSelectionRange(value.length, value.length);
     _settingHistoryValue = false;
     inHistoryMode = true;
+    _checkPanelResize();
     post('search', { query: value });
 }
 
