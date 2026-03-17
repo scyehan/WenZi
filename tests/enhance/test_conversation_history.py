@@ -19,7 +19,7 @@ def history_dir(tmp_path):
 @pytest.fixture
 def history(history_dir):
     """Return a ConversationHistory instance using a temp directory."""
-    return ConversationHistory(config_dir=history_dir)
+    return ConversationHistory(data_dir=history_dir)
 
 
 class TestConversationHistoryLog:
@@ -55,7 +55,7 @@ class TestConversationHistoryLog:
 
     def test_log_creates_directory(self, tmp_path):
         nested = str(tmp_path / "nested" / "dir")
-        h = ConversationHistory(config_dir=nested)
+        h = ConversationHistory(data_dir=nested)
         h.log("hello", None, "hello", "off", False)
         assert os.path.exists(os.path.join(nested, "conversation_history.jsonl"))
 

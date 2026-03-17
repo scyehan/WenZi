@@ -9,7 +9,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from wenzi.config import DEFAULT_CONFIG_DIR
+from wenzi.config import DEFAULT_DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +38,10 @@ class ConversationHistory:
     _ROTATE_SIZE_THRESHOLD = 4 * 1024 * 1024  # 4 MB — cheap pre-check
     _CACHE_SIZE = 200
 
-    def __init__(self, config_dir: str = DEFAULT_CONFIG_DIR) -> None:
-        self._config_dir = os.path.expanduser(config_dir)
-        self._history_path = os.path.join(self._config_dir, "conversation_history.jsonl")
-        self._archive_dir = os.path.join(self._config_dir, "conversation_history_archives")
+    def __init__(self, data_dir: str = DEFAULT_DATA_DIR) -> None:
+        self._data_dir = os.path.expanduser(data_dir)
+        self._history_path = os.path.join(self._data_dir, "conversation_history.jsonl")
+        self._archive_dir = os.path.join(self._data_dir, "conversation_history_archives")
 
         # Hot-path cache: most recent _CACHE_SIZE raw records (oldest first)
         self._cache: Optional[List[Dict[str, Any]]] = None
@@ -210,7 +210,7 @@ class ConversationHistory:
         Returns:
             The ISO timestamp of the logged record.
         """
-        os.makedirs(self._config_dir, exist_ok=True)
+        os.makedirs(self._data_dir, exist_ok=True)
 
         ts = datetime.now(timezone.utc).isoformat()
         record = {

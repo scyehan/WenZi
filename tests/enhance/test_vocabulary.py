@@ -92,7 +92,7 @@ class TestVocabularyIndexLoad:
             def set_model(self=None):
                 idx._model = mock_model
 
-            idx = VocabularyIndex({}, vocab_dir=str(tmp_path))
+            idx = VocabularyIndex({}, data_dir=str(tmp_path), cache_dir=str(tmp_path))
             mock_load.side_effect = lambda: setattr(idx, "_model", mock_model)
             result = idx.load()
 
@@ -101,7 +101,7 @@ class TestVocabularyIndexLoad:
         assert len(idx._entries) == 3
 
     def test_load_no_vocabulary_file(self, tmp_path):
-        idx = VocabularyIndex({}, vocab_dir=str(tmp_path))
+        idx = VocabularyIndex({}, data_dir=str(tmp_path), cache_dir=str(tmp_path))
         result = idx.load()
         assert result is False
         assert not idx.is_loaded
@@ -112,7 +112,7 @@ class TestVocabularyIndexLoad:
             json.dumps(_make_vocab_json([])), encoding="utf-8"
         )
 
-        idx = VocabularyIndex({}, vocab_dir=str(tmp_path))
+        idx = VocabularyIndex({}, data_dir=str(tmp_path), cache_dir=str(tmp_path))
         result = idx.load()
         assert result is False
 
@@ -145,7 +145,7 @@ class TestVocabularyIndexLoad:
         # Make index newer than vocab
         os.utime(str(index_path), (1e10, 1e10))
 
-        idx = VocabularyIndex({}, vocab_dir=str(tmp_path))
+        idx = VocabularyIndex({}, data_dir=str(tmp_path), cache_dir=str(tmp_path))
         result = idx.load()
         assert result is True
         assert idx.is_loaded
@@ -172,7 +172,7 @@ class TestVocabularyIndexLoad:
             np.random.randn(384).astype(np.float32) for _ in texts
         ]
 
-        idx = VocabularyIndex({}, vocab_dir=str(tmp_path))
+        idx = VocabularyIndex({}, data_dir=str(tmp_path), cache_dir=str(tmp_path))
         with patch.object(idx, "_lazy_load_model", lambda: setattr(idx, "_model", mock_model)):
             result = idx.load()
 
@@ -209,7 +209,7 @@ class TestVocabularyIndexRetrieve:
         ])
         entry_indices = [0, 0, 0, 1, 1, 1, 2, 2]
 
-        idx = VocabularyIndex({}, vocab_dir=str(tmp_path))
+        idx = VocabularyIndex({}, data_dir=str(tmp_path), cache_dir=str(tmp_path))
         idx._entries = entries
         idx._vectors = vectors
         idx._vector_entry_indices = entry_indices
@@ -251,7 +251,7 @@ class TestVocabularyIndexRetrieve:
         assert results == []
 
     def test_retrieve_not_loaded(self, tmp_path):
-        idx = VocabularyIndex({}, vocab_dir=str(tmp_path))
+        idx = VocabularyIndex({}, data_dir=str(tmp_path), cache_dir=str(tmp_path))
         results = idx.retrieve("Python", top_k=5)
         assert results == []
 
@@ -350,7 +350,7 @@ class TestVocabularyIndexStaleness:
         os.utime(str(vocab_path), (1e10, 1e10))
         os.utime(str(index_path), (1e9, 1e9))
 
-        idx = VocabularyIndex({}, vocab_dir=str(tmp_path))
+        idx = VocabularyIndex({}, data_dir=str(tmp_path), cache_dir=str(tmp_path))
         assert idx._is_index_stale() is True
 
     def test_not_stale_when_index_newer(self, tmp_path):
@@ -363,14 +363,14 @@ class TestVocabularyIndexStaleness:
         os.utime(str(vocab_path), (1e9, 1e9))
         os.utime(str(index_path), (1e10, 1e10))
 
-        idx = VocabularyIndex({}, vocab_dir=str(tmp_path))
+        idx = VocabularyIndex({}, data_dir=str(tmp_path), cache_dir=str(tmp_path))
         assert idx._is_index_stale() is False
 
     def test_stale_when_no_index(self, tmp_path):
         vocab_path = tmp_path / "vocabulary.json"
         vocab_path.write_text("{}", encoding="utf-8")
 
-        idx = VocabularyIndex({}, vocab_dir=str(tmp_path))
+        idx = VocabularyIndex({}, data_dir=str(tmp_path), cache_dir=str(tmp_path))
         assert idx._is_index_stale() is True
 
 
@@ -387,7 +387,7 @@ class TestVocabularyIndexReload:
             np.random.randn(384).astype(np.float32) for _ in texts
         ]
 
-        idx = VocabularyIndex({}, vocab_dir=str(tmp_path))
+        idx = VocabularyIndex({}, data_dir=str(tmp_path), cache_dir=str(tmp_path))
         idx._model = mock_model
         with patch.object(idx, "_lazy_load_model"):
             idx.load()
@@ -411,7 +411,7 @@ class TestEntryCount:
             np.random.randn(384).astype(np.float32) for _ in texts
         ]
 
-        idx = VocabularyIndex({}, vocab_dir=str(tmp_path))
+        idx = VocabularyIndex({}, data_dir=str(tmp_path), cache_dir=str(tmp_path))
         assert idx.entry_count == 0
 
         idx._model = mock_model
@@ -431,7 +431,7 @@ class TestEntryCount:
             np.random.randn(384).astype(np.float32) for _ in texts
         ]
 
-        idx = VocabularyIndex({}, vocab_dir=str(tmp_path))
+        idx = VocabularyIndex({}, data_dir=str(tmp_path), cache_dir=str(tmp_path))
         idx._model = mock_model
         with patch.object(idx, "_lazy_load_model"):
             idx.load()

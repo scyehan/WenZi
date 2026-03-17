@@ -238,7 +238,7 @@ class TestInitCounterFromDisk:
         )
 
         # Write conversation history with corrections after the timestamp
-        ch = ConversationHistory(config_dir=str(tmp_path))
+        ch = ConversationHistory(data_dir=str(tmp_path))
         ch.log("old asr", "old enhanced", "old final", "proofread", True, user_corrected=True)
         # Manually backdate the record to before last_processed_timestamp
         with open(tmp_path / "conversation_history.jsonl", "r") as f:
@@ -254,19 +254,19 @@ class TestInitCounterFromDisk:
 
         builder = AutoVocabBuilder(
             config, enabled=True, threshold=10,
-            conversation_history=ch, config_dir=str(tmp_path),
+            conversation_history=ch, data_dir=str(tmp_path),
         )
         assert builder._counter == 3
 
     def test_counter_zero_when_no_vocab_file(self, config, tmp_path):
         """Without vocabulary.json, all corrections count as pending."""
-        ch = ConversationHistory(config_dir=str(tmp_path))
+        ch = ConversationHistory(data_dir=str(tmp_path))
         for i in range(5):
             ch.log(f"asr{i}", f"enhanced{i}", f"final{i}", "proofread", True, user_corrected=True)
 
         builder = AutoVocabBuilder(
             config, enabled=True, threshold=10,
-            conversation_history=ch, config_dir=str(tmp_path),
+            conversation_history=ch, data_dir=str(tmp_path),
         )
         assert builder._counter == 5
 
@@ -281,24 +281,24 @@ class TestInitCounterFromDisk:
             encoding="utf-8",
         )
 
-        ch = ConversationHistory(config_dir=str(tmp_path))
+        ch = ConversationHistory(data_dir=str(tmp_path))
         ch.log("asr", "enhanced", "final", "proofread", True, user_corrected=True)
 
         builder = AutoVocabBuilder(
             config, enabled=True, threshold=10,
-            conversation_history=ch, config_dir=str(tmp_path),
+            conversation_history=ch, data_dir=str(tmp_path),
         )
         assert builder._counter == 0
 
     def test_counter_zero_when_disabled(self, config, tmp_path):
         """Disabled builder should not init counter from disk."""
-        ch = ConversationHistory(config_dir=str(tmp_path))
+        ch = ConversationHistory(data_dir=str(tmp_path))
         for i in range(5):
             ch.log(f"asr{i}", f"enhanced{i}", f"final{i}", "proofread", True, user_corrected=True)
 
         builder = AutoVocabBuilder(
             config, enabled=False, threshold=10,
-            conversation_history=ch, config_dir=str(tmp_path),
+            conversation_history=ch, data_dir=str(tmp_path),
         )
         assert builder._counter == 0
 
@@ -306,20 +306,20 @@ class TestInitCounterFromDisk:
         """Without conversation_history, counter stays 0."""
         builder = AutoVocabBuilder(
             config, enabled=True, threshold=10,
-            conversation_history=None, config_dir=str(tmp_path),
+            conversation_history=None, data_dir=str(tmp_path),
         )
         assert builder._counter == 0
 
     @patch.object(AutoVocabBuilder, "_run_silent_build")
     def test_next_correction_triggers_build_after_init(self, mock_build, config, tmp_path):
         """When disk counter is threshold-1, one more correction triggers build."""
-        ch = ConversationHistory(config_dir=str(tmp_path))
+        ch = ConversationHistory(data_dir=str(tmp_path))
         for i in range(4):
             ch.log(f"asr{i}", f"enhanced{i}", f"final{i}", "proofread", True, user_corrected=True)
 
         builder = AutoVocabBuilder(
             config, enabled=True, threshold=5,
-            conversation_history=ch, config_dir=str(tmp_path),
+            conversation_history=ch, data_dir=str(tmp_path),
         )
         assert builder._counter == 4
 
@@ -331,13 +331,13 @@ class TestInitCounterFromDisk:
     @patch.object(AutoVocabBuilder, "_run_silent_build")
     def test_exceeding_threshold_triggers_on_next_correction(self, mock_build, config, tmp_path):
         """When disk corrections already exceed threshold, next correction triggers."""
-        ch = ConversationHistory(config_dir=str(tmp_path))
+        ch = ConversationHistory(data_dir=str(tmp_path))
         for i in range(20):
             ch.log(f"asr{i}", f"enhanced{i}", f"final{i}", "proofread", True, user_corrected=True)
 
         builder = AutoVocabBuilder(
             config, enabled=True, threshold=5,
-            conversation_history=ch, config_dir=str(tmp_path),
+            conversation_history=ch, data_dir=str(tmp_path),
         )
         assert builder._counter == 20
 

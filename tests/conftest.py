@@ -50,20 +50,28 @@ def _safe_default_paths(tmp_path, monkeypatch):
     When adding a new ``_DEFAULT_*`` path constant, add it to the
     patch dicts below.  The guard layer does not need updating.
     """
-    safe = str(tmp_path / "wenzi_safe")
+    safe_config = str(tmp_path / "wenzi_config")
+    safe_data = str(tmp_path / "wenzi_data")
+    safe_cache = str(tmp_path / "wenzi_cache")
 
     # --- Patch layer: config.py central constants --------------------------
     config_patches = {
-        "DEFAULT_CONFIG_DIR": safe,
-        "DEFAULT_CONFIG_PATH": os.path.join(safe, "config.json"),
-        "DEFAULT_ENHANCE_MODES_DIR": os.path.join(safe, "enhance_modes"),
-        "DEFAULT_SCRIPTS_DIR": os.path.join(safe, "scripts"),
-        "DEFAULT_CLIPBOARD_HISTORY_PATH": os.path.join(safe, "clipboard_history.json"),
-        "DEFAULT_CLIPBOARD_IMAGES_DIR": os.path.join(safe, "clipboard_images"),
-        "DEFAULT_SNIPPETS_DIR": os.path.join(safe, "snippets"),
-        "DEFAULT_ICON_CACHE_DIR": os.path.join(safe, "icon_cache"),
-        "DEFAULT_CHOOSER_USAGE_PATH": os.path.join(safe, "chooser_usage.json"),
-        "DEFAULT_SCRIPT_DATA_PATH": os.path.join(safe, "script_data.json"),
+        # XDG base directories
+        "DEFAULT_CONFIG_DIR": safe_config,
+        "DEFAULT_DATA_DIR": safe_data,
+        "DEFAULT_CACHE_DIR": safe_cache,
+        # Config files
+        "DEFAULT_CONFIG_PATH": os.path.join(safe_config, "config.json"),
+        "DEFAULT_ENHANCE_MODES_DIR": os.path.join(safe_config, "enhance_modes"),
+        "DEFAULT_SCRIPTS_DIR": os.path.join(safe_config, "scripts"),
+        "DEFAULT_SNIPPETS_DIR": os.path.join(safe_config, "snippets"),
+        # Data files
+        "DEFAULT_CLIPBOARD_HISTORY_PATH": os.path.join(safe_data, "clipboard_history.json"),
+        "DEFAULT_CLIPBOARD_IMAGES_DIR": os.path.join(safe_data, "clipboard_images"),
+        "DEFAULT_CHOOSER_USAGE_PATH": os.path.join(safe_data, "chooser_usage.json"),
+        "DEFAULT_SCRIPT_DATA_PATH": os.path.join(safe_data, "script_data.json"),
+        # Cache files
+        "DEFAULT_ICON_CACHE_DIR": os.path.join(safe_cache, "icon_cache"),
     }
     for attr, value in config_patches.items():
         monkeypatch.setattr(f"wenzi.config.{attr}", value)
@@ -71,31 +79,42 @@ def _safe_default_paths(tmp_path, monkeypatch):
     # --- Patch layer: consumer module copies (import-time snapshots) -------
     consumer_patches = {
         "wenzi.scripting.clipboard_monitor._DEFAULT_IMAGE_DIR":
-            os.path.join(safe, "clipboard_images"),
+            os.path.join(safe_data, "clipboard_images"),
+        "wenzi.scripting.clipboard_monitor._DEFAULT_ICON_CACHE_DIR":
+            os.path.join(safe_cache, "icon_cache"),
         "wenzi.scripting.sources.snippet_source._DEFAULT_SNIPPETS_DIR":
-            os.path.join(safe, "snippets"),
+            os.path.join(safe_config, "snippets"),
         "wenzi.scripting.sources.app_source._DEFAULT_ICON_CACHE_DIR":
-            os.path.join(safe, "icon_cache"),
+            os.path.join(safe_cache, "icon_cache"),
+        "wenzi.scripting.sources.bookmark_source._DEFAULT_ICON_CACHE_DIR":
+            os.path.join(safe_cache, "icon_cache"),
+        "wenzi.scripting.sources.file_source._DEFAULT_ICON_CACHE_DIR":
+            os.path.join(safe_cache, "icon_cache"),
         "wenzi.scripting.sources.usage_tracker._DEFAULT_PATH":
-            os.path.join(safe, "chooser_usage.json"),
+            os.path.join(safe_data, "chooser_usage.json"),
         "wenzi.scripting.api.store._DEFAULT_PATH":
-            os.path.join(safe, "script_data.json"),
+            os.path.join(safe_data, "script_data.json"),
         "wenzi.enhance.mode_loader.DEFAULT_MODES_DIR":
-            os.path.join(safe, "enhance_modes"),
+            os.path.join(safe_config, "enhance_modes"),
     }
     for attr, value in consumer_patches.items():
         monkeypatch.setattr(attr, value)
 
-    # --- Guard layer: block writes/deletes to real data dir ----------------
-    _real_config_dir = os.path.expanduser("~/.config/WenZi")
+    # --- Guard layer: block writes/deletes to real XDG directories ----------
+    _real_guarded_dirs = (
+        os.path.expanduser("~/.config/WenZi"),
+        os.path.expanduser("~/.local/share/WenZi"),
+        os.path.expanduser("~/.cache/WenZi"),
+    )
 
     def _is_guarded(path):
-        """Return True if *path* is inside the real data directory."""
+        """Return True if *path* is inside any real WenZi directory."""
         if not isinstance(path, (str, bytes)):
             return False
         p = os.fsdecode(path) if isinstance(path, bytes) else path
         try:
-            return os.path.abspath(p).startswith(_real_config_dir)
+            abspath = os.path.abspath(p)
+            return any(abspath.startswith(d) for d in _real_guarded_dirs)
         except (ValueError, OSError):
             return False
 

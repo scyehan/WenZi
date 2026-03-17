@@ -759,17 +759,23 @@ class ChooserPanel:
         self._pending_js = []
         self._current_items = []
 
-        # Load HTML from a temp file so WKWebView grants file:// access
-        # to the config directory (needed for icon cache images).
+        # Load HTML from a temp file so WKWebView grants file:// access.
+        # Icons live in ~/.cache/WenZi and clipboard images in
+        # ~/.local/share/WenZi.  WKWebView only accepts a single
+        # allowingReadAccessToURL_ directory, and the lowest common ancestor
+        # of these two XDG paths is ~/, so we must grant home-wide read
+        # access.  This is safe because the web view only loads our own
+        # local HTML — no user-controlled URLs are loaded.
         from wenzi.scripting.ui.chooser_html import CHOOSER_HTML
-        from wenzi.config import DEFAULT_CONFIG_DIR
+        from wenzi.config import DEFAULT_CACHE_DIR
 
-        config_dir = os.path.expanduser(DEFAULT_CONFIG_DIR)
-        os.makedirs(config_dir, exist_ok=True)
-        html_path = os.path.join(config_dir, "_chooser.html")
+        cache_dir = os.path.expanduser(DEFAULT_CACHE_DIR)
+        os.makedirs(cache_dir, exist_ok=True)
+        html_path = os.path.join(cache_dir, "_chooser.html")
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(CHOOSER_HTML)
+        home_dir = os.path.expanduser("~")
         webview.loadFileURL_allowingReadAccessToURL_(
             NSURL.fileURLWithPath_(html_path),
-            NSURL.fileURLWithPath_(config_dir),
+            NSURL.fileURLWithPath_(home_dir),
         )

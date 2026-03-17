@@ -37,7 +37,7 @@ class TestGetDailyRange:
 
         from wenzi.ui.stats_panel import get_daily_range
 
-        stats = UsageStats(stats_dir=str(tmp_path / "cfg"))
+        stats = UsageStats(data_dir=str(tmp_path / "cfg"))
         result = get_daily_range(stats, days=7)
         assert len(result) == 7
 
@@ -46,7 +46,7 @@ class TestGetDailyRange:
 
         from wenzi.ui.stats_panel import get_daily_range
 
-        stats = UsageStats(stats_dir=str(tmp_path / "cfg"))
+        stats = UsageStats(data_dir=str(tmp_path / "cfg"))
         result = get_daily_range(stats, days=5)
         dates = [d["date"] for d in result]
         assert dates == sorted(dates)
@@ -56,7 +56,7 @@ class TestGetDailyRange:
 
         from wenzi.ui.stats_panel import get_daily_range
 
-        stats = UsageStats(stats_dir=str(tmp_path / "cfg"))
+        stats = UsageStats(data_dir=str(tmp_path / "cfg"))
         result = get_daily_range(stats, days=3)
         assert result[-1]["date"] == date.today().isoformat()
 
@@ -65,7 +65,7 @@ class TestGetDailyRange:
 
         from wenzi.ui.stats_panel import get_daily_range
 
-        stats = UsageStats(stats_dir=str(tmp_path / "cfg"))
+        stats = UsageStats(data_dir=str(tmp_path / "cfg"))
         stats.record_transcription(mode="direct")
         result = get_daily_range(stats, days=1)
         assert result[0]["totals"]["transcriptions"] == 1
@@ -76,7 +76,7 @@ class TestGetDailyRange:
 
         from wenzi.ui.stats_panel import get_daily_range
 
-        stats = UsageStats(stats_dir=str(tmp_path / "cfg"))
+        stats = UsageStats(data_dir=str(tmp_path / "cfg"))
         result = get_daily_range(stats, days=7)
         # Yesterday should have zero transcriptions (nothing recorded)
         yesterday = result[-2]
@@ -91,7 +91,7 @@ class TestBuildStatsPayload:
 
         from wenzi.ui.stats_panel import build_stats_payload
 
-        stats = UsageStats(stats_dir=str(tmp_path / "cfg"))
+        stats = UsageStats(data_dir=str(tmp_path / "cfg"))
         payload = build_stats_payload(stats, days=7)
         assert "cumulative" in payload
         assert "today" in payload
@@ -103,7 +103,7 @@ class TestBuildStatsPayload:
 
         from wenzi.ui.stats_panel import build_stats_payload
 
-        stats = UsageStats(stats_dir=str(tmp_path / "cfg"))
+        stats = UsageStats(data_dir=str(tmp_path / "cfg"))
         stats.record_transcription(mode="preview", enhance_mode="proofread")
         payload = build_stats_payload(stats)
         # Should not raise
@@ -119,7 +119,7 @@ class TestBuildHtml:
 
         from wenzi.ui.stats_panel import build_html, build_stats_payload
 
-        stats = UsageStats(stats_dir=str(tmp_path / "cfg"))
+        stats = UsageStats(data_dir=str(tmp_path / "cfg"))
         payload = build_stats_payload(stats, days=3)
         html = build_html(payload)
         assert "__STATS_DATA__" not in html
@@ -174,7 +174,7 @@ class TestStatsChartPanel:
 
         from wenzi.ui.stats_panel import StatsChartPanel
 
-        stats = UsageStats(stats_dir=str(tmp_path / "cfg"))
+        stats = UsageStats(data_dir=str(tmp_path / "cfg"))
         panel = StatsChartPanel()
         panel.show(stats)
         _mock_appkit.appkit.NSApp.setActivationPolicy_.assert_called_with(0)
@@ -184,7 +184,7 @@ class TestStatsChartPanel:
 
         from wenzi.ui.stats_panel import StatsChartPanel
 
-        stats = UsageStats(stats_dir=str(tmp_path / "cfg"))
+        stats = UsageStats(data_dir=str(tmp_path / "cfg"))
         panel = StatsChartPanel()
         panel.show(stats)
 
@@ -198,7 +198,7 @@ class TestStatsChartPanel:
 
         from wenzi.ui.stats_panel import StatsChartPanel
 
-        stats = UsageStats(stats_dir=str(tmp_path / "cfg"))
+        stats = UsageStats(data_dir=str(tmp_path / "cfg"))
         panel = StatsChartPanel()
         panel.show(stats)
         first_panel = panel._panel
@@ -216,7 +216,7 @@ class TestStatsChartPanel:
 
         from wenzi.ui.stats_panel import StatsChartPanel
 
-        stats = UsageStats(stats_dir=str(tmp_path / "cfg"))
+        stats = UsageStats(data_dir=str(tmp_path / "cfg"))
         panel = StatsChartPanel()
         panel.show(stats)
         # Verify loadHTMLString_baseURL_ was called on the webview

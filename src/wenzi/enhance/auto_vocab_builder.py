@@ -25,7 +25,7 @@ class AutoVocabBuilder:
         on_build_done: Optional[Callable[[], None]] = None,
         on_status_update: Optional[Callable[[str], None]] = None,
         conversation_history: Any = None,
-        config_dir: str | None = None,
+        data_dir: str | None = None,
     ) -> None:
         self._config = config
         self._enabled = enabled
@@ -37,7 +37,7 @@ class AutoVocabBuilder:
         self._on_build_done = on_build_done
         self._on_status_update = on_status_update
         self._conversation_history = conversation_history
-        self._config_dir = config_dir
+        self._data_dir = data_dir
         self._init_counter_from_disk()
 
     def _init_counter_from_disk(self) -> None:
@@ -46,12 +46,12 @@ class AutoVocabBuilder:
         Reads the last_processed_timestamp from vocabulary.json and counts
         corrections that occurred after it, so the counter survives app restarts.
         """
-        if not self._enabled or not self._conversation_history or not self._config_dir:
+        if not self._enabled or not self._conversation_history or not self._data_dir:
             return
 
         try:
             vocab_path = os.path.join(
-                os.path.expanduser(self._config_dir), "vocabulary.json"
+                os.path.expanduser(self._data_dir), "vocabulary.json"
             )
             since = None
             if os.path.exists(vocab_path):
@@ -106,8 +106,8 @@ class AutoVocabBuilder:
             from .vocabulary_builder import BuildCallbacks, VocabularyBuilder
             ai_cfg = self._config.get("ai_enhance", {})
             kwargs = {}
-            if self._config_dir:
-                kwargs["log_dir"] = self._config_dir
+            if self._data_dir:
+                kwargs["data_dir"] = self._data_dir
             builder = VocabularyBuilder(
                 ai_cfg, conversation_history=self._conversation_history,
                 **kwargs,

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
-from wenzi.config import DEFAULT_CONFIG_DIR
+from wenzi.config import DEFAULT_DATA_DIR
 from .conversation_history import ConversationHistory
 from .enhancer import build_thinking_body
 
@@ -36,13 +36,13 @@ class VocabularyBuilder:
     def __init__(
         self,
         config: Dict[str, Any],
-        log_dir: str = DEFAULT_CONFIG_DIR,
+        data_dir: str = DEFAULT_DATA_DIR,
         conversation_history: Optional[ConversationHistory] = None,
     ) -> None:
         self._config = config
-        self._log_dir = os.path.expanduser(log_dir)
-        self._conversation_history = conversation_history or ConversationHistory(config_dir=self._log_dir)
-        self._vocab_path = os.path.join(self._log_dir, "vocabulary.json")
+        self._data_dir = os.path.expanduser(data_dir)
+        self._conversation_history = conversation_history or ConversationHistory(data_dir=self._data_dir)
+        self._vocab_path = os.path.join(self._data_dir, "vocabulary.json")
         self._batch_size = 20
         self._batch_timeout = config.get("vocabulary", {}).get("build_timeout", 600)
 
@@ -482,7 +482,7 @@ class VocabularyBuilder:
 
     def _save_vocabulary(self, vocabulary: Dict[str, Any]) -> None:
         """Save vocabulary to JSON file."""
-        os.makedirs(self._log_dir, exist_ok=True)
+        os.makedirs(self._data_dir, exist_ok=True)
         with open(self._vocab_path, "w", encoding="utf-8") as f:
             json.dump(vocabulary, f, indent=2, ensure_ascii=False)
             f.write("\n")

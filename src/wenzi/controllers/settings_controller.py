@@ -92,7 +92,7 @@ class SettingsController:
         if app._enhancer and app._enhancer.vocab_index is not None:
             vocab_count = app._enhancer.vocab_index.entry_count
         if vocab_count == 0:
-            vocab_count = get_vocab_entry_count(app._config_dir)
+            vocab_count = get_vocab_entry_count(app._data_dir)
 
         ui_cfg = app._config.get("ui", {})
         last_tab = ui_cfg.get("settings_last_tab", "general")
@@ -1021,9 +1021,8 @@ class SettingsController:
         import shutil
 
         # Clear app icon disk cache
-        icon_cache_dir = os.path.expanduser(
-            "~/.config/WenZi/icon_cache"
-        )
+        from wenzi.config import DEFAULT_ICON_CACHE_DIR
+        icon_cache_dir = os.path.expanduser(DEFAULT_ICON_CACHE_DIR)
         if os.path.isdir(icon_cache_dir):
             shutil.rmtree(icon_cache_dir, ignore_errors=True)
             logger.info("Cleared app icon cache: %s", icon_cache_dir)

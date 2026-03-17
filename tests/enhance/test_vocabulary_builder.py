@@ -88,7 +88,7 @@ class TestReadCorrections:
             for r in records:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = builder._read_corrections()
         assert len(result) == 3
 
@@ -99,13 +99,13 @@ class TestReadCorrections:
             for r in records:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = builder._read_corrections(since="2026-01-01T10:00:00+00:00")
         assert len(result) == 2
         assert result[0]["asr_text"] == "库伯尼特斯容器"
 
     def test_read_no_file(self, tmp_path):
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = builder._read_corrections()
         assert result == []
 
@@ -116,7 +116,7 @@ class TestReadCorrections:
             f.write("invalid json line\n")
             f.write('{"timestamp": "2026-01-01T11:00:00", "asr_text": "world", "user_corrected": true}\n')
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = builder._read_corrections()
         assert len(result) == 2
 
@@ -128,7 +128,7 @@ class TestReadCorrections:
             f.write("\n")
             f.write('{"timestamp": "2026-01-01T11:00:00", "asr_text": "world", "user_corrected": true}\n')
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = builder._read_corrections()
         assert len(result) == 2
 
@@ -139,7 +139,7 @@ class TestReadCorrections:
             f.write('{"timestamp": "2026-01-01T11:00:00", "asr_text": "b", "user_corrected": false}\n')
             f.write('{"timestamp": "2026-01-01T12:00:00", "asr_text": "c", "user_corrected": true}\n')
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = builder._read_corrections()
         assert len(result) == 2
         assert result[0]["asr_text"] == "a"
@@ -405,7 +405,7 @@ class TestMergeEntries:
 
 class TestBuild:
     def test_build_no_records(self, tmp_path):
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = asyncio.run(builder.build())
         assert result["new_records"] == 0
 
@@ -424,7 +424,7 @@ class TestBuild:
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = asyncio.run(builder.build())
 
@@ -462,7 +462,7 @@ class TestBuild:
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = asyncio.run(builder.build())
 
@@ -497,7 +497,7 @@ class TestBuild:
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = asyncio.run(
                 builder.build(full_rebuild=True)
@@ -544,7 +544,7 @@ class TestBuildWithCancel:
         mock_client = MagicMock()
         mock_client.chat.completions.create = mock_create
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = asyncio.run(
                 builder.build(cancel_event=cancel_event)
@@ -566,7 +566,7 @@ class TestBuildWithCancel:
         cancel_event = threading.Event()
         cancel_event.set()
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = asyncio.run(
             builder.build(cancel_event=cancel_event)
         )
@@ -693,7 +693,7 @@ class TestBuildWithCallbacks:
             on_stream_chunk=on_stream_chunk,
         )
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = asyncio.run(
                 builder.build(callbacks=callbacks)
@@ -723,7 +723,7 @@ class TestBuildExtractionPrompt:
 
 class TestSaveLoadVocabulary:
     def test_save_and_load(self, tmp_path):
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         vocab = {
             "last_processed_timestamp": "2026-01-01T00:00:00",
             "entries": [{"term": "Python", "category": "tech"}],
@@ -734,7 +734,7 @@ class TestSaveLoadVocabulary:
         assert loaded["entries"][0]["term"] == "Python"
 
     def test_load_nonexistent(self, tmp_path):
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         result = builder._load_existing_vocabulary()
         assert result == {}
 
@@ -776,7 +776,7 @@ class TestBuildRetryAndAbort:
         mock_client = MagicMock()
         mock_client.chat.completions.create = mock_create
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = asyncio.run(builder.build())
 
@@ -794,7 +794,7 @@ class TestBuildRetryAndAbort:
         mock_client = MagicMock()
         mock_client.chat.completions.create = mock_create
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = asyncio.run(builder.build())
 
@@ -821,7 +821,7 @@ class TestBuildRetryAndAbort:
         mock_client = MagicMock()
         mock_client.chat.completions.create = mock_create
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = asyncio.run(builder.build())
 
@@ -853,7 +853,7 @@ class TestBuildRetryAndAbort:
         mock_client = MagicMock()
         mock_client.chat.completions.create = mock_create
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = asyncio.run(builder.build())
 
@@ -886,7 +886,7 @@ class TestBuildRetryAndAbort:
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client), \
              patch.object(VocabularyBuilder, "_save_vocabulary", tracking_save):
             asyncio.run(builder.build())
@@ -923,7 +923,7 @@ class TestBuildRetryAndAbort:
             on_batch_retry=lambda i, t: retry_calls.append((i, t)),
         )
 
-        builder = VocabularyBuilder(_make_config(), log_dir=str(tmp_path))
+        builder = VocabularyBuilder(_make_config(), data_dir=str(tmp_path))
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             result = asyncio.run(builder.build(callbacks=callbacks))
 

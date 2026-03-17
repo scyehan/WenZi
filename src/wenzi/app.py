@@ -13,7 +13,16 @@ from ApplicationServices import AXIsProcessTrusted, AXIsProcessTrustedWithOption
 from CoreFoundation import kCFBooleanTrue
 
 from .enhance.auto_vocab_builder import AutoVocabBuilder
-from .config import load_config, migrate_legacy_paths, resolve_config_dir, save_config, set_config_readonly
+from .config import (
+    load_config,
+    migrate_legacy_paths,
+    migrate_xdg_paths,
+    resolve_cache_dir,
+    resolve_config_dir,
+    resolve_data_dir,
+    save_config,
+    set_config_readonly,
+)
 from .controllers.enhance_controller import EnhanceController
 from .enhance.conversation_history import ConversationHistory
 from .usage_stats import UsageStats
@@ -139,7 +148,10 @@ class WenZiApp(StatusBarApp):
 
         import os
         migrate_legacy_paths()
+        migrate_xdg_paths()
         self._config_dir = resolve_config_dir(config_dir)
+        self._data_dir = resolve_data_dir()
+        self._cache_dir = resolve_cache_dir()
         self._config_path = os.path.join(self._config_dir, "config.json")
         self._config, config_error = load_config(self._config_path)
         self._config_error = config_error
@@ -207,8 +219,8 @@ class WenZiApp(StatusBarApp):
         self._hotkey_listener: Optional[MultiHotkeyListener] = None
         self._busy = False
         self._preview_panel = ResultPreviewPanel()
-        self._conversation_history = ConversationHistory(config_dir=self._config_dir)
-        self._usage_stats = UsageStats(stats_dir=self._config_dir)
+        self._conversation_history = ConversationHistory(data_dir=self._data_dir)
+        self._usage_stats = UsageStats(data_dir=self._data_dir)
 
         # Feedback: sound + visual indicator
         fb_cfg = self._config.get("feedback", {})
@@ -269,6 +281,8 @@ class WenZiApp(StatusBarApp):
         self._enhancer = create_enhancer(
             self._config,
             config_dir=self._config_dir,
+            data_dir=self._data_dir,
+            cache_dir=self._cache_dir,
             conversation_history=self._conversation_history,
         )
         ai_cfg = self._config.get("ai_enhance", {})
@@ -293,7 +307,7 @@ class WenZiApp(StatusBarApp):
             on_build_done=self._update_vocab_title,
             on_status_update=self._on_auto_vocab_status,
             conversation_history=self._conversation_history,
-            config_dir=self._config_dir,
+            data_dir=self._data_dir,
         )
         if self._enhancer:
             self._auto_vocab_builder.set_enhancer(self._enhancer)

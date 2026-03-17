@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from wenzi.config import DEFAULT_CONFIG_DIR
+from wenzi.config import DEFAULT_CACHE_DIR, DEFAULT_DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +32,14 @@ class VocabularyIndex:
     def __init__(
         self,
         config: Dict[str, Any],
-        vocab_dir: str = DEFAULT_CONFIG_DIR,
+        data_dir: str = DEFAULT_DATA_DIR,
+        cache_dir: str = DEFAULT_CACHE_DIR,
     ) -> None:
         self._config = config
-        self._vocab_dir = os.path.expanduser(vocab_dir)
-        self._vocab_path = os.path.join(self._vocab_dir, "vocabulary.json")
-        self._index_path = os.path.join(self._vocab_dir, "vocabulary_index.npz")
+        self._data_dir = os.path.expanduser(data_dir)
+        self._cache_dir = os.path.expanduser(cache_dir)
+        self._vocab_path = os.path.join(self._data_dir, "vocabulary.json")
+        self._index_path = os.path.join(self._cache_dir, "vocabulary_index.npz")
         self._model_name = config.get(
             "embedding_model", "paraphrase-multilingual-MiniLM-L12-v2"
         )
@@ -244,7 +246,7 @@ class VocabularyIndex:
         if self._vectors is None:
             return
 
-        os.makedirs(self._vocab_dir, exist_ok=True)
+        os.makedirs(self._cache_dir, exist_ok=True)
         np.savez_compressed(
             self._index_path,
             vectors=self._vectors,
@@ -313,9 +315,9 @@ class VocabularyIndex:
             return []
 
 
-def get_vocab_entry_count(config_dir: str = DEFAULT_CONFIG_DIR) -> int:
+def get_vocab_entry_count(data_dir: str = DEFAULT_DATA_DIR) -> int:
     """Read the number of entries in vocabulary.json without loading the index."""
-    vocab_path = os.path.join(os.path.expanduser(config_dir), "vocabulary.json")
+    vocab_path = os.path.join(os.path.expanduser(data_dir), "vocabulary.json")
     if not os.path.exists(vocab_path):
         return 0
     try:

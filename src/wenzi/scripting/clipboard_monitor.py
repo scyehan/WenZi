@@ -426,8 +426,8 @@ class ClipboardMonitor:
 
     def _db_path(self) -> str:
         """Derive the SQLite path from the persist_path."""
-        # e.g. ~/.config/WenZi/clipboard_history.json
-        #   -> ~/.config/WenZi/clipboard_history.db
+        # e.g. ~/.local/share/WenZi/clipboard_history.json
+        #   -> ~/.local/share/WenZi/clipboard_history.db
         base = self._persist_path
         if base and base.endswith(".json"):
             return base[:-5] + ".db"

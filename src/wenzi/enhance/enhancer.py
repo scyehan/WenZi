@@ -200,6 +200,8 @@ class TextEnhancer:
         self,
         config: Dict[str, Any],
         config_dir: str | None = None,
+        data_dir: str | None = None,
+        cache_dir: str | None = None,
         conversation_history: Optional[ConversationHistory] = None,
     ) -> None:
         self._enabled = config.get("enabled", False)
@@ -208,6 +210,8 @@ class TextEnhancer:
         self._max_retries = config.get("max_retries", 2)
         self._thinking = config.get("thinking", False)
         self._config_dir = config_dir
+        self._data_dir = data_dir
+        self._cache_dir = cache_dir
 
         # Debug flags
         self._debug_print_prompt = False
@@ -249,7 +253,11 @@ class TextEnhancer:
         self._vocab_top_k = vocab_cfg.get("top_k", 5)
         self._vocab_index: Optional[VocabularyIndex] = None
         if self._vocab_enabled:
-            kwargs = {"vocab_dir": config_dir} if config_dir else {}
+            kwargs: Dict[str, Any] = {}
+            if data_dir:
+                kwargs["data_dir"] = data_dir
+            if cache_dir:
+                kwargs["cache_dir"] = cache_dir
             self._vocab_index = VocabularyIndex(vocab_cfg, **kwargs)
 
         # Conversation history
@@ -260,7 +268,7 @@ class TextEnhancer:
             self._conversation_history = conversation_history
         else:
             self._conversation_history = ConversationHistory(
-                **({"config_dir": config_dir} if config_dir else {})
+                **({"data_dir": data_dir} if data_dir else {})
             )
 
         # Per-mode incremental history cache for prompt caching optimization.
@@ -362,7 +370,11 @@ class TextEnhancer:
         self._vocab_enabled = value
         if value and self._vocab_index is None:
             vocab_cfg = self._config_raw.get("vocabulary", {}) if hasattr(self, "_config_raw") else {}
-            kwargs = {"vocab_dir": self._config_dir} if self._config_dir else {}
+            kwargs: Dict[str, Any] = {}
+            if self._data_dir:
+                kwargs["data_dir"] = self._data_dir
+            if self._cache_dir:
+                kwargs["cache_dir"] = self._cache_dir
             self._vocab_index = VocabularyIndex(vocab_cfg, **kwargs)
         logger.info("Vocabulary changed to: %s", value)
 
@@ -1073,6 +1085,8 @@ class TextEnhancer:
 def create_enhancer(
     config: Dict[str, Any],
     config_dir: str | None = None,
+    data_dir: str | None = None,
+    cache_dir: str | None = None,
     conversation_history: Optional[ConversationHistory] = None,
 ) -> Optional[TextEnhancer]:
     """Factory function to create a TextEnhancer from app config.
@@ -1083,5 +1097,9 @@ def create_enhancer(
     if ai_config is None:
         return None
     return TextEnhancer(
-        ai_config, config_dir=config_dir, conversation_history=conversation_history
+        ai_config,
+        config_dir=config_dir,
+        data_dir=data_dir,
+        cache_dir=cache_dir,
+        conversation_history=conversation_history,
     )
