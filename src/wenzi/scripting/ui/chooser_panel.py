@@ -811,6 +811,11 @@ class ChooserPanel:
             index = body.get("index", -1)
             self._handle_tab_complete(index)
 
+        elif msg_type == "openSettings":
+            from PyObjCTools import AppHelper
+            AppHelper.callAfter(self.close)
+            self._fire_event("openSettings")
+
         elif msg_type == "shiftPreview":
             is_open = body.get("open", False)
             index = body.get("index", -1)

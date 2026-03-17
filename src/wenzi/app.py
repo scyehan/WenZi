@@ -1186,6 +1186,9 @@ class WenZiApp(StatusBarApp):
                 script_dir=script_dir, config=scripting_cfg
             )
             self._script_engine.start()
+            self._script_engine.wz.chooser._event_handlers.setdefault(
+                "openSettings", []
+            ).append(lambda: self._on_open_settings(None))
 
         # Start clipboard enhance hotkey listener if configured
         clip_hotkey = self._config.get("clipboard_enhance", {}).get("hotkey", "")

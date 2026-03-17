@@ -365,6 +365,19 @@ class TestChooserAPI:
             assert kwargs.get("placeholder") == "Choose..."
 
 
+    def test_open_settings_event(self):
+        """Cmd+, in JS sends openSettings → panel fires event → handler called."""
+        api = ChooserAPI()
+        called = []
+        api._event_handlers.setdefault("openSettings", []).append(
+            lambda: called.append(True)
+        )
+        # Simulate the JS message that Cmd+, would send
+        with patch("PyObjCTools.AppHelper.callAfter"):
+            api.panel._handle_js_message({"type": "openSettings"})
+        assert called == [True]
+
+
 class TestChooserAPICommands:
     def test_register_command(self):
         api = ChooserAPI()

@@ -598,6 +598,12 @@ document.addEventListener('keydown', function(e) {
         }
         return;
     }
+    // Cmd+, : open Settings
+    if (e.metaKey && e.key === ',') {
+        e.preventDefault();
+        post('openSettings');
+        return;
+    }
     // Cmd+1 through Cmd+9: quick select and execute
     if (e.metaKey && e.key >= '1' && e.key <= '9') {
         var idx = parseInt(e.key) - 1;
