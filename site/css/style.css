@@ -659,9 +659,52 @@ pre.code-block {
   line-height: 1.5;
 }
 
+/* ---------- Documentation list ---------- */
+.docs-list {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0 48px;
+}
+
+.docs-group-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--purple);
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--purple);
+}
+
+.doc-link {
+  display: block;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--card-border);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  transition: color 0.2s;
+}
+
+.doc-link:last-child {
+  border-bottom: none;
+}
+
+.doc-link:hover {
+  color: var(--purple);
+  text-decoration: none;
+}
+
+.doc-link span {
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
 @media (max-width: 900px) {
-  .docs-grid {
+  .docs-list {
     grid-template-columns: 1fr;
+    gap: 32px;
   }
 }
 

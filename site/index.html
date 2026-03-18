@@ -61,63 +61,39 @@
     <div class="features-grid">
 
       <div class="feature-card fade-in">
-        <div class="feature-icon">&#128268;</div>
-        <h3>Zero Setup</h3>
-        <p>Apple On-Device speech recognition works out of the box — no downloads, no API keys. Switch to FunASR or MLX-Whisper for higher accuracy when needed.</p>
-      </div>
-
-      <div class="feature-card fade-in">
         <div class="feature-icon">&#127911;</div>
-        <h3>Multi-Engine</h3>
-        <p>Five ASR backends: Apple Speech (built-in), FunASR (Chinese), MLX-Whisper (99 languages, Apple GPU), Sherpa-ONNX, and remote Whisper API.</p>
+        <h3>Multi-Engine ASR</h3>
+        <p>Five backends — Apple Speech (zero setup), FunASR (Chinese), MLX-Whisper (99 languages, Apple GPU), Sherpa-ONNX, and Whisper API. Real-time streaming overlay during recording.</p>
       </div>
 
       <div class="feature-card fade-in">
         <div class="feature-icon">&#10024;</div>
         <h3>AI Enhancement</h3>
-        <p>Optional LLM-powered proofreading, formatting, completion, and translation via any OpenAI-compatible API.</p>
-      </div>
-
-      <div class="feature-card fade-in">
-        <div class="feature-icon">&#128279;</div>
-        <h3>Chain Modes</h3>
-        <p>Multi-step enhancement pipelines — e.g., proofread then translate — defined via simple Markdown files.</p>
+        <p>LLM-powered proofreading, translation, and chain pipelines via any OpenAI-compatible API. Clipboard enhancement (<code>Ctrl+Cmd+V</code>) for selected text. Extended thinking visualization.</p>
       </div>
 
       <div class="feature-card fade-in">
         <div class="feature-icon">&#128218;</div>
-        <h3>Personal Vocabulary</h3>
-        <p>Embedding-based vocabulary retrieval learns your proper nouns and domain terms from correction history.</p>
+        <h3>Self-Improving Correction</h3>
+        <p>Personal vocabulary learns your domain terms from correction history. Conversation history enables topic continuity. The more you use it, the more accurate it gets.</p>
       </div>
 
       <div class="feature-card fade-in">
-        <div class="feature-icon">&#127908;</div>
-        <h3>Real-time Streaming</h3>
-        <p>Live transcription overlay shows partial results as you speak — see your words appear in real time during recording.</p>
-      </div>
-
-      <div class="feature-card fade-in">
-        <div class="feature-icon">&#128197;</div>
-        <h3>History &amp; Statistics</h3>
-        <p>Browse past transcriptions with tag filters, time ranges, and deletion. Interactive stacked bar charts visualize your usage patterns.</p>
+        <div class="feature-icon">&#128269;</div>
+        <h3>Launcher &amp; Snippets</h3>
+        <p>Alfred-style search panel — apps, files, clipboard history, bookmarks, calculator with unit conversion, and a command palette. Snippet auto-expansion as you type.</p>
       </div>
 
       <div class="feature-card fade-in">
         <div class="feature-icon">&#128187;</div>
-        <h3>Scripting System</h3>
-        <p>Python-based plugin system with leader keys and hotkeys for macOS automation — alerts, clipboard, shell commands, and more.</p>
-      </div>
-
-      <div class="feature-card fade-in">
-        <div class="feature-icon">&#127761;</div>
-        <h3>Dark Mode</h3>
-        <p>Full dark mode support across all panels and windows. UI adapts automatically to your macOS appearance setting.</p>
+        <h3>Scripting &amp; Automation</h3>
+        <p>Python plugin system with leader keys, hotkeys, event listeners, persistent storage, and shell commands for macOS automation.</p>
       </div>
 
       <div class="feature-card fade-in">
         <div class="feature-icon">&#9889;</div>
-        <h3>Lightweight</h3>
-        <p>Runs as a menubar-only app — hidden from Dock. Minimal resource usage with instant hotkey response.</p>
+        <h3>Lightweight &amp; Native</h3>
+        <p>Menubar-only app, hidden from Dock. Dark mode across all panels. History browser with tag filters and interactive usage charts.</p>
       </div>
 
     </div>
@@ -133,17 +109,17 @@
       <div class="step fade-in">
         <div class="step-number">1</div>
         <h3>Hold to Record</h3>
-        <p>Hold the <code>fn</code> key (or your custom hotkey) and speak. A floating indicator shows recording status with audio level bars, and a live transcription overlay displays partial results in real time. Press <code>Space</code> to restart, <code>ESC</code> or <code>Fn+Cmd</code> to cancel.</p>
+        <p>Hold <code>fn</code> and speak. A live overlay shows partial results in real time. <code>Cmd</code> to restart, <code>Space</code> to cancel, <code>Z</code> for recent history.</p>
       </div>
       <div class="step fade-in">
         <div class="step-number">2</div>
         <h3>Release to Transcribe</h3>
-        <p>Release the key — WenZi transcribes your speech using the selected ASR engine, optionally enhanced by AI.</p>
+        <p>Release the key — WenZi transcribes your speech and optionally enhances it with AI.</p>
       </div>
       <div class="step fade-in">
         <div class="step-number">3</div>
         <h3>Text is Typed</h3>
-        <p>The result is automatically typed into the active application, or shown in a web-based preview panel for review, editing, and model comparison.</p>
+        <p>Result is typed into the active app, or shown in a preview panel to edit, switch modes (<code>⌘1</code>–<code>⌘9</code>), and compare before confirming.</p>
       </div>
     </div>
     <div class="screenshot fade-in">
@@ -290,88 +266,26 @@ uv run python -m wenzi</pre>
   <div class="container">
     <h2 class="section-title fade-in">Documentation</h2>
     <p class="section-subtitle fade-in">Learn how to get the most out of WenZi</p>
-    <div class="docs-grid">
-
-      <a href="docs/user-guide.html" class="doc-card fade-in">
-        <div class="doc-card-icon">&#128214;</div>
-        <div>
-          <h3>User Guide</h3>
-          <p>Progressive guide from first launch to advanced usage — 11 levels covering every feature.</p>
-        </div>
-      </a>
-
-      <a href="docs/error-correction.html" class="doc-card fade-in">
-        <div class="doc-card-icon">&#128170;</div>
-        <div>
-          <h3>Why Error Correction Is So Powerful</h3>
-          <p>Five layers of correction — AI enhancement, personal vocabulary, conversation history, and a self-improving loop.</p>
-        </div>
-      </a>
-
-      <a href="docs/configuration.html" class="doc-card fade-in">
-        <div class="doc-card-icon">&#9881;</div>
-        <div>
-          <h3>Configuration Reference</h3>
-          <p>All configuration options explained.</p>
-        </div>
-      </a>
-
-      <a href="docs/enhance-modes.html" class="doc-card fade-in">
-        <div class="doc-card-icon">&#10024;</div>
-        <div>
-          <h3>AI Enhancement Modes</h3>
-          <p>Built-in modes, chain pipelines, custom mode creation, and a library of ready-to-use templates.</p>
-        </div>
-      </a>
-
-      <a href="docs/enhance-mode-examples.html" class="doc-card fade-in">
-        <div class="doc-card-icon">&#128203;</div>
-        <div>
-          <h3>Enhancement Mode Examples</h3>
-          <p>Ready-to-use enhancement mode templates by category.</p>
-        </div>
-      </a>
-
-      <a href="docs/prompt-optimization.html" class="doc-card fade-in">
-        <div class="doc-card-icon">&#128161;</div>
-        <div>
-          <h3>Prompt Optimization Workflow</h3>
-          <p>Systematically improve AI enhancement quality using diagnostic tools.</p>
-        </div>
-      </a>
-
-      <a href="docs/provider-model-guide.html" class="doc-card fade-in">
-        <div class="doc-card-icon">&#128268;</div>
-        <div>
-          <h3>Provider &amp; Model Guide</h3>
-          <p>Configure ASR and LLM providers for your needs.</p>
-        </div>
-      </a>
-
-      <a href="docs/vocabulary-embedding-retrieval.html" class="doc-card fade-in">
-        <div class="doc-card-icon">&#128218;</div>
-        <div>
-          <h3>Vocabulary &amp; Embedding Retrieval</h3>
-          <p>Personal vocabulary index for better correction of domain terms.</p>
-        </div>
-      </a>
-
-      <a href="docs/conversation-history-enhancement.html" class="doc-card fade-in">
-        <div class="doc-card-icon">&#128172;</div>
-        <div>
-          <h3>Conversation History Enhancement</h3>
-          <p>Topic continuity and entity resolution via conversation history.</p>
-        </div>
-      </a>
-
-      <a href="docs/scripting.html" class="doc-card fade-in">
-        <div class="doc-card-icon">&#128187;</div>
-        <div>
-          <h3>Scripting</h3>
-          <p>Automate macOS tasks with Python scripts — leader keys, hotkeys, alerts, and more.</p>
-        </div>
-      </a>
-
+    <div class="docs-list fade-in">
+      <div class="docs-group">
+        <h3 class="docs-group-title">Getting Started</h3>
+        <a href="docs/user-guide.html" class="doc-link">User Guide <span>— From first launch to advanced usage</span></a>
+        <a href="docs/configuration.html" class="doc-link">Configuration Reference <span>— All options explained</span></a>
+        <a href="docs/provider-model-guide.html" class="doc-link">Provider &amp; Model Guide <span>— Configure ASR and LLM providers</span></a>
+      </div>
+      <div class="docs-group">
+        <h3 class="docs-group-title">AI &amp; Enhancement</h3>
+        <a href="docs/error-correction.html" class="doc-link">Error Correction <span>— Five layers of self-improving correction</span></a>
+        <a href="docs/enhance-modes.html" class="doc-link">Enhancement Modes <span>— Built-in, chain, and custom modes</span></a>
+        <a href="docs/enhance-mode-examples.html" class="doc-link">Mode Examples <span>— Ready-to-use templates</span></a>
+        <a href="docs/prompt-optimization.html" class="doc-link">Prompt Optimization <span>— Improve AI quality systematically</span></a>
+      </div>
+      <div class="docs-group">
+        <h3 class="docs-group-title">Advanced</h3>
+        <a href="docs/vocabulary-embedding-retrieval.html" class="doc-link">Vocabulary Retrieval <span>— Personal term index</span></a>
+        <a href="docs/conversation-history-enhancement.html" class="doc-link">Conversation History <span>— Topic continuity and entity resolution</span></a>
+        <a href="docs/scripting.html" class="doc-link">Scripting <span>— Python plugins, leader keys, hotkeys</span></a>
+      </div>
     </div>
   </div>
 </section>

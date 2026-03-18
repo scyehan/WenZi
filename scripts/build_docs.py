@@ -296,6 +296,41 @@ def _html_template(
 # ---------------------------------------------------------------------------
 # Markdown processing
 # ---------------------------------------------------------------------------
+def _deindent_fenced_blocks(text: str) -> str:
+    """De-indent fenced code blocks nested inside list items.
+
+    The ``fenced_code`` extension cannot parse fenced blocks that are indented
+    inside list items (1-4 leading spaces).  This pre-processor strips the
+    shared indentation so they become top-level fenced blocks.  The list will
+    be split into separate <ol> elements, but ``sane_lists`` preserves the
+    ``start`` attribute so numbering stays correct.
+    """
+    lines = text.split("\n")
+    result: list[str] = []
+    in_fence = False
+    indent = ""
+
+    for line in lines:
+        if not in_fence:
+            m = re.match(r"^( {1,4})(```.*)$", line)
+            if m:
+                indent = m.group(1)
+                in_fence = True
+                result.append(m.group(2))
+                continue
+        else:
+            if re.match(rf"^{re.escape(indent)}```\s*$", line):
+                in_fence = False
+                result.append("```")
+                continue
+            if line.startswith(indent):
+                result.append(line[len(indent):])
+                continue
+        result.append(line)
+
+    return "\n".join(result)
+
+
 def _convert_md(md_text: str) -> tuple[str, str]:
     """Convert markdown to (body_html, toc_html).
 
@@ -312,6 +347,9 @@ def _convert_md(md_text: str) -> tuple[str, str]:
         md_text,
         flags=re.MULTILINE,
     )
+
+    # De-indent fenced code blocks inside list items so fenced_code can parse them
+    md_text = _deindent_fenced_blocks(md_text)
 
     md = markdown.Markdown(
         extensions=[

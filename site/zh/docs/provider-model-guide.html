@@ -264,11 +264,12 @@
 <p>填写服务商详情（对话框格式与 LLM 服务商相同）：</p>
 </li>
 </ol>
-<p><code>name: groq
-   base_url: https://api.groq.com/openai/v1
-   api_key: gsk-xxx
-   models:
-     whisper-large-v3</code></p>
+<pre><code>name: groq
+base_url: https://api.groq.com/openai/v1
+api_key: gsk-xxx
+models:
+  whisper-large-v3
+</code></pre>
 <ol start="3">
 <li>
 <p>点击 <strong>Verify</strong> — 闻字 会发送一段短暂的静音音频片段来测试连接。</p>
@@ -321,13 +322,14 @@
 <p>弹出带有模板的文本编辑对话框：</p>
 </li>
 </ol>
-<p><code>name: my-provider
-   base_url: https://api.openai.com/v1
-   api_key: sk-xxx
-   models:
-     gpt-4o
-     gpt-4o-mini
-   extra_body: {"chat_template_kwargs": {"enable_thinking": false}}</code></p>
+<pre><code>name: my-provider
+base_url: https://api.openai.com/v1
+api_key: sk-xxx
+models:
+  gpt-4o
+  gpt-4o-mini
+extra_body: {&quot;chat_template_kwargs&quot;: {&quot;enable_thinking&quot;: false}}
+</code></pre>
 <ol start="3">
 <li>
 <p>填写您的服务商信息：

@@ -137,21 +137,21 @@
 <ol>
 <li><strong>Enable scripting</strong> in Settings → General → Scripting, or set it directly in <code>config.json</code>:</li>
 </ol>
-<p><code>json
-   {
-     "scripting": {
-       "enabled": true
-     }
-   }</code></p>
+<pre><code class="language-json">{
+  &quot;scripting&quot;: {
+    &quot;enabled&quot;: true
+  }
+}
+</code></pre>
 <ol start="2">
 <li><strong>Create your script</strong> at <code>~/.config/WenZi/scripts/init.py</code>:</li>
 </ol>
-<p><code>python
-   wz.leader("cmd_r", [
-       {"key": "w", "app": "WeChat"},
-       {"key": "s", "app": "Slack"},
-       {"key": "t", "app": "iTerm"},
-   ])</code></p>
+<pre><code class="language-python">wz.leader(&quot;cmd_r&quot;, [
+    {&quot;key&quot;: &quot;w&quot;, &quot;app&quot;: &quot;WeChat&quot;},
+    {&quot;key&quot;: &quot;s&quot;, &quot;app&quot;: &quot;Slack&quot;},
+    {&quot;key&quot;: &quot;t&quot;, &quot;app&quot;: &quot;iTerm&quot;},
+])
+</code></pre>
 <ol start="3">
 <li><strong>Restart 闻字</strong>. Hold right Command, see the mapping panel, press a letter key to launch the app.</li>
 </ol>
