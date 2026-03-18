@@ -117,7 +117,9 @@ class VocabBuildProgressPanel:
 
         AppHelper.callAfter(_append)
 
-    def update_token_usage(self, prompt: int, completion: int, total: int) -> None:
+    def update_token_usage(
+        self, input_tokens: int, cached_tokens: int, output_tokens: int, total: int
+    ) -> None:
         """Update the token usage label with confirmed totals. Thread-safe.
 
         Resets the streaming character counter since the batch is done.
@@ -128,8 +130,10 @@ class VocabBuildProgressPanel:
 
         def _update():
             if self._token_label is not None:
+                cached_info = f", cached {cached_tokens:,}" if cached_tokens else ""
                 self._token_label.setStringValue_(
-                    f"Tokens: {total:,}  (prompt {prompt:,} + completion {completion:,})"
+                    f"Tokens: {total:,}  (input {input_tokens:,}{cached_info}"
+                    f" + output {output_tokens:,})"
                 )
 
         AppHelper.callAfter(_update)

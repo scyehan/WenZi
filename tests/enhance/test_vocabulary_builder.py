@@ -175,36 +175,102 @@ class TestBatchRecords:
         assert batches == []
 
 
+def _mock_messages():
+    """Helper to create a minimal session messages list."""
+    return [{"role": "system", "content": "test system prompt"}]
+
+
+def _mock_usage(prompt=10, completion=5, total=15, cached=0):
+    """Helper to create a mock usage object with optional cached_tokens."""
+    usage = MagicMock()
+    usage.prompt_tokens = prompt
+    usage.completion_tokens = completion
+    usage.total_tokens = total
+    details = MagicMock()
+    details.cached_tokens = cached
+    usage.prompt_tokens_details = details
+    return usage
+
+
 class TestExtractBatch:
     def test_successful_extraction(self):
         builder = VocabularyBuilder(_make_config())
-        batch = [{"asr_text": "派森", "final_text": "Python"}]
-
-        mock_usage = MagicMock()
-        mock_usage.prompt_tokens = 10
-        mock_usage.completion_tokens = 5
-        mock_usage.total_tokens = 15
+        user_prompt = "asr_text: 派森\nfinal_text: Python"
+        messages = _mock_messages()
 
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = _PIPE_RESPONSE_ONE
-        mock_response.usage = mock_usage
+        mock_response.usage = _mock_usage()
 
         mock_client = MagicMock()
         mock_client.close = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-        entries, usage = asyncio.run(
-            builder._extract_batch(batch, client=mock_client)
+        entries, usage, text = asyncio.run(
+            builder._extract_batch(messages, user_prompt, client=mock_client)
         )
 
         assert len(entries) == 1
         assert entries[0]["term"] == "Python"
         assert usage["total_tokens"] == 15
+        assert usage["input_tokens"] == 10
+        assert usage["output_tokens"] == 5
+        assert text == _PIPE_RESPONSE_ONE
+
+    def test_cached_tokens_tracked(self):
+        builder = VocabularyBuilder(_make_config())
+        user_prompt = "asr_text: 派森\nfinal_text: Python"
+        messages = _mock_messages()
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = _PIPE_RESPONSE_ONE
+        mock_response.usage = _mock_usage(prompt=100, completion=20, total=120, cached=80)
+
+        mock_client = MagicMock()
+        mock_client.close = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        entries, usage, text = asyncio.run(
+            builder._extract_batch(messages, user_prompt, client=mock_client)
+        )
+
+        assert usage["input_tokens"] == 100
+        assert usage["cached_tokens"] == 80
+        assert usage["output_tokens"] == 20
+
+    def test_cached_tokens_graceful_fallback(self):
+        """Providers without cached token support should default to 0."""
+        builder = VocabularyBuilder(_make_config())
+        user_prompt = "asr_text: test\nfinal_text: test"
+        messages = _mock_messages()
+
+        mock_usage_obj = MagicMock()
+        mock_usage_obj.prompt_tokens = 10
+        mock_usage_obj.completion_tokens = 5
+        mock_usage_obj.total_tokens = 15
+        mock_usage_obj.prompt_tokens_details = None  # Provider doesn't support it
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = _PIPE_RESPONSE_ONE
+        mock_response.usage = mock_usage_obj
+
+        mock_client = MagicMock()
+        mock_client.close = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        _, usage, _ = asyncio.run(
+            builder._extract_batch(messages, user_prompt, client=mock_client)
+        )
+
+        assert usage["cached_tokens"] == 0
 
     def test_empty_llm_response(self):
         builder = VocabularyBuilder(_make_config())
-        batch = [{"asr_text": "test", "final_text": "test"}]
+        user_prompt = "asr_text: test\nfinal_text: test"
+        messages = _mock_messages()
 
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -215,27 +281,31 @@ class TestExtractBatch:
         mock_client.close = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-        entries, usage = asyncio.run(
-            builder._extract_batch(batch, client=mock_client)
+        entries, usage, text = asyncio.run(
+            builder._extract_batch(messages, user_prompt, client=mock_client)
         )
 
         assert entries == []
+        assert text == ""
 
     def test_no_provider_config(self):
         builder = VocabularyBuilder({"providers": {}})
-        batch = [{"asr_text": "test", "final_text": "test"}]
+        user_prompt = "asr_text: test\nfinal_text: test"
+        messages = _mock_messages()
 
-        entries, usage = asyncio.run(
-            builder._extract_batch(batch)
+        entries, usage, text = asyncio.run(
+            builder._extract_batch(messages, user_prompt)
         )
         assert entries == []
         assert usage == {}
+        assert text == ""
 
     def test_timeout(self):
         cfg = _make_config()
         cfg["vocabulary"] = {"build_timeout": 1}
         builder = VocabularyBuilder(cfg)
-        batch = [{"asr_text": "test", "final_text": "test"}]
+        user_prompt = "asr_text: test\nfinal_text: test"
+        messages = _mock_messages()
 
         async def slow_create(**kwargs):
             await asyncio.sleep(10)
@@ -246,8 +316,40 @@ class TestExtractBatch:
 
         with pytest.raises(asyncio.TimeoutError):
             asyncio.run(
-                builder._extract_batch(batch, client=mock_client)
+                builder._extract_batch(messages, user_prompt, client=mock_client)
             )
+
+    def test_messages_include_session_history(self):
+        """Verify that session history is passed to the API call."""
+        builder = VocabularyBuilder(_make_config())
+        user_prompt = "asr_text: 派森\nfinal_text: Python"
+        messages = [
+            {"role": "system", "content": "system prompt"},
+            {"role": "user", "content": "previous batch"},
+            {"role": "assistant", "content": "previous response"},
+        ]
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = _PIPE_RESPONSE_ONE
+        mock_response.usage = _mock_usage()
+
+        mock_client = MagicMock()
+        mock_client.close = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        asyncio.run(
+            builder._extract_batch(messages, user_prompt, client=mock_client)
+        )
+
+        # Verify 4 messages: system + prev user + prev assistant + new user
+        call_kwargs = mock_client.chat.completions.create.call_args
+        sent_messages = call_kwargs.kwargs.get("messages", call_kwargs[1].get("messages"))
+        assert len(sent_messages) == 4
+        assert sent_messages[0]["role"] == "system"
+        assert sent_messages[1]["role"] == "user"
+        assert sent_messages[2]["role"] == "assistant"
+        assert sent_messages[3]["role"] == "user"
 
 
 class TestParseLLMResponse:
@@ -627,9 +729,11 @@ class TestBuildWithCancel:
         """Cancel event set after first batch - should save partial results."""
         corrections_path = tmp_path / "conversation_history.jsonl"
         records = []
-        for i in range(25):
+        for i in range(80):
+            day = 1 + i // 24
+            hour = i % 24
             records.append({
-                "timestamp": f"2026-01-01T{i:02d}:00:00+00:00",
+                "timestamp": f"2026-01-{day:02d}T{hour:02d}:00:00+00:00",
                 "asr_text": f"test{i}",
                 "final_text": f"test{i}",
                 "user_corrected": True,
@@ -714,7 +818,8 @@ class TestExtractBatchStreaming:
     def test_streaming_collects_chunks(self):
         """on_stream_chunk should be called for each streamed chunk."""
         builder = VocabularyBuilder(_make_config())
-        batch = [{"asr_text": "test", "final_text": "test"}]
+        user_prompt = "asr_text: test\nfinal_text: test"
+        messages = _mock_messages()
 
         pipe_parts = ["term|categ", "ory|variants|context\n", "Python|tech|派森|", "编程语言"]
         "".join(pipe_parts)
@@ -739,8 +844,8 @@ class TestExtractBatchStreaming:
         def on_chunk(c):
             return collected_chunks.append(c)
 
-        entries, usage = asyncio.run(
-            builder._extract_batch(batch, client=mock_client, on_stream_chunk=on_chunk)
+        entries, usage, text = asyncio.run(
+            builder._extract_batch(messages, user_prompt, client=mock_client, on_stream_chunk=on_chunk)
         )
 
         assert collected_chunks == pipe_parts
@@ -750,7 +855,8 @@ class TestExtractBatchStreaming:
     def test_no_callback_uses_non_streaming(self):
         """Without on_stream_chunk, the non-streaming path is used."""
         builder = VocabularyBuilder(_make_config())
-        batch = [{"asr_text": "test", "final_text": "test"}]
+        user_prompt = "asr_text: test\nfinal_text: test"
+        messages = _mock_messages()
 
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -761,8 +867,8 @@ class TestExtractBatchStreaming:
         mock_client.close = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
-        entries, usage = asyncio.run(
-            builder._extract_batch(batch, client=mock_client)
+        entries, usage, text = asyncio.run(
+            builder._extract_batch(messages, user_prompt, client=mock_client)
         )
 
         create_call = mock_client.chat.completions.create
@@ -819,20 +925,31 @@ class TestBuildWithCallbacks:
         assert result["new_entries"] == 1
 
 
-class TestBuildExtractionPrompt:
-    def test_prompt_contains_records(self):
+class TestBuildPrompts:
+    def test_system_prompt_contains_instructions(self):
         builder = VocabularyBuilder(_make_config())
+        prompt = builder._build_system_prompt([])
+        assert "term|category|variants|context" in prompt
+        assert "管道" in prompt
+        assert "已存在" not in prompt  # No existing terms section when empty
+
+    def test_system_prompt_includes_existing_terms(self):
+        builder = VocabularyBuilder(_make_config())
+        prompt = builder._build_system_prompt(["Python", "Kubernetes"])
+        assert "已存在" in prompt
+        assert "Python" in prompt
+        assert "Kubernetes" in prompt
+
+    def test_user_prompt_contains_records(self):
         batch = [
             {"asr_text": "派森", "final_text": "Python"},
             {"asr_text": "加瓦", "final_text": "Java"},
         ]
-        prompt = builder._build_extraction_prompt(batch)
+        prompt = VocabularyBuilder._build_user_prompt(batch)
         assert "派森" in prompt
         assert "Python" in prompt
         assert "加瓦" in prompt
         assert "Java" in prompt
-        assert "term|category|variants|context" in prompt
-        assert "管道" in prompt
 
 
 class TestSaveLoadVocabulary:
@@ -854,12 +971,14 @@ class TestSaveLoadVocabulary:
 
 
 class TestBuildRetryAndAbort:
-    def _write_corrections(self, tmp_path, count=25):
+    def _write_corrections(self, tmp_path, count=80):
         corrections_path = tmp_path / "conversation_history.jsonl"
         records = []
         for i in range(count):
+            day = 1 + i // 24
+            hour = i % 24
             records.append({
-                "timestamp": f"2026-01-01T{i:02d}:00:00+00:00",
+                "timestamp": f"2026-01-{day:02d}T{hour:02d}:00:00+00:00",
                 "asr_text": f"test{i}",
                 "final_text": f"test{i}",
                 "user_corrected": True,
@@ -950,7 +1069,7 @@ class TestBuildRetryAndAbort:
 
     def test_partial_progress_saved_on_abort(self, tmp_path):
         """First batch succeeds, second batch aborts — first batch is saved."""
-        self._write_corrections(tmp_path, count=25)  # 2 batches of 20+5
+        self._write_corrections(tmp_path, count=80)  # 2 batches of 60+20
 
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -977,17 +1096,17 @@ class TestBuildRetryAndAbort:
 
         assert result.get("aborted") is True
         assert result["new_entries"] == 1  # from first batch
-        assert result["new_records"] == 20  # first batch only
+        assert result["new_records"] == 60  # first batch only
 
         # vocabulary.json should have first batch's results
         data = json.loads((tmp_path / "vocabulary.json").read_text(encoding="utf-8"))
         assert len(data["entries"]) == 1
-        # Timestamp advanced to first batch's last record, not beyond
-        assert data["last_processed_timestamp"] == "2026-01-01T19:00:00+00:00"
+        # Timestamp advanced to first batch's last record (index 59), not beyond
+        assert data["last_processed_timestamp"] == "2026-01-03T11:00:00+00:00"
 
     def test_per_batch_save(self, tmp_path):
         """Each successful batch saves immediately to vocabulary.json."""
-        self._write_corrections(tmp_path, count=25)  # 2 batches
+        self._write_corrections(tmp_path, count=80)  # 2 batches
 
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -1012,9 +1131,9 @@ class TestBuildRetryAndAbort:
 
         # Should have saved twice (once per batch)
         assert len(save_timestamps) == 2
-        # First save covers batch 1 (records 0-19), second covers batch 2 (records 20-24)
-        assert save_timestamps[0] == "2026-01-01T19:00:00+00:00"
-        assert save_timestamps[1] == "2026-01-01T24:00:00+00:00"
+        # First save covers batch 1 (records 0-59), second covers batch 2 (records 60-79)
+        assert save_timestamps[0] == "2026-01-03T11:00:00+00:00"
+        assert save_timestamps[1] == "2026-01-04T07:00:00+00:00"
 
     def test_batch_retry_callback(self, tmp_path):
         """on_batch_retry callback is called before retry."""
