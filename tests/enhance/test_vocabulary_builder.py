@@ -402,6 +402,115 @@ class TestMergeEntries:
         assert len(result) == 1
         assert result[0]["term"] == "Python"
 
+    def test_merge_case_insensitive(self):
+        """Entries differing only in case should be merged into one."""
+        builder = VocabularyBuilder(_make_config())
+        existing = [
+            {"term": "python", "category": "tech", "variants": ["派森"], "context": "", "frequency": 2}
+        ]
+        new = [
+            {"term": "Python", "category": "tech", "variants": ["拍森"], "context": "编程语言"}
+        ]
+        result = builder._merge_entries(existing, new)
+        assert len(result) == 1
+        entry = result[0]
+        # Term form upgraded from all-lowercase to mixed-case
+        assert entry["term"] == "Python"
+        assert set(entry["variants"]) == {"派森", "拍森"}
+        assert entry["frequency"] == 3
+        # Context filled in from new entry since existing was empty
+        assert entry["context"] == "编程语言"
+
+    def test_merge_case_insensitive_keeps_existing_non_lowercase(self):
+        """When existing term is already non-all-lowercase, keep it."""
+        builder = VocabularyBuilder(_make_config())
+        existing = [
+            {"term": "GitHub", "variants": [], "frequency": 3}
+        ]
+        new = [
+            {"term": "Github", "variants": ["git hub"]}
+        ]
+        result = builder._merge_entries(existing, new)
+        assert len(result) == 1
+        assert result[0]["term"] == "GitHub"
+        assert result[0]["variants"] == ["git hub"]
+
+    def test_merge_existing_internal_dedup(self):
+        """Duplicate entries within existing list should be merged."""
+        builder = VocabularyBuilder(_make_config())
+        existing = [
+            {"term": "python", "variants": ["派森"], "frequency": 2},
+            {"term": "Python", "variants": ["拍森"], "context": "编程语言", "frequency": 3},
+        ]
+        result = builder._merge_entries(existing, [])
+        assert len(result) == 1
+        entry = result[0]
+        assert entry["term"] == "Python"
+        assert set(entry["variants"]) == {"派森", "拍森"}
+        assert entry["frequency"] == 5
+        assert entry["context"] == "编程语言"
+
+    def test_merge_removes_self_referencing_variant(self):
+        """Variants matching the term (case-insensitive) should be removed."""
+        builder = VocabularyBuilder(_make_config())
+        new = [
+            {"term": "build", "variants": ["build", "Build", "bio"], "context": "开发操作"}
+        ]
+        result = builder._merge_entries([], new)
+        assert len(result) == 1
+        assert result[0]["variants"] == ["bio"]
+
+    def test_merge_variant_case_insensitive_dedup(self):
+        """Variants differing only in case should be deduplicated."""
+        builder = VocabularyBuilder(_make_config())
+        existing = [
+            {"term": "Claude", "variants": ["Cloud", "cloud pipe"], "frequency": 1}
+        ]
+        new = [
+            {"term": "claude", "variants": ["cloud", "CLOUD", "克劳德"]}
+        ]
+        result = builder._merge_entries(existing, new)
+        assert len(result) == 1
+        entry = result[0]
+        assert entry["term"] == "Claude"
+        # "Cloud" kept (first-seen), "cloud" and "CLOUD" deduped away
+        assert "Cloud" in entry["variants"]
+        assert "cloud pipe" in entry["variants"]
+        assert "克劳德" in entry["variants"]
+        assert len(entry["variants"]) == 3
+
+    def test_merge_strips_variant_whitespace(self):
+        """Variants with leading/trailing whitespace should be stripped."""
+        builder = VocabularyBuilder(_make_config())
+        new = [
+            {"term": "Python", "variants": [" 派森 ", "  拍森"], "context": "编程语言"}
+        ]
+        result = builder._merge_entries([], new)
+        assert set(result[0]["variants"]) == {"派森", "拍森"}
+
+    def test_merge_skips_whitespace_only_term(self):
+        """Terms that become empty after strip should be skipped."""
+        builder = VocabularyBuilder(_make_config())
+        new = [{"term": "  ", "category": "tech"}, {"term": "Python"}]
+        result = builder._merge_entries([], new)
+        assert len(result) == 1
+        assert result[0]["term"] == "Python"
+
+    def test_merge_filters_empty_variants_in_merge_path(self):
+        """Empty/whitespace-only variants should be filtered during merge."""
+        builder = VocabularyBuilder(_make_config())
+        existing = [
+            {"term": "Python", "variants": [" ", "派森", ""], "frequency": 1}
+        ]
+        new = [
+            {"term": "python", "variants": ["  ", "拍森"]}
+        ]
+        result = builder._merge_entries(existing, new)
+        assert len(result) == 1
+        assert "" not in result[0]["variants"]
+        assert " " not in result[0]["variants"]
+        assert set(result[0]["variants"]) == {"派森", "拍森"}
+
 
 class TestBuild:
     def test_build_no_records(self, tmp_path):

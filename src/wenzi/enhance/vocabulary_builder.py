@@ -443,41 +443,92 @@ class VocabularyBuilder:
         existing: List[Dict[str, Any]],
         new_entries: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
-        """Merge new entries into existing, deduplicating by term."""
-        # Index existing by term
+        """Merge new entries into existing, deduplicating by term.
+
+        Deduplication uses case-insensitive, stripped term as the key.
+        When merging, the preferred term form is chosen (non-all-lowercase
+        wins over all-lowercase), variants are deduplicated
+        case-insensitively, and self-referencing variants are removed.
+        """
         by_term: Dict[str, Dict[str, Any]] = {}
+
         for entry in existing:
-            term = entry.get("term", "")
-            if term:
-                by_term[term] = entry
+            self._merge_into(by_term, entry)
 
         for entry in new_entries:
-            term = entry.get("term", "")
-            if not term:
-                continue
+            self._merge_into(by_term, entry)
 
-            if term in by_term:
-                # Merge: union variants, accumulate frequency
-                existing_entry = by_term[term]
-                existing_variants = set(existing_entry.get("variants", []))
-                new_variants = set(entry.get("variants", []))
-                existing_entry["variants"] = sorted(
-                    existing_variants | new_variants
-                )
-                existing_entry["frequency"] = existing_entry.get("frequency", 1) + 1
-                # Update context if new one is non-empty and existing is empty
-                if entry.get("context") and not existing_entry.get("context"):
-                    existing_entry["context"] = entry["context"]
-            else:
-                by_term[term] = {
-                    "term": term,
-                    "category": entry.get("category", "other"),
-                    "variants": entry.get("variants", []),
-                    "context": entry.get("context", ""),
-                    "frequency": 1,
-                }
+        # Remove self-referencing variants (variant matches term, case-insensitive)
+        for entry in by_term.values():
+            term_key = entry["term"].lower().strip()
+            entry["variants"] = [
+                v for v in entry["variants"]
+                if v.lower().strip() != term_key
+            ]
 
         return list(by_term.values())
+
+    @staticmethod
+    def _merge_into(
+        by_term: Dict[str, Dict[str, Any]],
+        entry: Dict[str, Any],
+    ) -> None:
+        """Merge a single entry into the by_term index.
+
+        Uses term.lower().strip() as the dedup key. Frequencies are summed,
+        variants are merged case-insensitively (first-seen form kept), and
+        context is filled in when the existing one is empty.
+        If the incoming term is not all-lowercase but the stored one is,
+        the stored term form is upgraded.
+        """
+        term = entry.get("term", "")
+        if not term:
+            return
+        key = term.lower().strip()
+        if not key:
+            return
+
+        if key in by_term:
+            existing_entry = by_term[key]
+
+            # Upgrade term form: prefer non-all-lowercase over all-lowercase
+            if existing_entry["term"].islower() and not term.islower():
+                existing_entry["term"] = term
+
+            # Merge variants case-insensitively, keeping first-seen form
+            seen: Dict[str, str] = {}
+            for v in existing_entry.get("variants", []):
+                v_stripped = v.strip()
+                if not v_stripped:
+                    continue
+                v_key = v_stripped.lower()
+                if v_key not in seen:
+                    seen[v_key] = v_stripped
+            for v in entry.get("variants", []):
+                v_stripped = v.strip()
+                if not v_stripped:
+                    continue
+                v_key = v_stripped.lower()
+                if v_key not in seen:
+                    seen[v_key] = v_stripped
+            existing_entry["variants"] = sorted(seen.values())
+
+            # Sum frequencies
+            existing_entry["frequency"] = (
+                existing_entry.get("frequency", 1) + entry.get("frequency", 1)
+            )
+
+            # Update context if new one is non-empty and existing is empty
+            if entry.get("context") and not existing_entry.get("context"):
+                existing_entry["context"] = entry["context"]
+        else:
+            by_term[key] = {
+                "term": term,
+                "category": entry.get("category", "other"),
+                "variants": [v.strip() for v in entry.get("variants", []) if v.strip()],
+                "context": entry.get("context", ""),
+                "frequency": entry.get("frequency", 1),
+            }
 
     def _load_existing_vocabulary(self) -> Dict[str, Any]:
         """Load existing vocabulary.json if it exists."""
