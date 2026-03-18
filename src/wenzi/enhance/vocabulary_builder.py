@@ -299,8 +299,8 @@ class VocabularyBuilder:
         """Build the user prompt with correction records for a single batch."""
         lines = []
         for r in batch:
-            asr = r.get("asr_text", "")
-            final = r.get("final_text", "")
+            asr = r.get("asr_text", "").replace("\n", "\u23ce")
+            final = r.get("final_text", "").replace("\n", "\u23ce")
             lines.append(f"{asr} → {final}")
         return "\n".join(lines)
 

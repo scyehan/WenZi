@@ -995,6 +995,17 @@ class TestBuildPrompts:
         assert "加瓦" in prompt
         assert "Java" in prompt
 
+    def test_user_prompt_replaces_newlines(self):
+        """Newlines in text should be replaced with ⏎ to keep one record per line."""
+        batch = [
+            {"asr_text": "第一行\n第二行", "final_text": "first\nsecond"},
+        ]
+        prompt = VocabularyBuilder._build_user_prompt(batch)
+        # Should be a single line with ⏎ instead of newlines
+        assert "\n" not in prompt.split("→")[0].replace("\n", "")  # no raw newline in asr part
+        assert "⏎" in prompt
+        assert prompt == "第一行⏎第二行 → first⏎second"
+
 
 class TestSaveLoadVocabulary:
     def test_save_and_load(self, tmp_path):
