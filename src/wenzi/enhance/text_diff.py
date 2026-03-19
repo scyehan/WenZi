@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import re
+import unicodedata
 from typing import List
 
 # ASCII words as whole units, each non-ASCII char individually,
@@ -21,6 +22,13 @@ def tokenize_for_diff(text: str) -> List[str]:
     return _TOKEN_RE.findall(text)
 
 
+def _is_punctuation_only(text: str) -> bool:
+    """Return True if *text* consists entirely of punctuation/symbols/whitespace."""
+    return bool(text) and all(
+        unicodedata.category(ch)[0] in ("P", "S", "Z") for ch in text
+    )
+
+
 def inline_diff(asr: str, final: str) -> str:
     """Produce an inline diff between ASR text and corrected text.
 
@@ -28,6 +36,10 @@ def inline_diff(asr: str, final: str) -> str:
     and deletions are applied silently (new text included / old text
     omitted) since they carry no ASR-misrecognition information
     useful for vocabulary extraction.
+
+    Punctuation-only replacements (e.g. half-width to full-width
+    ``[,→，]``) are also applied silently — they are ASR/input-method
+    artifacts, not meaningful corrections.
     """
     if asr == final:
         return asr
@@ -43,7 +55,10 @@ def inline_diff(asr: str, final: str) -> str:
         elif op == "replace":
             old = "".join(asr_tokens[i1:i2])
             new = "".join(final_tokens[j1:j2])
-            parts.append(f"[{old}→{new}]")
+            if _is_punctuation_only(old) and _is_punctuation_only(new):
+                parts.append(new)
+            else:
+                parts.append(f"[{old}→{new}]")
         elif op == "insert":
             parts.append("".join(final_tokens[j1:j2]))
         # delete: omit old text silently

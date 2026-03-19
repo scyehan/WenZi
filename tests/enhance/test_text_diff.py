@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from wenzi.enhance.text_diff import inline_diff, tokenize_for_diff
+from wenzi.enhance.text_diff import (
+    _is_punctuation_only,
+    inline_diff,
+    tokenize_for_diff,
+)
 
 
 class TestTokenizeForDiff:
@@ -67,3 +71,48 @@ class TestInlineDiff:
 
     def test_empty_final(self):
         assert inline_diff("旧文本", "") == ""
+
+    def test_punctuation_replacement_silent(self):
+        """Half-width to full-width punctuation is applied silently."""
+        result = inline_diff("好的,OK.", "好的，OK。")
+        assert "[" not in result
+        assert result == "好的，OK。"
+
+    def test_punctuation_mixed_with_text_replacement(self):
+        """Punctuation-only replacements are silent even alongside text replacements."""
+        result = inline_diff("不是这个,就是你分词的,用方广号扩一下", "不是这个，就是你分词的，用方括号括一下")
+        assert "，" in result  # punctuation silently replaced
+        assert "[广→括]" in result  # text replacement bracketed
+        assert "[扩→括]" in result
+        assert "[,→，]" not in result  # punctuation NOT bracketed
+
+    def test_question_mark_replacement_silent(self):
+        result = inline_diff("你觉得靠谱吗?", "你觉得靠谱吗？")
+        assert "[" not in result
+        assert result == "你觉得靠谱吗？"
+
+
+class TestIsPunctuationOnly:
+    def test_ascii_punctuation(self):
+        assert _is_punctuation_only(",.")
+
+    def test_fullwidth_punctuation(self):
+        assert _is_punctuation_only("，。")
+
+    def test_mixed_punctuation(self):
+        assert _is_punctuation_only(",，")
+
+    def test_text_not_punctuation(self):
+        assert not _is_punctuation_only("hello")
+
+    def test_cjk_not_punctuation(self):
+        assert not _is_punctuation_only("你")
+
+    def test_mixed_text_and_punctuation(self):
+        assert not _is_punctuation_only("a,")
+
+    def test_empty_string(self):
+        assert not _is_punctuation_only("")
+
+    def test_space_is_punctuation(self):
+        assert _is_punctuation_only(" ")
