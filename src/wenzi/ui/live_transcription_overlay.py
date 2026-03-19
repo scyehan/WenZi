@@ -176,10 +176,6 @@ class LiveTranscriptionOverlay:
         except Exception:
             logger.error("Failed to show live transcription overlay", exc_info=True)
 
-    def checkAppearance_(self, timer) -> None:
-        """NSTimer callback: check if appearance changed and refresh colors."""
-        self._refresh_colors_if_changed()
-
     def set_active(self) -> None:
         """Switch the overlay from faded to full opacity.
 
