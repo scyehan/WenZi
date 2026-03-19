@@ -81,6 +81,13 @@ def _fetch_latest_release() -> Optional[dict[str, Any]]:
         return None
 
 
+def _get_current_version() -> str:
+    """Return the current app version, honoring WENZI_DEV_VERSION env var."""
+    from wenzi import __version__
+
+    return os.environ.get("WENZI_DEV_VERSION") or __version__
+
+
 def _find_dmg_url(release_data: dict) -> Optional[str]:
     """Find the .dmg asset download URL from release data."""
     assets = release_data.get("assets", [])
@@ -118,12 +125,74 @@ class UpdateController:
         """Start the periodic update check (first check runs immediately)."""
         if not self._enabled:
             return
-        # Clean up leftover staged app before starting checks
+        # Apply previously staged update, or clean up if invalid
         if _is_frozen():
-            from wenzi.updater import AppUpdater
-
-            AppUpdater.cleanup_staged_app()
+            if self._try_apply_staged_update():
+                return  # app is quitting to apply the update
         threading.Thread(target=self._check_update, daemon=True).start()
+
+    def _try_apply_staged_update(self) -> bool:
+        """Check for a staged update and apply it if valid.
+
+        Returns True if the app should quit (swap script spawned),
+        False if no valid staged update was found (cleaned up or absent).
+        """
+        from wenzi.updater import AppUpdater
+
+        staged = AppUpdater.get_staged_app_path()
+        if staged is None:
+            return False
+
+        # Verify code signature
+        try:
+            AppUpdater._verify_app(staged)
+        except Exception:
+            logger.warning("Staged update failed verification, removing")
+            AppUpdater.cleanup_staged_app()
+            return False
+
+        # Compare versions — don't downgrade
+        staged_version = AppUpdater.get_app_version(staged)
+        if staged_version is None:
+            logger.warning("Cannot read staged app version, removing")
+            AppUpdater.cleanup_staged_app()
+            return False
+
+        current = _get_current_version()
+        if not _is_newer(staged_version, current):
+            logger.info(
+                "Staged app %s is not newer than current %s, removing",
+                staged_version,
+                current,
+            )
+            AppUpdater.cleanup_staged_app()
+            return False
+
+        # Show brief confirmation and apply
+        from wenzi.ui_helpers import restore_accessory, topmost_alert
+
+        result = topmost_alert(
+            title=f"Update to v{staged_version}",
+            message=(
+                "A previously downloaded update is ready to install. "
+                "WenZi will restart with the new version."
+            ),
+            ok="Restart Now",
+            cancel="Later",
+        )
+        restore_accessory()
+
+        if result != 1:
+            return False
+
+        if not AppUpdater.perform_swap_and_relaunch():
+            logger.error("Failed to spawn swap script, cleaning up")
+            AppUpdater.cleanup_staged_app()
+            return False
+
+        # Quit the app — swap script will handle the rest
+        self._app._on_quit_click(None)
+        return True
 
     def stop(self) -> None:
         """Cancel any pending timer and running updater."""
@@ -146,9 +215,7 @@ class UpdateController:
     def _check_update(self) -> None:
         """Perform the update check (runs in a background thread)."""
         try:
-            from wenzi import __version__
-
-            current = os.environ.get("WENZI_DEV_VERSION") or __version__
+            current = _get_current_version()
             if current == "dev":
                 logger.debug("Skipping update check in dev mode")
                 return

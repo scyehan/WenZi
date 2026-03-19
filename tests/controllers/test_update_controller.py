@@ -516,3 +516,97 @@ class TestAutoUpdateIntegration:
             ctrl = UpdateController(app)
             ctrl._check_update()
             assert ctrl._release_data is release_data
+
+
+# --- Staged update on launch ---
+
+
+class TestTryApplyStagedUpdate:
+    def test_no_staged_app(self):
+        app = _make_app()
+        ctrl = UpdateController(app)
+        with patch("wenzi.updater.AppUpdater.get_staged_app_path", return_value=None):
+            assert ctrl._try_apply_staged_update() is False
+
+    def test_verification_fails(self, tmp_path):
+        staged = tmp_path / ".WenZi-update.app"
+        staged.mkdir()
+        app = _make_app()
+        ctrl = UpdateController(app)
+        with patch("wenzi.updater.AppUpdater.get_staged_app_path", return_value=staged), \
+             patch("wenzi.updater.AppUpdater._verify_app", side_effect=Exception("bad sig")), \
+             patch("wenzi.updater.AppUpdater.cleanup_staged_app") as mock_cleanup:
+            assert ctrl._try_apply_staged_update() is False
+            mock_cleanup.assert_called_once()
+
+    def test_no_version_in_staged(self, tmp_path):
+        staged = tmp_path / ".WenZi-update.app"
+        staged.mkdir()
+        app = _make_app()
+        ctrl = UpdateController(app)
+        with patch("wenzi.updater.AppUpdater.get_staged_app_path", return_value=staged), \
+             patch("wenzi.updater.AppUpdater._verify_app"), \
+             patch("wenzi.updater.AppUpdater.get_app_version", return_value=None), \
+             patch("wenzi.updater.AppUpdater.cleanup_staged_app") as mock_cleanup:
+            assert ctrl._try_apply_staged_update() is False
+            mock_cleanup.assert_called_once()
+
+    def test_staged_not_newer(self, tmp_path):
+        staged = tmp_path / ".WenZi-update.app"
+        staged.mkdir()
+        app = _make_app()
+        ctrl = UpdateController(app)
+        with patch("wenzi.updater.AppUpdater.get_staged_app_path", return_value=staged), \
+             patch("wenzi.updater.AppUpdater._verify_app"), \
+             patch("wenzi.updater.AppUpdater.get_app_version", return_value="0.1.0"), \
+             patch("wenzi.__version__", "0.1.6"), \
+             patch("wenzi.updater.AppUpdater.cleanup_staged_app") as mock_cleanup:
+            assert ctrl._try_apply_staged_update() is False
+            mock_cleanup.assert_called_once()
+
+    def test_user_clicks_later(self, tmp_path):
+        staged = tmp_path / ".WenZi-update.app"
+        staged.mkdir()
+        app = _make_app()
+        ctrl = UpdateController(app)
+        with patch("wenzi.updater.AppUpdater.get_staged_app_path", return_value=staged), \
+             patch("wenzi.updater.AppUpdater._verify_app"), \
+             patch("wenzi.updater.AppUpdater.get_app_version", return_value="2.0.0"), \
+             patch("wenzi.__version__", "0.1.6"), \
+             patch("wenzi.ui_helpers.topmost_alert", return_value=0), \
+             patch("wenzi.ui_helpers.restore_accessory"):
+            assert ctrl._try_apply_staged_update() is False
+            # Staged app should NOT be cleaned up — user chose "Later"
+            app._on_quit_click.assert_not_called()
+
+    def test_successful_apply(self, tmp_path):
+        staged = tmp_path / ".WenZi-update.app"
+        staged.mkdir()
+        app = _make_app()
+        ctrl = UpdateController(app)
+        with patch("wenzi.updater.AppUpdater.get_staged_app_path", return_value=staged), \
+             patch("wenzi.updater.AppUpdater._verify_app"), \
+             patch("wenzi.updater.AppUpdater.get_app_version", return_value="2.0.0"), \
+             patch("wenzi.__version__", "0.1.6"), \
+             patch("wenzi.ui_helpers.topmost_alert", return_value=1), \
+             patch("wenzi.ui_helpers.restore_accessory"), \
+             patch("wenzi.updater.AppUpdater.perform_swap_and_relaunch", return_value=True):
+            assert ctrl._try_apply_staged_update() is True
+            app._on_quit_click.assert_called_once_with(None)
+
+    def test_swap_fails_cleans_up(self, tmp_path):
+        staged = tmp_path / ".WenZi-update.app"
+        staged.mkdir()
+        app = _make_app()
+        ctrl = UpdateController(app)
+        with patch("wenzi.updater.AppUpdater.get_staged_app_path", return_value=staged), \
+             patch("wenzi.updater.AppUpdater._verify_app"), \
+             patch("wenzi.updater.AppUpdater.get_app_version", return_value="2.0.0"), \
+             patch("wenzi.__version__", "0.1.6"), \
+             patch("wenzi.ui_helpers.topmost_alert", return_value=1), \
+             patch("wenzi.ui_helpers.restore_accessory"), \
+             patch("wenzi.updater.AppUpdater.perform_swap_and_relaunch", return_value=False), \
+             patch("wenzi.updater.AppUpdater.cleanup_staged_app") as mock_cleanup:
+            assert ctrl._try_apply_staged_update() is False
+            mock_cleanup.assert_called_once()
+            app._on_quit_click.assert_not_called()

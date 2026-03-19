@@ -7,6 +7,7 @@ and performs swap + relaunch via a detached shell script.
 
 import logging
 import os
+import plistlib
 import shlex
 import shutil
 import subprocess
@@ -63,16 +64,43 @@ class AppUpdater:
         return os.access(str(app_path.parent), os.W_OK)
 
     @staticmethod
+    def _staged_path() -> Path:
+        """Build the path where a staged update would be placed."""
+        return AppUpdater.get_app_bundle_path().parent / AppUpdater.STAGED_APP_NAME
+
+    @staticmethod
     def cleanup_staged_app():
         """Remove leftover staged app from a previous update attempt."""
         try:
-            app_path = AppUpdater.get_app_bundle_path()
-            staged = app_path.parent / AppUpdater.STAGED_APP_NAME
+            staged = AppUpdater._staged_path()
             if staged.is_dir():
                 shutil.rmtree(staged)
                 logger.info("Cleaned up leftover staged update")
         except Exception as e:
             logger.debug("Staged app cleanup failed: %s", e)
+
+    @staticmethod
+    def get_staged_app_path() -> Optional[Path]:
+        """Return the staged app path if it exists, else None."""
+        try:
+            staged = AppUpdater._staged_path()
+            if staged.is_dir():
+                return staged
+        except Exception as e:
+            logger.debug("Failed to check staged app: %s", e)
+        return None
+
+    @staticmethod
+    def get_app_version(app_path: Path) -> Optional[str]:
+        """Read CFBundleShortVersionString from an app's Info.plist."""
+        plist_path = app_path / "Contents" / "Info.plist"
+        try:
+            with open(plist_path, "rb") as f:
+                info = plistlib.load(f)
+            return info.get("CFBundleShortVersionString")
+        except Exception as e:
+            logger.debug("Failed to read version from %s: %s", app_path, e)
+            return None
 
     def start(self):
         """Start the update process in a background thread."""
@@ -122,13 +150,17 @@ class AppUpdater:
 
             # Stage: copy new app next to current app
             self._progress("Installing update...")
-            staged_app = app_path.parent / self.STAGED_APP_NAME
+            staged_app = self._staged_path()
             shutil.rmtree(staged_app, ignore_errors=True)
             shutil.copytree(str(new_app), str(staged_app), symlinks=True)
 
             # Verify staged app integrity via code signature
             self._progress("Verifying update...")
-            self._verify_app(staged_app)
+            try:
+                self._verify_app(staged_app)
+            except UpdateError:
+                shutil.rmtree(staged_app, ignore_errors=True)
+                raise
 
             # Unmount and clean up
             self._unmount_dmg(mount_point)
@@ -242,8 +274,7 @@ class AppUpdater:
         """Verify app bundle integrity via macOS code signature.
 
         Raises UpdateError if verification fails (corrupted, incomplete,
-        or unsigned). Unsigned builds (dev mode) will fail — this is
-        intentional since auto-update targets signed releases only.
+        or unsigned). Callers are responsible for cleanup on failure.
         """
         try:
             result = subprocess.run(
@@ -253,10 +284,8 @@ class AppUpdater:
                 timeout=30,
             )
         except subprocess.TimeoutExpired:
-            shutil.rmtree(app_path, ignore_errors=True)
             raise UpdateError("Code signature verification timed out")
         if result.returncode != 0:
-            shutil.rmtree(app_path, ignore_errors=True)
             detail = result.stderr.strip() or "unknown error"
             raise UpdateError(f"Code signature verification failed: {detail}")
 
@@ -271,7 +300,7 @@ class AppUpdater:
         Returns True if the swap script was spawned successfully.
         """
         app_path = AppUpdater.get_app_bundle_path()
-        staged_app = app_path.parent / AppUpdater.STAGED_APP_NAME
+        staged_app = AppUpdater._staged_path()
 
         if not staged_app.exists():
             logger.error("Staged update not found")

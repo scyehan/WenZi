@@ -75,6 +75,47 @@ class TestCleanupStagedApp:
         AppUpdater.cleanup_staged_app()  # should not raise
 
 
+class TestGetStagedAppPath:
+    @patch("wenzi.updater.AppUpdater.get_app_bundle_path")
+    def test_returns_path_when_exists(self, mock_path, tmp_path):
+        mock_path.return_value = tmp_path / "WenZi.app"
+        staged = tmp_path / ".WenZi-update.app"
+        staged.mkdir()
+        assert AppUpdater.get_staged_app_path() == staged
+
+    @patch("wenzi.updater.AppUpdater.get_app_bundle_path")
+    def test_returns_none_when_absent(self, mock_path, tmp_path):
+        mock_path.return_value = tmp_path / "WenZi.app"
+        assert AppUpdater.get_staged_app_path() is None
+
+
+class TestGetAppVersion:
+    def test_reads_version(self, tmp_path):
+        app = tmp_path / "WenZi.app"
+        contents = app / "Contents"
+        contents.mkdir(parents=True)
+        import plistlib
+
+        with open(contents / "Info.plist", "wb") as f:
+            plistlib.dump({"CFBundleShortVersionString": "1.2.3"}, f)
+        assert AppUpdater.get_app_version(app) == "1.2.3"
+
+    def test_returns_none_for_missing_plist(self, tmp_path):
+        app = tmp_path / "WenZi.app"
+        app.mkdir()
+        assert AppUpdater.get_app_version(app) is None
+
+    def test_returns_none_for_missing_key(self, tmp_path):
+        app = tmp_path / "WenZi.app"
+        contents = app / "Contents"
+        contents.mkdir(parents=True)
+        import plistlib
+
+        with open(contents / "Info.plist", "wb") as f:
+            plistlib.dump({"CFBundleName": "WenZi"}, f)
+        assert AppUpdater.get_app_version(app) is None
+
+
 class TestFindAppInVolume:
     def test_default_name(self, tmp_path):
         app = tmp_path / "WenZi.app"
@@ -213,35 +254,26 @@ class TestVerifyApp:
         assert "--verify" in args
 
     @patch("wenzi.updater.subprocess.run")
-    def test_invalid_signature_raises(self, mock_run, tmp_path):
+    def test_invalid_signature_raises(self, mock_run):
         mock_run.return_value = MagicMock(
             returncode=1, stderr="invalid signature"
         )
-        staged = tmp_path / "Staged.app"
-        staged.mkdir()
         with pytest.raises(UpdateError, match="Code signature verification failed"):
-            AppUpdater._verify_app(staged)
-        # Should also clean up the invalid app
-        assert not staged.exists()
+            AppUpdater._verify_app(Path("/tmp/Staged.app"))
 
     @patch("wenzi.updater.subprocess.run")
-    def test_incomplete_copy_raises(self, mock_run, tmp_path):
+    def test_incomplete_copy_raises(self, mock_run):
         mock_run.return_value = MagicMock(
             returncode=3, stderr="resource envelope is obsolete"
         )
-        staged = tmp_path / "Staged.app"
-        staged.mkdir()
         with pytest.raises(UpdateError, match="verification failed"):
-            AppUpdater._verify_app(staged)
+            AppUpdater._verify_app(Path("/tmp/Staged.app"))
 
     @patch("wenzi.updater.subprocess.run")
-    def test_timeout_raises(self, mock_run, tmp_path):
+    def test_timeout_raises(self, mock_run):
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="codesign", timeout=30)
-        staged = tmp_path / "Staged.app"
-        staged.mkdir()
         with pytest.raises(UpdateError, match="timed out"):
-            AppUpdater._verify_app(staged)
-        assert not staged.exists()
+            AppUpdater._verify_app(Path("/tmp/Staged.app"))
 
 
 class TestPerformSwapAndRelaunch:
