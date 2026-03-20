@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://airead.github.io/WenZi/sitemap.xml
