@@ -29,6 +29,32 @@ class VocabularyEntry:
     variants: List[str] = field(default_factory=list)
     context: str = ""
     frequency: int = 1
+    last_seen: str = ""  # ISO 8601 timestamp (persisted to vocabulary.json)
+    last_seen_ts: float = 0.0  # Epoch seconds (derived at load time, not persisted)
+
+
+# Recency tier thresholds: (max_age_seconds, bonus_points)
+_RECENCY_TIERS = (
+    (86400.0, 3),  # < 24h → +3
+    (7 * 86400.0, 2),  # < 7d  → +2
+    (30 * 86400.0, 1),  # < 30d → +1
+)
+
+
+def _recency_bonus(last_seen_ts: float, now: float) -> int:
+    """Return a recency bonus based on how recently the term was seen."""
+    if last_seen_ts <= 0:
+        return 0
+    age = now - last_seen_ts
+    for threshold, bonus in _RECENCY_TIERS:
+        if age < threshold:
+            return bonus
+    return 0
+
+
+def hotword_score(frequency: int, last_seen_ts: float, now: float) -> float:
+    """Compute score = frequency + recency_bonus for hotword ranking."""
+    return frequency + _recency_bonus(last_seen_ts, now)
 
 
 def _has_cjk(text: str) -> bool:
@@ -142,7 +168,13 @@ class VocabularyIndex:
 
         try:
             indices = self._exact_search(text)
-            sorted_indices = sorted(indices, key=lambda i: -self._entries[i].frequency)
+            now = datetime.now(timezone.utc).timestamp()
+            sorted_indices = sorted(
+                indices,
+                key=lambda i: -hotword_score(
+                    self._entries[i].frequency, self._entries[i].last_seen_ts, now
+                ),
+            )
             return [self._entries[i] for i in sorted_indices]
         except Exception as e:
             logger.warning("find_terms_in_text failed: %s", e)
@@ -270,9 +302,16 @@ class VocabularyIndex:
         pinyin_indices: Set[int],
         top_k: int,
     ) -> List[VocabularyEntry]:
-        """Merge and rank results: exact first, then pinyin, each by frequency desc."""
-        exact_sorted = sorted(exact_indices, key=lambda i: -self._entries[i].frequency)
-        pinyin_sorted = sorted(pinyin_indices, key=lambda i: -self._entries[i].frequency)
+        """Merge and rank results: exact first, then pinyin, each by score desc."""
+        now = datetime.now(timezone.utc).timestamp()
+
+        def _score(i: int) -> float:
+            return -hotword_score(
+                self._entries[i].frequency, self._entries[i].last_seen_ts, now
+            )
+
+        exact_sorted = sorted(exact_indices, key=_score)
+        pinyin_sorted = sorted(pinyin_indices, key=_score)
         combined = exact_sorted + pinyin_sorted
         return [self._entries[i] for i in combined[:top_k]]
 
@@ -313,12 +352,16 @@ class VocabularyIndex:
             raw_entries = data.get("entries", [])
             entries = []
             for raw in raw_entries:
+                last_seen_str = raw.get("last_seen", "")
+                ts = _parse_timestamp(last_seen_str) if last_seen_str else None
                 entry = VocabularyEntry(
                     term=raw["term"],
                     category=raw.get("category", "other"),
                     variants=raw.get("variants", []),
                     context=raw.get("context", ""),
                     frequency=raw.get("frequency", 1),
+                    last_seen=last_seen_str,
+                    last_seen_ts=ts.timestamp() if ts else 0.0,
                 )
                 entries.append(entry)
             return entries
@@ -358,7 +401,15 @@ def load_hotwords(
     filtered = [
         e for e in entries if e.get("frequency", 1) >= min_frequency
     ]
-    filtered.sort(key=lambda e: e.get("frequency", 1), reverse=True)
+    now = datetime.now(timezone.utc).timestamp()
+
+    def _score(e: dict) -> float:
+        ls = e.get("last_seen", "")
+        ts = _parse_timestamp(ls) if ls else None
+        ls_ts = ts.timestamp() if ts else 0.0
+        return hotword_score(e.get("frequency", 1), ls_ts, now)
+
+    filtered.sort(key=_score, reverse=True)
     return [e["term"] for e in filtered[:max_count] if "term" in e]
 
 

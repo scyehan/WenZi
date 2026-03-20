@@ -9,8 +9,10 @@ from wenzi.enhance.vocabulary import (
     VocabularyEntry,
     VocabularyIndex,
     _parse_timestamp,
+    _recency_bonus,
     build_hotword_list,
     get_vocab_entry_count,
+    hotword_score,
     load_hotwords,
 )
 
@@ -38,6 +40,69 @@ class TestVocabularyEntry:
         assert entry.term == "Kubernetes"
         assert entry.variants == ["库伯尼特斯", "K8S"]
         assert entry.frequency == 5
+
+    def test_last_seen_defaults(self):
+        entry = VocabularyEntry(term="Test")
+        assert entry.last_seen == ""
+        assert entry.last_seen_ts == 0.0
+
+    def test_last_seen_custom(self):
+        entry = VocabularyEntry(term="Test", last_seen="2026-03-20T10:00:00+00:00", last_seen_ts=1774011600.0)
+        assert entry.last_seen == "2026-03-20T10:00:00+00:00"
+        assert entry.last_seen_ts == 1774011600.0
+
+
+# --- Recency bonus tests ---
+
+
+class TestRecencyBonus:
+    def test_within_24h(self):
+        now = 1000000.0
+        last_seen_ts = now - 3600  # 1 hour ago
+        assert _recency_bonus(last_seen_ts, now) == 3
+
+    def test_within_7d(self):
+        now = 1000000.0
+        last_seen_ts = now - 2 * 86400  # 2 days ago
+        assert _recency_bonus(last_seen_ts, now) == 2
+
+    def test_within_30d(self):
+        now = 1000000.0
+        last_seen_ts = now - 10 * 86400  # 10 days ago
+        assert _recency_bonus(last_seen_ts, now) == 1
+
+    def test_older_than_30d(self):
+        now = 1000000.0
+        last_seen_ts = now - 60 * 86400  # 60 days ago
+        assert _recency_bonus(last_seen_ts, now) == 0
+
+    def test_no_last_seen(self):
+        assert _recency_bonus(0.0, 1000000.0) == 0
+
+    def test_negative_last_seen(self):
+        assert _recency_bonus(-1.0, 1000000.0) == 0
+
+    def test_boundary_24h(self):
+        now = 1000000.0
+        # Exactly at 24h boundary → should NOT get +3 (age >= threshold)
+        assert _recency_bonus(now - 86400.0, now) == 2
+        # Just under 24h → should get +3
+        assert _recency_bonus(now - 86399.0, now) == 3
+
+
+class TestHotwordScore:
+    def test_score_with_bonus(self):
+        now = 1000000.0
+        last_seen_ts = now - 3600  # 1 hour ago → +3
+        assert hotword_score(5, last_seen_ts, now) == 8
+
+    def test_score_no_bonus(self):
+        assert hotword_score(5, 0.0, 1000000.0) == 5
+
+    def test_score_frequency_only(self):
+        now = 1000000.0
+        last_seen_ts = now - 60 * 86400  # 60 days ago → +0
+        assert hotword_score(3, last_seen_ts, now) == 3
 
 
 # --- Helpers ---
@@ -499,6 +564,21 @@ class TestLoadHotwords:
         result = load_hotwords(data_dir=str(tmp_path), min_frequency=2)
         assert result == []
 
+    def test_sorts_by_score_with_recency(self, tmp_path):
+        """Recency bonus should affect hotword ordering."""
+        now = datetime.now(timezone.utc)
+        recent_ts = (now - timedelta(hours=1)).isoformat()  # +3 bonus
+        entries = [
+            {"term": "Stale", "frequency": 5},  # score=5
+            {"term": "Recent", "frequency": 3, "last_seen": recent_ts},  # score=6
+        ]
+        vocab_path = tmp_path / "vocabulary.json"
+        vocab_path.write_text(
+            json.dumps(_make_vocab_json(entries)), encoding="utf-8"
+        )
+        result = load_hotwords(data_dir=str(tmp_path), min_frequency=1)
+        assert result == ["Recent", "Stale"]
+
 
 # --- find_terms_in_text tests ---
 
@@ -546,6 +626,34 @@ class TestFindTermsInText:
         assert len(results) == 2
         assert results[0].term == "HighTerm"
         assert results[1].term == "LowTerm"
+
+    def test_recency_can_override_frequency(self, tmp_path):
+        """A recently-seen lower-frequency term can outrank a stale higher-frequency term."""
+        now = datetime.now(timezone.utc)
+        recent_ts = (now - timedelta(hours=1)).isoformat()  # +3 bonus
+        entries = [
+            {"term": "StaleTerm", "variants": ["陈旧"], "frequency": 5},  # score=5
+            {"term": "RecentTerm", "variants": ["新鲜"], "frequency": 3, "last_seen": recent_ts},  # score=6
+        ]
+        idx = _write_vocab(tmp_path, entries)
+        results = idx.find_terms_in_text("陈旧和新鲜都在这里")
+        assert len(results) == 2
+        assert results[0].term == "RecentTerm"
+        assert results[1].term == "StaleTerm"
+
+    def test_same_frequency_recent_first(self, tmp_path):
+        """Same frequency: recently-seen term should rank higher."""
+        now = datetime.now(timezone.utc)
+        recent_ts = (now - timedelta(days=2)).isoformat()  # +2 bonus
+        entries = [
+            {"term": "OldTerm", "variants": ["老的"], "frequency": 3},  # score=3
+            {"term": "NewTerm", "variants": ["新的"], "frequency": 3, "last_seen": recent_ts},  # score=5
+        ]
+        idx = _write_vocab(tmp_path, entries)
+        results = idx.find_terms_in_text("老的和新的")
+        assert len(results) == 2
+        assert results[0].term == "NewTerm"
+        assert results[1].term == "OldTerm"
 
 
 # --- _parse_timestamp tests ---

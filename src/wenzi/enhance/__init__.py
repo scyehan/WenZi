@@ -10,6 +10,7 @@ from .vocabulary import (
     VocabularyIndex,
     build_hotword_list,
     get_vocab_entry_count,
+    hotword_score,
     load_hotwords,
 )
 from .vocabulary_builder import BuildCallbacks, VocabularyBuilder
@@ -30,6 +31,7 @@ __all__ = [
     "create_enhancer",
     "get_sorted_modes",
     "get_vocab_entry_count",
+    "hotword_score",
     "load_hotwords",
     "load_modes",
 ]
