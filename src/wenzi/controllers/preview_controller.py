@@ -219,6 +219,10 @@ class PreviewController:
         self._viewing_history_index = index
         self._input_context = record.input_context
         app = self._app
+        if record.input_context:
+            app._preview_panel.set_input_context(record.input_context.format_for_display())
+        else:
+            app._preview_panel.set_input_context("")
 
         # Update internal state so confirm uses the correct ASR text
         app._current_preview_asr_text = record.asr_text
@@ -357,6 +361,10 @@ class PreviewController:
         # Used later to reactivate only the focused window (not all windows).
         previous_app = get_frontmost_app()
         self._input_context = app._recording_controller._input_context
+        if self._input_context:
+            app._preview_panel.set_input_context(self._input_context.format_for_display())
+        else:
+            app._preview_panel.set_input_context("")
 
         try:
             app._usage_stats.record_transcription(
