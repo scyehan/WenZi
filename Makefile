@@ -1,11 +1,20 @@
 .PHONY: dev run-lite docs docs-serve lint test build build-lite build-dmg clean
 
+# Overridable environment variables for development:
+# WENZI_CONFIG_DIR    — config directory path (default: ~/.config/WenZi)
+# WENZI_VERSION       — build variant: "lite" or "standard"
+# WENZI_APP_PATH      — override app bundle path (updater testing)
+# WENZI_DEV_VERSION   — override version string (update-check testing)
+# WENZI_FORCE_AUTO_UPDATE — set to "1" to enable auto-update in dev mode
+
 # Run the app in development mode (Standard — all backends)
+# Usage: WENZI_CONFIG_DIR=/tmp/wenzi-test make dev
 dev:
 	uv sync --all-extras
 	uv run python -m wenzi
 
 # Run Lite version (Apple Speech + Remote API only)
+# Usage: WENZI_CONFIG_DIR=/tmp/wenzi-test make run-lite
 run-lite:
 	test -d .venv-lite || uv venv .venv-lite
 	UV_PROJECT_ENVIRONMENT=.venv-lite uv sync

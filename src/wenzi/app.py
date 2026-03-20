@@ -1473,7 +1473,7 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, lambda *_: quit_application())
 
-    config_dir = sys.argv[1] if len(sys.argv) > 1 else None
+    config_dir = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("WENZI_CONFIG_DIR")
     app = WenZiApp(config_dir=config_dir)  # None uses default dir
     app.run()
 
