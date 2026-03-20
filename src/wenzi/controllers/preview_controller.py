@@ -362,7 +362,7 @@ class PreviewController:
         # Save the frontmost app before we steal focus with the preview panel.
         # Used later to reactivate only the focused window (not all windows).
         previous_app = get_frontmost_app()
-        self._apply_input_context(app._recording_controller._input_context)
+        self._apply_input_context(app._recording_controller.input_context)
 
         try:
             app._usage_stats.record_transcription(

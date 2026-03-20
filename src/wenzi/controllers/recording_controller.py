@@ -36,6 +36,11 @@ class RecordingController:
         self._release_done = False
         self._input_context = None
 
+    @property
+    def input_context(self):
+        """The input context captured at the last hotkey press."""
+        return self._input_context
+
     def _fire_scripting_event(self, event_name: str, **kwargs) -> None:
         """Fire a scripting event if the script engine is available."""
         engine = getattr(self._app, "_script_engine", None)
@@ -139,7 +144,11 @@ class RecordingController:
             return
 
         # Capture input context while the user's target app is still frontmost
-        ic_level = app._config.get("ai_enhance", {}).get("input_context", "basic")
+        ic_level = (
+            app._enhancer.input_context_level
+            if app._enhancer
+            else app._config.get("ai_enhance", {}).get("input_context", "basic")
+        )
         self._input_context = capture_input_context(ic_level)
 
         # Allow on_hotkey_release to proceed (reset from previous cycle)

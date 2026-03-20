@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional
 
 from wenzi.config import DEFAULT_DATA_DIR
 from wenzi.enhance.text_diff import inline_diff
-from wenzi.input_context import InputContext
 
 logger = logging.getLogger(__name__)
 
@@ -715,11 +714,9 @@ class ConversationHistory:
         if context_level != "off":
             ic_data = entry.get("input_context")
             if ic_data:
-                ic = InputContext.from_dict(ic_data)
-                if ic:
-                    tag = ic.format_for_history_tag(context_level)
-                    if tag:
-                        return f"- {tag} - {diff}"
+                app_name = ic_data.get("app_name")
+                if app_name:
+                    return f"- {app_name} - {diff}"
         return f"- {diff}"
 
     def format_for_prompt(

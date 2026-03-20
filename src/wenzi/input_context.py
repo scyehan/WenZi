@@ -17,9 +17,17 @@ from wenzi.ui_helpers import get_frontmost_app
 
 logger = logging.getLogger(__name__)
 
-# Module-level singleton executor for AX timeout protection.
-# Reused across hotkey presses to avoid per-call thread creation overhead.
-_ax_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+# Lazy singleton executor for AX timeout protection.
+# Created on first "detailed" capture, avoids thread overhead when unused.
+_ax_executor: Optional[concurrent.futures.ThreadPoolExecutor] = None
+
+
+def _get_ax_executor() -> concurrent.futures.ThreadPoolExecutor:
+    """Return the shared executor, creating it on first use."""
+    global _ax_executor
+    if _ax_executor is None:
+        _ax_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    return _ax_executor
 
 # Pre-compiled regex patterns for domain extraction
 _BROWSER_SUFFIX_RE = re.compile(
@@ -106,9 +114,11 @@ class InputContext:
         """Deserialize from dict. Returns None if input is None."""
         if d is None:
             return None
-        fields = {f.name for f in dataclasses.fields(InputContext)}
-        return InputContext(**{k: v for k, v in d.items() if k in fields})
+        return InputContext(**{k: v for k, v in d.items() if k in _INPUT_CONTEXT_FIELDS})
 
+
+# Cached field names for from_dict deserialization
+_INPUT_CONTEXT_FIELDS = {f.name for f in dataclasses.fields(InputContext)}
 
 _BROWSER_BUNDLE_IDS = {
     "com.apple.Safari",
@@ -158,7 +168,7 @@ def capture_input_context(level: str = "basic") -> Optional[InputContext]:
     focused_desc = None
     browser_domain = None
     try:
-        future = _ax_executor.submit(_collect_ax_fields, pid, bundle_id)
+        future = _get_ax_executor().submit(_collect_ax_fields, pid, bundle_id)
         window_title, focused_role, focused_desc, browser_domain = future.result(
             timeout=0.5
         )
