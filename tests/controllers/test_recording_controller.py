@@ -873,9 +873,18 @@ class TestEventLoopCleanup:
     def test_single_stream_loop_close_called(self, mock_new_loop, ctrl, mock_app):
         """Verify loop.close() is called even when _stream() raises."""
         mock_loop = MagicMock()
-        mock_loop.run_until_complete = MagicMock(
-            side_effect=[RuntimeError("boom"), None]
-        )
+        call_count = 0
+
+        def _run_until_complete(coro):
+            nonlocal call_count
+            call_count += 1
+            # Close the coroutine to avoid "never awaited" warning
+            if hasattr(coro, "close"):
+                coro.close()
+            if call_count == 1:
+                raise RuntimeError("boom")
+
+        mock_loop.run_until_complete = _run_until_complete
         mock_new_loop.return_value = mock_loop
         cancel = threading.Event()
 
@@ -888,9 +897,17 @@ class TestEventLoopCleanup:
     def test_chain_stream_loop_close_called(self, mock_new_loop, ctrl, mock_app):
         """Verify loop.close() is called even when chain streaming raises."""
         mock_loop = MagicMock()
-        mock_loop.run_until_complete = MagicMock(
-            side_effect=[RuntimeError("boom"), None]
-        )
+        call_count = 0
+
+        def _run_until_complete(coro):
+            nonlocal call_count
+            call_count += 1
+            if hasattr(coro, "close"):
+                coro.close()
+            if call_count == 1:
+                raise RuntimeError("boom")
+
+        mock_loop.run_until_complete = _run_until_complete
         mock_new_loop.return_value = mock_loop
         mock_app._enhancer.get_mode_definition.return_value = MagicMock(label="test")
         cancel = threading.Event()

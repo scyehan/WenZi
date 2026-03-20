@@ -157,6 +157,8 @@ uv run pytest tests/ -v --cov=wenzi  # Tests — must all pass
 
 If either check fails, fix all errors first, commit the fixes, then re-run until both are clean. Do not create a PR with known failures — GitHub Actions branch protection requires CI to be green before merging.
 
+**Test warnings must also be addressed.** Pytest warnings (e.g. `DeprecationWarning`, `RuntimeWarning`, `ResourceWarning`) indicate potential issues and should be investigated and fixed, not ignored.
+
 This mirrors the CI pipeline in `.github/workflows/test.yml`.
 
 ## Post-Merge Cleanup
