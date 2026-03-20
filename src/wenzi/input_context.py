@@ -53,7 +53,7 @@ class InputContext:
             return None
 
         if level == "basic":
-            return f"\u5f53\u524d\u8f93\u5165\u73af\u5883\uff1a{self.app_name}"
+            return self.app_name
 
         # detailed
         parts = [self.app_name]
@@ -65,7 +65,7 @@ class InputContext:
             parts.append(f'("{self.focused_description}")')
         if self.browser_domain:
             parts.append(self.browser_domain)
-        return f"\u5f53\u524d\u8f93\u5165\u73af\u5883\uff1a{' \u2014 '.join(parts)}"
+        return " \u2014 ".join(parts)
 
     def format_for_display(self) -> str:
         """Format context for the preview panel info view."""

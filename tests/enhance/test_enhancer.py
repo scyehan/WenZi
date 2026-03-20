@@ -2274,11 +2274,11 @@ class TestInputContextInjection:
 
         result = enhancer._build_system_content("hello", mode_def, input_context=None)
 
-        # Should NOT contain the environment line
-        assert "\u5f53\u524d\u8f93\u5165\u73af\u5883" not in result
+        # Should NOT contain the environment section with app name
+        assert "Safari" not in result
 
-    def test_input_context_at_tail(self, tmp_path):
-        """Input context should appear after the context section content."""
+    def test_input_context_inside_section(self, tmp_path):
+        """Input context should appear inside the --- block, after vocab."""
         from wenzi.input_context import InputContext
 
         enhancer = self._make_enhancer(
@@ -2296,14 +2296,14 @@ class TestInputContextInjection:
 
         result = enhancer._build_system_content("hello", mode_def, input_context=ctx)
 
-        # The injected environment line (with app name) must come after
-        # the context section closing --- marker.
-        env_line = "\u5f53\u524d\u8f93\u5165\u73af\u5883\uff1aVSCode"
-        env_pos = result.find(env_line)
+        # Input context should be inside the --- delimited section
+        assert "\u5f53\u524d\u8f93\u5165\u73af\u5883\uff1a\n- VSCode" in result
+        # Should appear before the closing ---
+        env_pos = result.find("- VSCode")
         section_end = result.rfind("---")
-        assert env_pos > section_end, (
-            f"Input context (pos={env_pos}) should appear after "
-            f"context section end (pos={section_end})"
+        assert env_pos < section_end, (
+            f"Input context (pos={env_pos}) should appear before "
+            f"closing --- (pos={section_end})"
         )
 
     def test_input_context_off_level(self):
@@ -2316,7 +2316,7 @@ class TestInputContextInjection:
 
         result = enhancer._build_system_content("hello", mode_def, input_context=ctx)
 
-        assert "\u5f53\u524d\u8f93\u5165\u73af\u5883" not in result
+        assert "Safari" not in result
 
     def test_history_cache_invalidated_on_context_level_change(self, tmp_path):
         """Changing input_context level should invalidate history cache."""

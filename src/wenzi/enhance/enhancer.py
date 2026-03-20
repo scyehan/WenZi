@@ -642,25 +642,22 @@ class TextEnhancer:
         if self._thinking:
             system_content = f"{system_content}\n\n{THINKING_BREVITY_HINT}"
 
-        # 2. Combined context section (history + vocab)
-        context_section = self._build_context_section(text)
+        # 2. Combined context section (history + vocab + input context)
+        context_section = self._build_context_section(text, input_context)
         if context_section:
             system_content = f"{system_content}\n\n{context_section}"
 
-        # 3. Input context at the tail (dynamic per request)
-        if input_context is not None:
-            env_line = input_context.format_for_prompt(self._input_context_level)
-            if env_line:
-                system_content = f"{system_content}\n\n{env_line}"
-
         return system_content
 
-    def _build_context_section(self, text: str) -> str:
-        """Build the combined context section with history and vocabulary.
+    def _build_context_section(
+        self, text: str, input_context: "InputContext | None" = None,
+    ) -> str:
+        """Build the combined context section with history, vocabulary, and input context.
 
         Merges history and vocabulary instruction headers into one static
         block at the top, maximizing the cacheable prompt prefix.  History
-        entries follow (append-only), then vocabulary entries (dynamic).
+        entries follow (append-only), then vocabulary entries (dynamic),
+        then input context (dynamic per request).
 
         Structure::
 
@@ -674,6 +671,9 @@ class TextEnhancer:
             词库：
             - term1
             - term2
+
+            当前输入环境：
+            - iTerm2 — "窗口标题" — AXTextArea
             ---
         """
         history_context = ""
@@ -700,7 +700,11 @@ class TextEnhancer:
             except Exception as e:
                 logger.warning("Vocabulary retrieval failed: %s", e)
 
-        if not history_context and not vocab_lines:
+        env_line = None
+        if input_context is not None:
+            env_line = input_context.format_for_prompt(self._input_context_level)
+
+        if not history_context and not vocab_lines and not env_line:
             return ""
 
         # Build the combined section — header uses enabled flags for stability
@@ -711,6 +715,9 @@ class TextEnhancer:
 
         if vocab_lines:
             parts.append(f"词库：\n{vocab_lines}")
+
+        if env_line:
+            parts.append(f"当前输入环境：\n- {env_line}")
 
         parts.append("---")
         return "\n\n".join(parts)
