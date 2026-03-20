@@ -198,9 +198,15 @@ class TestChooserAPI:
 
         with patch("PyObjCTools.AppHelper.callAfter") as mock_call:
             api.pick(items, callback=lambda item: results.append(item))
-            mock_call.assert_called_once()
-            # Should pre-fill with "? " prefix for source isolation
-            _, kwargs = mock_call.call_args
+            # Find the show() call among all callAfter invocations
+            # (other calls like _recording_indicator.update_level may leak
+            # from background threads in CI)
+            show_calls = [
+                c for c in mock_call.call_args_list
+                if c.kwargs.get("initial_query") is not None
+            ]
+            assert len(show_calls) == 1
+            kwargs = show_calls[0].kwargs
             assert kwargs.get("initial_query") == "? "
             assert kwargs.get("placeholder") == "Choose..."
 
