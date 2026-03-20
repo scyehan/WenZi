@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 # Minimum variant/term length to index (avoid noisy single-char matches)
 _MIN_INDEX_LENGTH = 2
 
+# Pure-Latin variants shorter than this are too noisy for substring matching
+# (e.g. "set" matches "Settings", "doc" matches "Docker").
+# CJK characters carry more information per char, so _MIN_INDEX_LENGTH suffices.
+_MIN_LATIN_VARIANT_LENGTH = 4
+
 
 @dataclass
 class VocabularyEntry:
@@ -79,6 +84,11 @@ def hotword_score(frequency: int, last_seen_ts: float, now: float) -> float:
 def _has_cjk(text: str) -> bool:
     """Return True if *text* contains at least one CJK Unified Ideograph."""
     return any("\u4e00" <= ch <= "\u9fff" for ch in text)
+
+
+def _min_variant_length(variant: str) -> int:
+    """Return the minimum length threshold for a variant to be matchable."""
+    return _MIN_INDEX_LENGTH if _has_cjk(variant) else _MIN_LATIN_VARIANT_LENGTH
 
 
 class VocabularyIndex:
@@ -169,7 +179,7 @@ class VocabularyIndex:
             exact_indices = self._exact_search(text, text_lower=text_lower)
             exact_indices = self._filter_variant_matched(
                 exact_indices,
-                lambda v: len(v) >= _MIN_INDEX_LENGTH and v.lower() in text_lower,
+                lambda v: len(v) >= _min_variant_length(v) and v.lower() in text_lower,
             )
 
             if len(exact_indices) >= top_k:

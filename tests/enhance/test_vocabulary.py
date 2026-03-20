@@ -229,6 +229,38 @@ class TestExactSearch:
         terms2 = [r.term for r in results2]
         assert "AI" in terms2
 
+    def test_short_latin_variant_filtered(self, tmp_path):
+        """Pure-Latin variants under 4 chars are too noisy for substring matching."""
+        entries = [
+            {"term": "STT", "variants": ["set"], "frequency": 5},
+            {"term": "docs", "variants": ["doc"], "frequency": 3},
+        ]
+        idx = _write_vocab(tmp_path, entries)
+        # "set" (3 chars, Latin) should NOT match inside "Settings"
+        assert idx.retrieve("Open Settings") == []
+        # "doc" (3 chars, Latin) should NOT match inside "Docker"
+        assert idx.retrieve("I use Docker") == []
+
+    def test_short_cjk_variant_still_matches(self, tmp_path):
+        """Short CJK variants (>= 2 chars) are kept — CJK has higher info density."""
+        entries = [
+            {"term": "sounds", "variants": ["上子"], "frequency": 2},
+        ]
+        idx = _write_vocab(tmp_path, entries)
+        results = idx.retrieve("主要是那个上子的音频资源")
+        terms = [r.term for r in results]
+        assert "sounds" in terms
+
+    def test_long_latin_variant_matches(self, tmp_path):
+        """Latin variants >= 4 chars still match normally."""
+        entries = [
+            {"term": "FunASR", "variants": ["FanASR"], "frequency": 4},
+        ]
+        idx = _write_vocab(tmp_path, entries)
+        results = idx.retrieve("我用FanASR识别语音")
+        terms = [r.term for r in results]
+        assert "FunASR" in terms
+
     def test_no_match(self, tmp_path):
         idx = _write_vocab(tmp_path, _sample_entries())
         results = idx.retrieve("今天天气很好")
