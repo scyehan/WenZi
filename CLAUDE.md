@@ -174,7 +174,7 @@ git push origin --delete <branch>   # skip if GitHub auto-deleted it
 ## Release Process
 
 1. Ensure all changes are committed and tests pass (`uv run pytest tests/`)
-2. Review and update `WenZi.spec` — this step is critical to avoid runtime errors in the packaged app:
+2. Review and update `WenZi.spec` and `WenZi-Lite.spec` — this step is critical to avoid runtime errors in the packaged app. Both spec files must be kept in sync (Lite excludes local ASR packages like mlx/sherpa_onnx/funasr but shares all other modules):
    - **`hiddenimports`**: sync with all current wenzi modules (scan `src/wenzi/` for new `.py` files) and any lazily/conditionally imported third-party packages
    - **`datas`**: ensure non-Python resource files referenced via `os.path.dirname(__file__)` are included (e.g. `src/wenzi/audio/sounds` → `wenzi/audio/sounds`). PyInstaller does NOT auto-bundle data files from source directories
    - **`collect_all`**: use for third-party packages with native extensions or bundled data (e.g. `mlx`, `sherpa_onnx`, `librosa`). Without this, native `.so/.dylib` or data files will be missing at runtime
