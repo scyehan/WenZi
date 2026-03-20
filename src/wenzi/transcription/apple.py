@@ -30,8 +30,9 @@ _LANG_TO_LOCALE = {
 RECOGNITION_TIMEOUT = 30  # seconds
 STREAMING_FINAL_TIMEOUT = 10  # seconds to wait for final result after endAudio
 
-# macOS System Settings deep link for Siri / Dictation
+# macOS System Settings deep links
 SIRI_SETTINGS_URL = "x-apple.systempreferences:com.apple.Siri-Settings.extension"
+KEYBOARD_SETTINGS_URL = "x-apple.systempreferences:com.apple.Keyboard-Settings.extension"
 
 
 def check_siri_available(language="zh", on_device=True):
@@ -117,18 +118,18 @@ def check_siri_available(language="zh", on_device=True):
     return True, None
 
 
-def prompt_enable_siri():
-    """Show a dialog prompting the user to enable Siri, with an Open Settings button.
+def prompt_enable_dictation():
+    """Show a dialog prompting the user to enable Dictation, with an Open Settings button.
 
     Safe to call from any thread (dispatches to main thread internally).
     """
     from wenzi.ui_helpers import restore_accessory, topmost_alert
 
     result = topmost_alert(
-        title="Siri and Dictation Disabled",
+        title="Dictation Disabled",
         message=(
-            "Apple Speech requires Siri and Dictation to be enabled.\n\n"
-            "Please enable it in System Settings > Apple Intelligence & Siri."
+            "Apple Speech requires Dictation to be enabled.\n\n"
+            "Please enable it in System Settings > Keyboard > Dictation."
         ),
         ok="Open Settings",
         cancel="Cancel",
@@ -136,8 +137,12 @@ def prompt_enable_siri():
     if result == 1:
         import subprocess
 
-        subprocess.Popen(["open", SIRI_SETTINGS_URL])
+        subprocess.Popen(["open", KEYBOARD_SETTINGS_URL])
     restore_accessory()
+
+
+# Keep old name as alias for backward compatibility
+prompt_enable_siri = prompt_enable_dictation
 
 
 # Return values for prompt_siri_setup()
@@ -167,12 +172,13 @@ def prompt_siri_setup():
         activate_for_dialog()
 
         alert = NSAlert.alloc().init()
-        alert.setMessageText_("Siri and Dictation Required")
+        alert.setMessageText_("Dictation Required")
         alert.setInformativeText_(
             "WenZi uses Apple Speech for voice input, which requires "
-            "Siri and Dictation to be enabled.\n\n"
-            "You can enable it now in System Settings, or continue "
-            "using WenZi without voice input (e.g. launcher only)."
+            "Dictation to be enabled.\n\n"
+            "You can enable it now in System Settings > Keyboard > "
+            "Dictation, or continue using WenZi without voice input "
+            "(e.g. launcher only)."
         )
         # Button order: first = 1000, second = 1001, third = 1002
         alert.addButtonWithTitle_("Open Settings")

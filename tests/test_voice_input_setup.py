@@ -101,8 +101,8 @@ class TestHandleNoVoiceBackend:
 class TestTryEnableVoiceInput:
     """Tests for RecordingController._try_enable_voice_input."""
 
-    def test_init_succeeds_enables_voice(self):
-        """If initialize() succeeds, voice input becomes available."""
+    def test_dictation_available_and_init_succeeds(self):
+        """If Dictation is enabled and initialize() succeeds, voice input becomes available."""
         from wenzi.controllers.recording_controller import RecordingController
 
         app = MagicMock()
@@ -110,7 +110,8 @@ class TestTryEnableVoiceInput:
         app._transcriber.initialize.return_value = None
         ctrl = RecordingController(app)
 
-        with patch("threading.Thread") as mock_thread:
+        with patch("threading.Thread") as mock_thread, \
+             patch("wenzi.transcription.apple.check_siri_available", return_value=(True, None)):
             ctrl._try_enable_voice_input()
             target = mock_thread.call_args[1].get("target") or mock_thread.call_args[0][0]
             if callable(target):
@@ -119,19 +120,38 @@ class TestTryEnableVoiceInput:
         app._transcriber.initialize.assert_called_once()
         assert app._voice_input_available is True
 
-    def test_init_fails_prompts_siri(self):
-        """If initialize() fails, show Siri prompt."""
+    def test_dictation_disabled_prompts_user(self):
+        """If Dictation is disabled, show prompt without attempting initialize."""
         from wenzi.controllers.recording_controller import RecordingController
 
         app = MagicMock()
         app._voice_input_available = False
-        app._transcriber.initialize.side_effect = RuntimeError("Siri disabled")
         ctrl = RecordingController(app)
 
         with patch("threading.Thread") as mock_thread, \
-             patch(
-                 "wenzi.transcription.apple.prompt_enable_siri"
-             ) as mock_prompt:
+             patch("wenzi.transcription.apple.check_siri_available", return_value=(False, "Siri disabled")), \
+             patch("wenzi.transcription.apple.prompt_enable_dictation") as mock_prompt:
+            ctrl._try_enable_voice_input()
+            target = mock_thread.call_args[1].get("target") or mock_thread.call_args[0][0]
+            if callable(target):
+                target()
+
+        app._transcriber.initialize.assert_not_called()
+        mock_prompt.assert_called_once()
+        assert app._voice_input_available is False
+
+    def test_dictation_available_but_init_fails(self):
+        """If Dictation is enabled but initialize() fails, show prompt."""
+        from wenzi.controllers.recording_controller import RecordingController
+
+        app = MagicMock()
+        app._voice_input_available = False
+        app._transcriber.initialize.side_effect = RuntimeError("auth denied")
+        ctrl = RecordingController(app)
+
+        with patch("threading.Thread") as mock_thread, \
+             patch("wenzi.transcription.apple.check_siri_available", return_value=(True, None)), \
+             patch("wenzi.transcription.apple.prompt_enable_dictation") as mock_prompt:
             ctrl._try_enable_voice_input()
             target = mock_thread.call_args[1].get("target") or mock_thread.call_args[0][0]
             if callable(target):

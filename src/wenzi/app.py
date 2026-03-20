@@ -1183,9 +1183,9 @@ class WenZiApp(StatusBarApp):
         if choice == SIRI_SETUP_OPEN_SETTINGS:
             import subprocess
 
-            from .transcription.apple import SIRI_SETTINGS_URL
+            from .transcription.apple import KEYBOARD_SETTINGS_URL
 
-            subprocess.Popen(["open", SIRI_SETTINGS_URL])
+            subprocess.Popen(["open", KEYBOARD_SETTINGS_URL])
 
         elif choice == SIRI_SETUP_DONT_ASK:
             asr_cfg["voice_input_disabled"] = True

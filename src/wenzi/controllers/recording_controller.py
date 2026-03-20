@@ -96,15 +96,26 @@ class RecordingController:
 
         def _attempt():
             try:
+                # Quick check if Dictation is enabled before attempting full init
+                from wenzi.transcription.apple import (
+                    check_siri_available,
+                    prompt_enable_dictation,
+                )
+
+                ok, _ = check_siri_available()
+                if not ok:
+                    prompt_enable_dictation()
+                    return
+
                 app._transcriber.initialize()
                 app._voice_input_available = True
                 app._set_status("WZ")
                 logger.info("Voice input enabled after deferred initialization")
             except Exception:
                 logger.debug("Deferred voice init failed, prompting user")
-                from wenzi.transcription.apple import prompt_enable_siri
+                from wenzi.transcription.apple import prompt_enable_dictation
 
-                prompt_enable_siri()
+                prompt_enable_dictation()
             finally:
                 self._voice_init_lock.release()
 
