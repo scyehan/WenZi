@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xhtml="http://www.w3.org/1999/xhtml">
+
+  <!-- Landing pages -->
+  <url>
+    <loc>https://airead.github.io/WenZi/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/" />
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/zh/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/" />
+    <priority>1.0</priority>
+  </url>
+
+  <!-- English docs -->
+  <url>
+    <loc>https://airead.github.io/WenZi/docs/user-guide.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/user-guide.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/user-guide.html" />
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/docs/configuration.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/configuration.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/configuration.html" />
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/docs/provider-model-guide.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/provider-model-guide.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/provider-model-guide.html" />
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/docs/error-correction.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/error-correction.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/error-correction.html" />
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/docs/enhance-modes.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/enhance-modes.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/enhance-modes.html" />
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/docs/enhance-mode-examples.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/enhance-mode-examples.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/enhance-mode-examples.html" />
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/docs/prompt-optimization.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/prompt-optimization.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/prompt-optimization.html" />
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/docs/conversation-history-enhancement.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/conversation-history-enhancement.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/conversation-history-enhancement.html" />
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/docs/scripting.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/scripting.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/scripting.html" />
+    <priority>0.6</priority>
+  </url>
+
+  <!-- Chinese docs -->
+  <url>
+    <loc>https://airead.github.io/WenZi/zh/docs/user-guide.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/user-guide.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/user-guide.html" />
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/zh/docs/configuration.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/configuration.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/configuration.html" />
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/zh/docs/provider-model-guide.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/provider-model-guide.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/provider-model-guide.html" />
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/zh/docs/error-correction.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/error-correction.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/error-correction.html" />
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/zh/docs/enhance-modes.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/enhance-modes.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/enhance-modes.html" />
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/zh/docs/enhance-mode-examples.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/enhance-mode-examples.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/enhance-mode-examples.html" />
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/zh/docs/prompt-optimization.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/prompt-optimization.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/prompt-optimization.html" />
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/zh/docs/conversation-history-enhancement.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/conversation-history-enhancement.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/conversation-history-enhancement.html" />
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://airead.github.io/WenZi/zh/docs/scripting.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://airead.github.io/WenZi/docs/scripting.html" />
+    <xhtml:link rel="alternate" hreflang="zh" href="https://airead.github.io/WenZi/zh/docs/scripting.html" />
+    <priority>0.6</priority>
+  </url>
+
+</urlset>
