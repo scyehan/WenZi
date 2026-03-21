@@ -23,6 +23,8 @@ from AppKit import (
 from Foundation import NSObject
 from PyObjCTools import AppHelper
 
+from wenzi.i18n import t
+
 logger = logging.getLogger(__name__)
 
 
@@ -244,13 +246,15 @@ class StatusBarApp:
         name: str,
         icon: Optional[str] = None,
         title: Optional[str] = None,
-        quit_button: str = "Quit",
+        quit_button: Optional[str] = None,
     ) -> None:
         self._name = name
         self._title = title
         self._icon = icon
         self._icon_nsimage: Optional[NSImage] = None
         self._menu = StatusMenuItem(name)
+        if quit_button is None:
+            quit_button = t("menu.quit")
         self._quit_button = StatusMenuItem(quit_button) if quit_button else None
         self._nsstatusitem = None
 
