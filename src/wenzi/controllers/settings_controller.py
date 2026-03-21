@@ -28,6 +28,15 @@ from wenzi.ui_helpers import restore_accessory, topmost_alert
 
 logger = logging.getLogger(__name__)
 
+# Launcher data source definitions: (config_key, i18n_label_key, prefix_key)
+_LAUNCHER_SOURCE_DEFS = [
+    ("app_search", "applications", None),
+    ("clipboard_history", "clipboard_history", "clipboard"),
+    ("file_search", "file_search", "files"),
+    ("snippets", "snippets", "snippets"),
+    ("bookmarks", "bookmarks", "bookmarks"),
+]
+
 
 class SettingsController:
     """Handles all Settings panel callbacks."""
@@ -36,25 +45,25 @@ class SettingsController:
         self._app = app
 
     def _save_and_reload(self) -> None:
-        """Save config and reload the Settings panel if it is visible.
-
-        Safe to call from any thread — the UI reload is dispatched to the
-        main thread automatically.
-        """
+        """Save config and refresh the Settings panel if visible."""
         from PyObjCTools import AppHelper
 
         app = self._app
         save_config(app._config, app._config_path)
         if app._settings_panel.is_visible:
-            AppHelper.callAfter(self.on_open_settings, None)
+            AppHelper.callAfter(self._refresh_panel)
 
-    def on_open_settings(self, _) -> None:
-        """Open the Settings panel with current state and callbacks."""
+    def _refresh_panel(self) -> None:
+        """Push updated state to the settings panel (incremental refresh)."""
+        state = self._collect_state()
+        self._app._settings_panel.update_state(state)
+
+    def _collect_state(self) -> dict:
+        """Build the current state dict for the Settings panel."""
         from wenzi.enhance.vocabulary import get_vocab_entry_count
 
         app = self._app
 
-        # Collect current state
         hotkeys = app._config.get("hotkeys", {"fn": True})
 
         # STT presets — only show backends that are available
@@ -74,10 +83,16 @@ class SettingsController:
         # LLM models
         llm_models = []
         current_llm = None
+        ai_providers_cfg = app._config.get("ai_enhance", {}).get("providers", {})
         if app._enhancer:
             for pname, models in app._enhancer.providers_with_models.items():
+                pcfg = ai_providers_cfg.get(pname, {})
+                # All models from a provider share the same API key config
+                has_api_key = bool(pcfg.get("api_key"))
                 for mname in models:
-                    llm_models.append((pname, mname, f"{pname} / {mname}"))
+                    llm_models.append(
+                        (pname, mname, f"{pname} / {mname}", has_api_key)
+                    )
             current_llm = (app._enhancer.provider_name, app._enhancer.model_name)
 
         # Enhance modes (excluding "off") with order for display
@@ -99,7 +114,7 @@ class SettingsController:
         last_tab = ui_cfg.get("settings_last_tab", "general")
 
         fb_cfg = app._config.get("feedback", {})
-        state = {
+        return {
             "last_tab": last_tab,
             "hotkeys": hotkeys,
             "restart_key": fb_cfg.get("restart_key", "cmd"),
@@ -136,8 +151,14 @@ class SettingsController:
             "scripting_enabled": app._config.get("scripting", {}).get(
                 "enabled", False
             ),
+            "language": app._config.get("language", "auto"),
             "launcher": self._build_launcher_state(),
         }
+
+    def on_open_settings(self, _) -> None:
+        """Open the Settings panel with current state and callbacks."""
+        app = self._app
+        state = self._collect_state()
 
         callbacks = {
             "on_hotkey_toggle": self.hotkey_toggle,
@@ -621,13 +642,18 @@ class SettingsController:
 
         threading.Thread(target=_do_switch, daemon=True).start()
 
-    def stt_remove_provider(self) -> None:
+    def stt_remove_provider(self, provider: str = "") -> None:
         """Handle STT remove provider from Settings panel."""
         app = self._app
+        if provider:
+            item = app._asr_remove_provider_items.get(provider)
+            if item:
+                app._model_controller.on_asr_remove_provider(item)
+                return
+        # Fallback: remove first provider if no name given
         asr_cfg = app._config.get("asr", {})
         providers = asr_cfg.get("providers", {})
         if providers:
-            # Remove the first provider's menu item to trigger existing flow
             first_name = next(iter(providers))
             item = app._asr_remove_provider_items.get(first_name)
             if item:
@@ -656,9 +682,15 @@ class SettingsController:
         self._save_and_reload()
         logger.info("LLM model set to: %s / %s (from settings)", provider, model)
 
-    def llm_remove_provider(self) -> None:
+    def llm_remove_provider(self, provider: str = "") -> None:
         """Handle LLM remove provider from Settings panel."""
         app = self._app
+        if provider:
+            item = app._llm_remove_provider_items.get(provider)
+            if item:
+                app._model_controller.on_enhance_remove_provider(item)
+                return
+        # Fallback: remove first provider if no name given
         if app._enhancer:
             providers = app._enhancer.providers_with_models
             if providers:
@@ -731,7 +763,7 @@ class SettingsController:
         app._config["ai_enhance"]["input_context"] = level
         if app._enhancer:
             app._enhancer.input_context_level = level
-        save_config(app._config, app._config_path)
+        self._save_and_reload()
         logger.info("Input context level set to: %s (from settings)", level)
 
     def vocab_toggle(self, enabled: bool) -> None:
@@ -756,13 +788,21 @@ class SettingsController:
         bm = vocab_cfg.get("build_model", "")
         if bp and bm:
             # Verify the pair still exists in available models
-            for provider, model, _ in llm_models:
+            for provider, model, *_ in llm_models:
                 if provider == bp and model == bm:
                     return (bp, bm)
         return None
 
-    def vocab_build_model_select(self, provider: str, model: str) -> None:
-        """Handle vocab build model selection from Settings panel."""
+    def vocab_build_model_select(self, value: str) -> None:
+        """Handle vocab build model selection from Settings panel.
+
+        Args:
+            value: Combined "provider/model" string from the webview select.
+        """
+        if "/" in value:
+            provider, model = value.split("/", 1)
+        else:
+            provider, model = value, ""
         app = self._app
         app._config.setdefault("ai_enhance", {})
         app._config["ai_enhance"].setdefault("vocabulary", {})
@@ -831,7 +871,7 @@ class SettingsController:
         """Persist the last active settings tab."""
         app = self._app
         app._config.setdefault("ui", {})["settings_last_tab"] = tab_id
-        self._save_and_reload()
+        save_config(app._config, app._config_path)
 
     def config_dir_browse(self) -> None:
         """Open a directory picker to choose a custom config directory."""
@@ -918,29 +958,45 @@ class SettingsController:
         """Build launcher state dict for the settings panel."""
         app = self._app
         chooser_cfg = app._config.get("scripting", {}).get("chooser", {})
+        prefixes = chooser_cfg.get("prefixes", {
+            "clipboard": "cb",
+            "files": "f",
+            "snippets": "sn",
+            "bookmarks": "bm",
+        })
+        source_hotkeys = chooser_cfg.get("source_hotkeys", {})
+
+        sources = []
+        for config_key, label_key, prefix_key in _LAUNCHER_SOURCE_DEFS:
+            sources.append({
+                "config_key": config_key,
+                "label_key": label_key,
+                "enabled": chooser_cfg.get(config_key, True),
+                "prefix_key": prefix_key,
+                "prefix": prefixes.get(prefix_key, "") if prefix_key else "",
+                "hotkey": source_hotkeys.get(prefix_key, "") if prefix_key else "",
+            })
+
+        # Collect registered chooser sources from scripting registry
+        registered_sources = []
+        engine = getattr(app, "_script_engine", None)
+        if engine is not None:
+            registry = getattr(engine, "_registry", None)
+            if registry is not None:
+                for name, src in registry.chooser_sources.items():
+                    registered_sources.append({
+                        "name": name,
+                        "prefix": getattr(src, "prefix", ""),
+                    })
+
         return {
             "enabled": chooser_cfg.get("enabled", True),
-            "hotkey": chooser_cfg.get("hotkey", "cmd+space"),
-            "app_search": chooser_cfg.get("app_search", True),
-            "clipboard_history": chooser_cfg.get("clipboard_history", True),
-            "file_search": chooser_cfg.get("file_search", True),
-            "snippets": chooser_cfg.get("snippets", True),
-            "bookmarks": chooser_cfg.get("bookmarks", True),
+            "hotkey": chooser_cfg.get("hotkey", ""),
             "usage_learning": chooser_cfg.get("usage_learning", True),
-            "prefixes": chooser_cfg.get("prefixes", {
-                "clipboard": "cb",
-                "files": "f",
-                "snippets": "sn",
-                "bookmarks": "bm",
-            }),
-            "source_hotkeys": chooser_cfg.get("source_hotkeys", {
-                "clipboard": "",
-                "files": "",
-                "snippets": "",
-                "bookmarks": "",
-            }),
+            "switch_english": chooser_cfg.get("switch_to_english", True),
             "new_snippet_hotkey": chooser_cfg.get("new_snippet_hotkey", ""),
-            "switch_to_english": chooser_cfg.get("switch_to_english", True),
+            "sources": sources,
+            "registered_sources": registered_sources,
         }
 
     def launcher_toggle(self, enabled: bool) -> None:

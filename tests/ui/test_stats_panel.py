@@ -123,7 +123,9 @@ class TestBuildHtml:
         payload = build_stats_payload(stats, days=3)
         html = build_html(payload)
         assert "__STATS_DATA__" not in html
-        assert "Chart.js" not in html or "chart.js" in html.lower()
+        assert "__CHARTJS_INLINE__" not in html
+        # Vendored Chart.js should be inlined
+        assert "Chart.js" in html
 
     def test_html_contains_chart_elements(self):
         from wenzi.ui.stats_panel import build_html
@@ -149,10 +151,10 @@ class TestHtmlTemplate:
 
         assert "__STATS_DATA__" in _HTML_TEMPLATE
 
-    def test_template_has_chart_js_reference(self):
+    def test_template_has_chart_js_placeholder(self):
         from wenzi.ui.stats_panel import _HTML_TEMPLATE
 
-        assert "chart.js" in _HTML_TEMPLATE.lower()
+        assert "__CHARTJS_INLINE__" in _HTML_TEMPLATE
 
     def test_template_has_canvas_elements(self):
         from wenzi.ui.stats_panel import _HTML_TEMPLATE

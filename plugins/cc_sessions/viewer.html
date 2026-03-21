@@ -1,0 +1,1353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Session Viewer</title>
+
+<!-- Markdown rendering -->
+<script src="vendor/marked.min.js"></script>
+
+<!-- Code highlighting -->
+<link rel="stylesheet" href="vendor/github-dark.min.css">
+<script src="vendor/highlight.min.js"></script>
+
+<style>
+  /* ── CSS Variables ── */
+  :root {
+    --bg-primary: #ffffff;
+    --bg-secondary: rgba(100, 100, 100, 0.06);
+    --bg-user-msg: rgba(59, 130, 246, 0.06);
+    --bg-tool-block: rgba(100, 100, 100, 0.06);
+    --bg-tool-expanded: rgba(100, 100, 100, 0.04);
+    --bg-thinking: rgba(168, 85, 247, 0.04);
+    --text-primary: #1a1a1a;
+    --text-secondary: #666666;
+    --text-muted: #999999;
+    --text-tool-label: #888888;
+    --text-tool-detail: #aaaaaa;
+    --border-color: rgba(128, 128, 128, 0.2);
+    --outline-active-bg: rgba(99, 102, 241, 0.12);
+    --outline-active-border: #6366f1;
+    --code-bg: rgba(100, 100, 100, 0.1);
+    --copy-btn-bg: rgba(99, 102, 241, 0.1);
+    --copy-btn-color: #6366f1;
+    --expand-arrow: #cccccc;
+    --badge-user: #3b82f6;
+    --badge-assistant: #d97757;
+    --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+    --scrollbar-track: transparent;
+    --pre-bg: #1e1e1e;
+    --pre-text: #d4d4d4;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg-primary: #1e1e1e;
+      --bg-secondary: rgba(255, 255, 255, 0.06);
+      --bg-user-msg: rgba(59, 130, 246, 0.1);
+      --bg-tool-block: rgba(255, 255, 255, 0.06);
+      --bg-tool-expanded: rgba(255, 255, 255, 0.04);
+      --bg-thinking: rgba(168, 85, 247, 0.08);
+      --text-primary: #e0e0e0;
+      --text-secondary: #aaaaaa;
+      --text-muted: #777777;
+      --text-tool-label: #999999;
+      --text-tool-detail: #777777;
+      --border-color: rgba(255, 255, 255, 0.1);
+      --outline-active-bg: rgba(99, 102, 241, 0.2);
+      --outline-active-border: #818cf8;
+      --code-bg: rgba(255, 255, 255, 0.1);
+      --copy-btn-bg: rgba(99, 102, 241, 0.15);
+      --copy-btn-color: #a5b4fc;
+      --badge-assistant: #e08a6d;
+      --expand-arrow: #555555;
+      --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+      --pre-bg: #0d1117;
+      --pre-text: #c9d1d9;
+    }
+  }
+
+  /* ── Reset & Base ── */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+  }
+
+  /* ── Layout ── */
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+
+  .info-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .info-bar .label { color: var(--text-secondary); }
+  .info-bar .value { font-weight: 500; }
+  .info-bar .sep { color: var(--text-secondary); }
+  .info-bar .actions { margin-left: auto; display: flex; gap: 6px; }
+
+  .copy-btn {
+    padding: 2px 10px;
+    background: var(--copy-btn-bg);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--copy-btn-color);
+    font-family: inherit;
+  }
+  .copy-btn:hover { opacity: 0.85; }
+
+  .main-content {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* ── Outline ── */
+  .outline {
+    width: 200px;
+    min-width: 200px;
+    border-right: 1px solid var(--border-color);
+    overflow-y: auto;
+    padding: 8px 0;
+    flex-shrink: 0;
+  }
+
+  .outline-title {
+    padding: 4px 12px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+
+  .outline-item {
+    padding: 6px 12px 6px 20px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-muted);
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-left: 2px solid transparent;
+    transition: background 0.15s, border-color 0.15s;
+    position: relative;
+  }
+  .outline-item::before {
+    content: "";
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--badge-user);
+  }
+  .outline-item.outline-assistant::before {
+    background: var(--badge-assistant);
+  }
+  .outline-item:hover {
+    background: var(--bg-secondary);
+  }
+  .outline-item.active {
+    background: var(--outline-active-bg);
+    border-left-color: var(--outline-active-border);
+    color: var(--text-primary);
+  }
+  .outline-item.outline-assistant {
+    color: var(--text-secondary);
+  }
+
+  /* ── Conversation ── */
+  .conversation {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    min-width: 0;
+  }
+
+  /* ── Scrollbars ── */
+  .outline::-webkit-scrollbar,
+  .conversation::-webkit-scrollbar {
+    width: 6px;
+  }
+  .outline::-webkit-scrollbar-thumb,
+  .conversation::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 3px;
+  }
+  .outline::-webkit-scrollbar-track,
+  .conversation::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+
+  /* ── Message Turn ── */
+  .turn {
+    margin-bottom: 20px;
+  }
+
+  .turn-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .badge {
+    color: white;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+  }
+  .badge-user { background: var(--badge-user); }
+  .badge-assistant { background: var(--badge-assistant); }
+
+  .timestamp {
+    color: var(--text-secondary);
+    font-size: 11px;
+  }
+
+  .collapsible {
+    position: relative;
+    max-height: calc(1.6em * 8);
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+  }
+  .collapsible.expanded {
+    max-height: none;
+  }
+  .collapsible::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 24px;
+    background: linear-gradient(transparent, var(--bg-primary));
+    pointer-events: none;
+  }
+  .collapsible.expanded::after {
+    display: none;
+  }
+  .user-content.collapsible::after {
+    background: linear-gradient(transparent, var(--bg-user-msg-solid, #eef4fe));
+  }
+  @media (prefers-color-scheme: dark) {
+    .user-content.collapsible::after {
+      background: linear-gradient(transparent, var(--bg-user-msg-solid, #1e2a3a));
+    }
+  }
+  .show-more-btn {
+    display: block;
+    background: none;
+    border: none;
+    color: var(--badge-user);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 12px;
+    opacity: 0.8;
+  }
+  .show-more-btn:hover { opacity: 1; }
+
+  .user-content {
+    padding: 8px 12px;
+    background: var(--bg-user-msg);
+    border-radius: 8px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .assistant-text {
+    padding: 8px 12px;
+    line-height: 1.6;
+    word-break: break-word;
+  }
+  .assistant-text p { margin-bottom: 0.5em; }
+  .assistant-text p:last-child { margin-bottom: 0; }
+  .assistant-text ul, .assistant-text ol { padding-left: 1.5em; margin-bottom: 0.5em; }
+  .assistant-text code {
+    background: var(--code-bg);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 0.9em;
+  }
+  .assistant-text pre {
+    background: var(--pre-bg);
+    color: var(--pre-text);
+    padding: 10px 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 8px 0;
+  }
+  .assistant-text pre code {
+    background: none;
+    padding: 0;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  /* ── Tool Block ── */
+  .tool-block {
+    margin: 4px 0;
+    border-radius: 5px;
+    background: var(--bg-tool-block);
+    overflow: hidden;
+  }
+
+  .tool-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+    border-left: 3px solid var(--tool-border-color, #9ca3af);
+  }
+  .tool-header:hover { opacity: 0.85; }
+
+  .tool-icon { flex-shrink: 0; }
+  .tool-label { color: var(--text-tool-label); font-family: monospace; }
+  .tool-detail {
+    color: var(--text-tool-detail);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
+  }
+  .tool-arrow {
+    margin-left: auto;
+    color: var(--expand-arrow);
+    flex-shrink: 0;
+    transition: transform 0.15s;
+  }
+  .tool-block.expanded .tool-arrow {
+    transform: rotate(90deg);
+  }
+
+  .tool-body {
+    display: none;
+    padding: 8px 12px;
+    font-size: 12px;
+    background: var(--bg-tool-expanded);
+    border-top: 1px solid var(--border-color);
+    border-left: 3px solid var(--tool-border-color, #9ca3af);
+  }
+  .tool-block.expanded .tool-body {
+    display: block;
+  }
+
+  .tool-body pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-primary);
+    margin: 0;
+  }
+
+  .tool-section-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+    margin-top: 6px;
+  }
+  .tool-section-label:first-child { margin-top: 0; }
+
+  /* ── Thinking Toggle ── */
+  .thinking-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin: 4px 12px;
+    padding: 2px 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    background: var(--bg-thinking);
+    user-select: none;
+  }
+  .thinking-toggle:hover { opacity: 0.8; }
+
+  .thinking-content {
+    display: none;
+    padding: 8px 12px;
+    margin: 2px 12px 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: var(--bg-thinking);
+    border-radius: 6px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  .thinking-content.visible { display: block; }
+
+  /* ── Border colors for tool types ── */
+  .tool-read    { --tool-border-color: #f59e0b; }
+  .tool-bash    { --tool-border-color: #10b981; }
+  .tool-grep    { --tool-border-color: #6366f1; }
+  .tool-edit    { --tool-border-color: #ef4444; }
+  .tool-write   { --tool-border-color: #ec4899; }
+  .tool-other   { --tool-border-color: #9ca3af; }
+
+  /* ── Stats dashboard ── */
+  .stats-toggle {
+    display: flex;
+    align-items: center;
+    padding: 6px 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-secondary);
+    user-select: none;
+    gap: 6px;
+  }
+  .stats-toggle:hover { background: var(--outline-active-bg); }
+  .stats-toggle .arrow { transition: transform 0.2s; font-size: 10px; }
+  .stats-toggle .arrow.open { transform: rotate(90deg); }
+  .stats-toggle .summary { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .stats-panel {
+    display: none;
+    padding: 12px 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    overflow-y: auto;
+    max-height: 400px;
+  }
+  .stats-panel.open { display: block; }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .stats-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .stats-card h4 {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin: 0 0 8px 0;
+    letter-spacing: 0.5px;
+  }
+  .stats-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    padding: 2px 0;
+    color: var(--text-secondary);
+  }
+  .stats-row .val { font-weight: 500; color: var(--text-primary); }
+
+  .stats-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    padding: 2px 0;
+    color: var(--text-secondary);
+  }
+  .stats-bar-label { width: 80px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stats-bar-track { flex: 1; height: 10px; background: var(--bg-secondary); border-radius: 3px; overflow: hidden; }
+  .stats-bar-fill { display: block; height: 100%; border-radius: 3px; min-width: 2px; }
+  .stats-bar-count { width: 32px; text-align: right; font-weight: 500; color: var(--text-primary); }
+
+  .stats-list-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 2px 0;
+    color: var(--text-secondary);
+  }
+  .stats-list-item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .stats-list-item .count { font-weight: 500; color: var(--text-primary); margin-left: 8px; }
+
+  /* ── Loading state ── */
+  .loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="info-bar" id="info-bar">
+    <span class="label">Project:</span>
+    <span class="value" id="info-project">—</span>
+    <span class="sep">|</span>
+    <span class="label">Branch:</span>
+    <span class="value" id="info-branch">—</span>
+    <span class="sep">|</span>
+    <span class="label">Version:</span>
+    <span class="value" id="info-version">—</span>
+    <span class="actions">
+      <button class="copy-btn" id="btn-copy-resume" title="Copy: cd ... && claude --resume ...">
+        &#128203; Copy Resume Command
+      </button>
+    </span>
+  </div>
+
+  <div class="stats-toggle" id="stats-toggle" style="display:none;">
+    <span class="arrow" id="stats-arrow">&#9654;</span>
+    <span class="summary" id="stats-summary"></span>
+  </div>
+  <div class="stats-panel" id="stats-panel"></div>
+
+  <div class="main-content">
+    <div class="outline" id="outline">
+      <div class="outline-title">Outline</div>
+    </div>
+    <div class="conversation" id="conversation">
+      <div class="loading" id="loading-msg">Loading session...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Configure marked + highlight.js ──
+document.addEventListener("DOMContentLoaded", () => {
+  if (typeof marked !== "undefined") {
+    marked.setOptions({
+      highlight: (code, lang) => {
+        if (typeof hljs !== "undefined" && lang && hljs.getLanguage(lang)) {
+          try { return hljs.highlight(code, { language: lang }).value; } catch {}
+        }
+        if (typeof hljs !== "undefined") {
+          try { return hljs.highlightAuto(code).value; } catch {}
+        }
+        return code;
+      },
+      breaks: false,
+      gfm: true,
+    });
+  }
+});
+
+// ── Tool metadata ──
+const TOOL_META = {
+  Read:       { icon: "\u{1F4C4}", css: "tool-read",  mergeable: true },
+  Glob:       { icon: "\u{1F4C4}", css: "tool-read",  mergeable: true },
+  Grep:       { icon: "\u{1F50D}", css: "tool-grep",  mergeable: true },
+  Edit:       { icon: "\u270F\uFE0F",  css: "tool-edit",  mergeable: true },
+  Bash:       { icon: "\u25B6\uFE0F",  css: "tool-bash",  mergeable: false },
+  Write:      { icon: "\u{1F4DD}", css: "tool-write", mergeable: false },
+};
+
+function getToolMeta(name) {
+  return TOOL_META[name] || { icon: "\u{1F527}", css: "tool-other", mergeable: false };
+}
+
+// ── Extract a short detail string for a tool call ──
+function toolDetail(name, input) {
+  if (!input) return "";
+  if (name === "Read" && input.file_path) return basename(input.file_path);
+  if (name === "Glob" && input.pattern) return input.pattern;
+  if (name === "Grep" && input.pattern) return `"${truncate(input.pattern, 40)}"`;
+  if (name === "Edit" && input.file_path) return basename(input.file_path);
+  if (name === "Write" && input.file_path) return basename(input.file_path);
+  if (name === "Bash" && input.command) return truncate(input.command, 60);
+  // Generic fallback
+  const first = Object.values(input)[0];
+  return typeof first === "string" ? truncate(first, 50) : "";
+}
+
+function basename(p) {
+  if (!p) return "";
+  return p.split("/").pop();
+}
+
+function truncate(s, n) {
+  if (!s) return "";
+  return s.length > n ? s.slice(0, n) + "..." : s;
+}
+
+// ── Format timestamp ──
+function formatTime(ts) {
+  if (!ts) return "";
+  try {
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  } catch {
+    return "";
+  }
+}
+
+// ── Render markdown safely ──
+function renderMarkdown(text) {
+  if (!text) return "";
+  if (typeof marked !== "undefined") {
+    try { return marked.parse(text); } catch {}
+  }
+  // Fallback: escape HTML and wrap in <p>
+  return "<p>" + escapeHtml(text) + "</p>";
+}
+
+function escapeHtml(s) {
+  const el = document.createElement("div");
+  el.textContent = s;
+  return el.innerHTML;
+}
+
+// ── Extract user message text ──
+function extractUserText(content) {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter(p => p.type === "text")
+      .map(p => p.text || "")
+      .join("\n");
+  }
+  return "";
+}
+
+// ── State ──
+let sessionInfo = null;
+const outlineItems = [];  // { el, targetEl }
+let activeOutlineIdx = -1;
+
+// ── Load session via wz bridge ──
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    if (typeof wz !== "undefined" && wz.call) {
+      const info = await wz.call("get_session_info");
+      sessionInfo = info;
+      await loadSession(info);
+    } else {
+      document.getElementById("loading-msg").textContent =
+        "Bridge not available. Open this file through WenZi.";
+    }
+  } catch (err) {
+    document.getElementById("loading-msg").textContent = "Error: " + err.message;
+  }
+});
+
+async function loadSession(info) {
+  // Update info bar
+  if (info.project) document.getElementById("info-project").textContent = info.project;
+  if (info.git_branch) document.getElementById("info-branch").textContent = info.git_branch;
+  if (info.version) document.getElementById("info-version").textContent = info.version;
+
+  // Setup copy-resume button
+  document.getElementById("btn-copy-resume").addEventListener("click", () => {
+    const cwd = (info.cwd || ".").replace(/'/g, "'\\''");
+    const cmd = `cd '${cwd}' && claude --resume ${info.session_id || ""}`;
+    wz.send("copy_resume", { text: cmd });
+    const btn = document.getElementById("btn-copy-resume");
+    const orig = btn.textContent;
+    btn.textContent = "\u2713 Copied!";
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  });
+
+  // Load JSONL via wz-file:// custom scheme (file:// fetch is blocked in WKWebView)
+  let text;
+  try {
+    const fileUrl = "wz-file://" + info.file.split("/").map(encodeURIComponent).join("/");
+    console.log("Loading session:", fileUrl);
+    const resp = await fetch(fileUrl);
+    if (!resp.ok) {
+      document.getElementById("loading-msg").textContent =
+        `Could not load session file (${resp.status}): ${info.file}`;
+      return;
+    }
+    text = await resp.text();
+    console.log("Loaded text length:", text.length);
+  } catch (err) {
+    document.getElementById("loading-msg").textContent =
+      `Could not load session file: ${err.message || err}`;
+    return;
+  }
+
+  const messages = text.trim().split("\n").map(line => {
+    try { return JSON.parse(line); } catch { return null; }
+  }).filter(Boolean);
+
+  renderConversation(messages);
+  renderStats(messages);
+}
+
+// ── Main render ──
+let _lastRenderedTime = "";
+
+function renderConversation(messages) {
+  const conv = document.getElementById("conversation");
+  conv.innerHTML = "";
+  document.getElementById("outline").innerHTML = "";
+  outlineItems.length = 0;
+  activeOutlineIdx = -1;
+  _lastRenderedTime = "";
+
+  // Filter: skip sidechain and non-conversation types
+  const validTypes = new Set(["user", "assistant"]);
+  const turns = messages.filter(m => validTypes.has(m.type) && !m.isSidechain);
+
+  // Pre-process: extract tool_results from user messages into a global map
+  // (Claude Code puts tool_result in the next user message, not in the assistant message)
+  const globalResultMap = {};
+  for (const msg of turns) {
+    if (msg.type !== "user") continue;
+    const content = msg.message?.content || msg.content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (part.type === "tool_result" && part.tool_use_id) {
+        globalResultMap[part.tool_use_id] = part;
+      }
+    }
+  }
+
+  let i = 0;
+  while (i < turns.length) {
+    const msg = turns[i];
+
+    if (msg.type === "user") {
+      // Check if this is a pure tool_result message (no real user text)
+      if (_isToolResultOnly(msg)) {
+        i++;
+        continue;  // Skip — results shown when expanding tool calls
+      }
+      const turnEl = document.createElement("div");
+      turnEl.className = "turn";
+      renderUserTurn(turnEl, msg);
+      conv.appendChild(turnEl);
+      i++;
+    } else if (msg.type === "assistant") {
+      // Merge consecutive assistant messages into one turn
+      const turnEl = document.createElement("div");
+      turnEl.className = "turn";
+      const firstTime = formatTime(msg.timestamp);
+      const showTime = firstTime !== _lastRenderedTime;
+      if (showTime) _lastRenderedTime = firstTime;
+
+      const header = document.createElement("div");
+      header.className = "turn-header";
+      header.innerHTML = `
+        <span class="badge badge-assistant">Claude</span>
+        ${showTime ? `<span class="timestamp">${escapeHtml(firstTime)}</span>` : ""}
+      `;
+      turnEl.appendChild(header);
+
+      // Collect all consecutive assistant messages (skip interleaved tool_result user msgs)
+      const assistantTexts = [];
+      while (i < turns.length && (turns[i].type === "assistant" || (turns[i].type === "user" && _isToolResultOnly(turns[i])))) {
+        if (turns[i].type === "assistant") {
+          renderAssistantContent(turnEl, turns[i], assistantTexts, globalResultMap);
+        }
+        i++;
+      }
+
+      // Add outline entry for Claude's text (if any)
+      const combinedText = assistantTexts.join(" ").trim();
+      if (combinedText) {
+        addOutlineItem(combinedText, turnEl, "assistant");
+      }
+
+      conv.appendChild(turnEl);
+    } else {
+      i++;
+    }
+  }
+
+  setupOutlineObserver();
+  setupCollapsibles(conv);
+}
+
+// ── Collapsible long content ──
+function setupCollapsibles(container) {
+  const lineHeight = parseFloat(getComputedStyle(document.documentElement).fontSize) * 1.6;
+  const maxH = lineHeight * 8;
+
+  container.querySelectorAll(".user-content, .assistant-text").forEach(el => {
+    if (el.scrollHeight <= maxH + 4) return;  // +4 for rounding tolerance
+
+    el.classList.add("collapsible");
+
+    const btn = document.createElement("button");
+    btn.className = "show-more-btn";
+    btn.textContent = "\u25BC Show more";
+    btn.addEventListener("click", () => {
+      const expanded = el.classList.toggle("expanded");
+      btn.textContent = expanded ? "\u25B2 Show less" : "\u25BC Show more";
+    });
+    el.parentNode.insertBefore(btn, el.nextSibling);
+  });
+}
+
+// ── Check if user message is purely tool_result (no real user text) ──
+function _isToolResultOnly(msg) {
+  const content = msg.message?.content || msg.content;
+  if (!Array.isArray(content)) return false;
+  // If every part is tool_result, or text parts are empty/system
+  const hasRealText = content.some(p =>
+    p.type === "text" && p.text && p.text.trim() &&
+    !p.text.startsWith("<system-reminder>")
+  );
+  const hasToolResult = content.some(p => p.type === "tool_result");
+  return hasToolResult && !hasRealText;
+}
+
+// ── User turn ──
+function renderUserTurn(el, msg) {
+  const time = formatTime(msg.timestamp);
+  const showTime = time !== _lastRenderedTime;
+  if (showTime) _lastRenderedTime = time;
+  const text = extractUserText(msg.message?.content || msg.content || "");
+
+  el.innerHTML = `
+    <div class="turn-header">
+      <span class="badge badge-user">You</span>
+      ${showTime ? `<span class="timestamp">${escapeHtml(time)}</span>` : ""}
+    </div>
+    <div class="user-content">${escapeHtml(text)}</div>
+  `;
+
+  // Add to outline
+  addOutlineItem(text, el, "user");
+}
+
+// ── Assistant content (no header — called from merged turn) ──
+function renderAssistantContent(el, msg, textCollector, globalResultMap) {
+  const content = msg.message?.content || msg.content;
+  if (!Array.isArray(content)) {
+    if (typeof content === "string" && content.trim()) {
+      const textEl = document.createElement("div");
+      textEl.className = "assistant-text";
+      textEl.innerHTML = renderMarkdown(content);
+      el.appendChild(textEl);
+      textCollector.push(content.trim());
+    }
+    return;
+  }
+
+  // Build a list of renderable blocks, merging adjacent same-type mergeable tools
+  const blocks = buildBlocks(content, globalResultMap);
+
+  for (const block of blocks) {
+    if (block.kind === "text") {
+      const textEl = document.createElement("div");
+      textEl.className = "assistant-text";
+      textEl.innerHTML = renderMarkdown(block.text);
+      el.appendChild(textEl);
+      textCollector.push(block.text.trim());
+    } else if (block.kind === "thinking") {
+      el.appendChild(createThinkingBlock(block.text));
+    } else if (block.kind === "tool_group") {
+      el.appendChild(createToolGroup(block));
+    } else if (block.kind === "tool_single") {
+      el.appendChild(createToolSingle(block.call, block.result));
+    }
+  }
+}
+
+// ── Build block list with tool merging ──
+function buildBlocks(parts, globalResultMap) {
+  const blocks = [];
+  // Collect tool_result from same message (if any) and merge with global map
+  const resultMap = Object.assign({}, globalResultMap || {});
+  for (const p of parts) {
+    if (p.type === "tool_result") {
+      resultMap[p.tool_use_id] = p;
+    }
+  }
+
+  let i = 0;
+  while (i < parts.length) {
+    const p = parts[i];
+
+    if (p.type === "text" && p.text && p.text.trim()) {
+      blocks.push({ kind: "text", text: p.text });
+      i++;
+    } else if (p.type === "thinking" && p.thinking) {
+      blocks.push({ kind: "thinking", text: p.thinking });
+      i++;
+    } else if (p.type === "tool_use") {
+      const meta = getToolMeta(p.name);
+
+      if (meta.mergeable) {
+        // Gather adjacent same-name tool_use calls
+        const group = [];
+        while (i < parts.length && parts[i].type === "tool_use" && parts[i].name === p.name) {
+          group.push({ call: parts[i], result: resultMap[parts[i].id] });
+          i++;
+        }
+        if (group.length === 1) {
+          blocks.push({ kind: "tool_single", call: group[0].call, result: group[0].result });
+        } else {
+          blocks.push({ kind: "tool_group", name: p.name, items: group });
+        }
+      } else {
+        blocks.push({ kind: "tool_single", call: p, result: resultMap[p.id] });
+        i++;
+      }
+    } else {
+      // Skip tool_result (handled above) and unknown types
+      i++;
+    }
+  }
+  return blocks;
+}
+
+// ── Create a merged tool group ──
+function createToolGroup(group) {
+  const meta = getToolMeta(group.name);
+  const count = group.items.length;
+  const details = group.items.map(it => toolDetail(group.name, it.call.input)).join(", ");
+
+  const block = document.createElement("div");
+  block.className = `tool-block ${meta.css}`;
+
+  const headerEl = document.createElement("div");
+  headerEl.className = "tool-header";
+  headerEl.innerHTML = `
+    <span class="tool-icon">${meta.icon}</span>
+    <code class="tool-label">${escapeHtml(group.name)} ${count} files</code>
+    <span class="tool-detail">${escapeHtml(truncate(details, 80))}</span>
+    <span class="tool-arrow">&#9654;</span>
+  `;
+  block.appendChild(headerEl);
+
+  const body = document.createElement("div");
+  body.className = "tool-body";
+  for (const it of group.items) {
+    const detail = toolDetail(group.name, it.call.input);
+    const itemDiv = document.createElement("div");
+    itemDiv.style.marginBottom = "8px";
+
+    let html = `<div class="tool-section-label">${escapeHtml(group.name)}: ${escapeHtml(detail)}</div>`;
+    html += `<pre>${escapeHtml(formatToolInput(it.call))}</pre>`;
+    if (it.result) {
+      html += `<div class="tool-section-label">Output</div>`;
+      html += `<pre>${escapeHtml(formatToolResult(it.result))}</pre>`;
+    }
+    itemDiv.innerHTML = html;
+    body.appendChild(itemDiv);
+  }
+  block.appendChild(body);
+
+  headerEl.addEventListener("click", () => block.classList.toggle("expanded"));
+  return block;
+}
+
+// ── Create a single tool block ──
+function createToolSingle(call, result) {
+  const meta = getToolMeta(call.name);
+  const detail = toolDetail(call.name, call.input);
+
+  const block = document.createElement("div");
+  block.className = `tool-block ${meta.css}`;
+
+  const headerEl = document.createElement("div");
+  headerEl.className = "tool-header";
+
+  headerEl.innerHTML = `
+    <span class="tool-icon">${meta.icon}</span>
+    <code class="tool-label">${escapeHtml(call.name)}</code>
+    <span class="tool-detail">${escapeHtml(detail)}</span>
+    <span class="tool-arrow">&#9654;</span>
+  `;
+  block.appendChild(headerEl);
+
+  const body = document.createElement("div");
+  body.className = "tool-body";
+
+  let html = `<div class="tool-section-label">Input</div>`;
+  html += `<pre>${escapeHtml(formatToolInput(call))}</pre>`;
+  if (result) {
+    html += `<div class="tool-section-label">Output</div>`;
+    html += `<pre>${escapeHtml(formatToolResult(result))}</pre>`;
+  }
+  body.innerHTML = html;
+  block.appendChild(body);
+
+  headerEl.addEventListener("click", () => block.classList.toggle("expanded"));
+  return block;
+}
+
+// ── Format tool input for display ──
+function formatToolInput(call) {
+  if (!call.input) return "";
+  if (call.name === "Bash" && call.input.command) return call.input.command;
+  if ((call.name === "Read" || call.name === "Write" || call.name === "Edit") && call.input.file_path) {
+    const parts = [];
+    for (const [k, v] of Object.entries(call.input)) {
+      if (typeof v === "string" && v.length > 200) {
+        parts.push(`${k}: ${v.slice(0, 200)}...`);
+      } else {
+        parts.push(`${k}: ${JSON.stringify(v)}`);
+      }
+    }
+    return parts.join("\n");
+  }
+  return JSON.stringify(call.input, null, 2);
+}
+
+// ── Format tool result for display ──
+function formatToolResult(result) {
+  if (!result) return "";
+  const c = result.content;
+  if (typeof c === "string") return truncate(c, 2000);
+  if (Array.isArray(c)) {
+    return c
+      .filter(p => p.type === "text")
+      .map(p => p.text || "")
+      .join("\n")
+      .slice(0, 2000);
+  }
+  return JSON.stringify(c, null, 2).slice(0, 2000);
+}
+
+// ── Thinking block ──
+function createThinkingBlock(text) {
+  const wrapper = document.createElement("div");
+
+  const toggle = document.createElement("div");
+  toggle.className = "thinking-toggle";
+  toggle.innerHTML = "\u{1F4AD} Thinking...";
+  wrapper.appendChild(toggle);
+
+  const content = document.createElement("div");
+  content.className = "thinking-content";
+  content.textContent = text;
+  wrapper.appendChild(content);
+
+  toggle.addEventListener("click", () => content.classList.toggle("visible"));
+  return wrapper;
+}
+
+// ── Outline ──
+function addOutlineItem(text, targetEl, role) {
+  const outline = document.getElementById("outline");
+  const item = document.createElement("div");
+  item.className = "outline-item" + (role === "assistant" ? " outline-assistant" : "");
+  item.textContent = truncate(text.trim(), 40);
+
+  item.addEventListener("click", () => {
+    targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+
+  outline.appendChild(item);
+  outlineItems.push({ el: item, targetEl });
+}
+
+function setActiveOutline(idx) {
+  if (idx === activeOutlineIdx) return;
+  if (activeOutlineIdx >= 0 && activeOutlineIdx < outlineItems.length) {
+    outlineItems[activeOutlineIdx].el.classList.remove("active");
+  }
+  if (idx >= 0 && idx < outlineItems.length) {
+    outlineItems[idx].el.classList.add("active");
+    // Scroll outline item into view if needed
+    outlineItems[idx].el.scrollIntoView({ block: "nearest" });
+  }
+  activeOutlineIdx = idx;
+}
+
+function setupOutlineObserver() {
+  if (outlineItems.length === 0) return;
+
+  const conv = document.getElementById("conversation");
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      // Find the topmost visible user turn
+      let topIdx = -1;
+      let topY = Infinity;
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          const idx = outlineItems.findIndex(o => o.targetEl === entry.target);
+          if (idx >= 0 && entry.boundingClientRect.top < topY) {
+            topY = entry.boundingClientRect.top;
+            topIdx = idx;
+          }
+        }
+      }
+      if (topIdx >= 0) setActiveOutline(topIdx);
+    },
+    { root: conv, rootMargin: "0px 0px -70% 0px", threshold: 0 }
+  );
+
+  for (const item of outlineItems) {
+    observer.observe(item.targetEl);
+  }
+
+  // Activate first item by default
+  if (outlineItems.length > 0) setActiveOutline(0);
+}
+
+// ── Stats Dashboard ──
+
+const TOOL_COLORS = {
+  Read: "#f59e0b", Bash: "#10b981", Grep: "#6366f1",
+  Edit: "#ef4444", Write: "#ec4899", Agent: "#8b5cf6",
+  Glob: "#06b6d4", Skill: "#d946ef", TaskCreate: "#0ea5e9",
+  TaskUpdate: "#0ea5e9", TaskList: "#0ea5e9", ToolSearch: "#78716c",
+};
+
+function renderStats(messages) {
+  const stats = computeStats(messages);
+  if (!stats) return;
+
+  // Toggle bar
+  const toggle = document.getElementById("stats-toggle");
+  const arrow = document.getElementById("stats-arrow");
+  const summaryEl = document.getElementById("stats-summary");
+  const panel = document.getElementById("stats-panel");
+
+  const summaryParts = [stats.model];
+  if (stats.duration) summaryParts.push(stats.duration);
+  summaryParts.push(formatCompact(stats.outputTokens) + " tokens out");
+  summaryParts.push(stats.totalToolCalls + " tool calls");
+  if (stats.subagentCount > 0) summaryParts.push(stats.subagentCount + " subagents");
+  summaryEl.textContent = summaryParts.join(" \u00b7 ");
+  toggle.style.display = "flex";
+
+  if (!toggle._hasListener) {
+    toggle.addEventListener("click", () => {
+      panel.classList.toggle("open");
+      arrow.classList.toggle("open");
+    });
+    toggle._hasListener = true;
+  }
+
+  // Build dashboard
+  panel.innerHTML = buildStatsHTML(stats);
+
+  // Apply bar styles via JS (inline style attributes may be blocked by WKWebView CSP)
+  panel.querySelectorAll(".stats-bar-fill").forEach(el => {
+    el.style.width = el.dataset.pct + "%";
+    el.style.backgroundColor = el.dataset.color;
+  });
+}
+
+function computeStats(messages) {
+  let model = "";
+  let firstTs = null, lastTs = null;
+  let userMsgCount = 0, assistantMsgCount = 0;
+  let inputTokens = 0, outputTokens = 0, cacheCreate = 0, cacheRead = 0;
+  const toolCounts = {};
+  const skillCounts = {};
+  const subagents = [];
+  let taskCreated = 0, taskUpdated = 0;
+
+  for (const msg of messages) {
+    const ts = msg.timestamp;
+    if (ts) {
+      if (!firstTs) firstTs = ts;
+      lastTs = ts;
+    }
+
+    if (msg.type === "user" && !msg.isSidechain) {
+      const content = msg.message?.content;
+      if (typeof content === "string") userMsgCount++;
+    }
+
+    if (msg.type !== "assistant") continue;
+    assistantMsgCount++;
+
+    const m = msg.message || {};
+    if (m.model && !model) model = m.model;
+
+    const usage = m.usage || {};
+    inputTokens += usage.input_tokens || 0;
+    outputTokens += usage.output_tokens || 0;
+    cacheCreate += usage.cache_creation_input_tokens || 0;
+    cacheRead += usage.cache_read_input_tokens || 0;
+
+    const content = m.content;
+    if (!Array.isArray(content)) continue;
+
+    for (const p of content) {
+      if (p.type !== "tool_use") continue;
+      const name = p.name || "unknown";
+      toolCounts[name] = (toolCounts[name] || 0) + 1;
+
+      if (name === "Skill") {
+        const skill = p.input?.skill || "unknown";
+        skillCounts[skill] = (skillCounts[skill] || 0) + 1;
+      } else if (name === "Agent") {
+        subagents.push({
+          description: p.input?.description || "",
+          type: p.input?.subagent_type || "general-purpose",
+          model: p.input?.model || "",
+        });
+      } else if (name === "TaskCreate") {
+        taskCreated++;
+      } else if (name === "TaskUpdate") {
+        taskUpdated++;
+      }
+    }
+  }
+
+  if (!model && assistantMsgCount === 0) return null;
+
+  // Duration
+  let duration = "";
+  if (firstTs && lastTs) {
+    try {
+      const ms = new Date(lastTs) - new Date(firstTs);
+      if (ms > 0) {
+        const mins = Math.floor(ms / 60000);
+        if (mins < 60) duration = mins + "m";
+        else duration = Math.floor(mins / 60) + "h " + (mins % 60) + "m";
+      }
+    } catch {}
+  }
+
+  const totalToolCalls = Object.values(toolCounts).reduce((a, b) => a + b, 0);
+
+  // Subagent type counts
+  const subagentTypes = {};
+  for (const sa of subagents) {
+    subagentTypes[sa.type] = (subagentTypes[sa.type] || 0) + 1;
+  }
+
+  return {
+    model, duration, userMsgCount, assistantMsgCount,
+    inputTokens, outputTokens, cacheCreate, cacheRead,
+    toolCounts, totalToolCalls, skillCounts,
+    subagents, subagentCount: subagents.length, subagentTypes,
+    taskCreated, taskUpdated,
+  };
+}
+
+function buildStatsHTML(s) {
+  let html = '<div class="stats-grid">';
+
+  // Overview card
+  html += '<div class="stats-card">';
+  html += '<h4>Overview</h4>';
+  html += statsRow("Model", s.model);
+  if (s.duration) html += statsRow("Duration", s.duration);
+  html += statsRow("User messages", s.userMsgCount);
+  html += statsRow("Claude messages", s.assistantMsgCount);
+  html += '</div>';
+
+  // Tokens card
+  html += '<div class="stats-card">';
+  html += '<h4>Tokens</h4>';
+  html += statsRow("Input", formatCompact(s.inputTokens));
+  html += statsRow("Output", formatCompact(s.outputTokens));
+  html += statsRow("Cache create", formatCompact(s.cacheCreate));
+  html += statsRow("Cache read", formatCompact(s.cacheRead));
+  html += '</div>';
+
+  // Tools card
+  const sortedTools = Object.entries(s.toolCounts).sort((a, b) => b[1] - a[1]);
+  const maxToolCount = sortedTools.length > 0 ? sortedTools[0][1] : 1;
+  html += '<div class="stats-card">';
+  html += `<h4>Tools (${s.totalToolCalls})</h4>`;
+  for (const [name, count] of sortedTools) {
+    const pct = Math.round((count / maxToolCount) * 100);
+    const color = TOOL_COLORS[name] || "#9ca3af";
+    html += `<div class="stats-bar-row">
+      <span class="stats-bar-label">${escapeHtml(name)}</span>
+      <span class="stats-bar-track"><span class="stats-bar-fill" data-pct="${pct}" data-color="${color}"></span></span>
+      <span class="stats-bar-count">${count}</span>
+    </div>`;
+  }
+  html += '</div>';
+
+  // Skills + Tasks card (combined row)
+  const hasSkills = Object.keys(s.skillCounts).length > 0;
+  const hasTasks = s.taskCreated > 0 || s.taskUpdated > 0;
+
+  if (hasSkills) {
+    html += '<div class="stats-card">';
+    html += `<h4>Skills (${Object.values(s.skillCounts).reduce((a, b) => a + b, 0)})</h4>`;
+    for (const [name, count] of Object.entries(s.skillCounts).sort((a, b) => b[1] - a[1])) {
+      html += `<div class="stats-list-item">
+        <span class="name">${escapeHtml(name)}</span>
+        <span class="count">\u00d7${count}</span>
+      </div>`;
+    }
+    html += '</div>';
+  }
+
+  if (hasTasks) {
+    html += '<div class="stats-card">';
+    html += '<h4>Tasks</h4>';
+    if (s.taskCreated > 0) html += statsRow("Created", s.taskCreated);
+    if (s.taskUpdated > 0) html += statsRow("Updated", s.taskUpdated);
+    html += '</div>';
+  }
+
+  // Subagents card
+  if (s.subagentCount > 0) {
+    const sortedTypes = Object.entries(s.subagentTypes).sort((a, b) => b[1] - a[1]);
+    html += '<div class="stats-card">';
+    html += `<h4>Subagents (${s.subagentCount})</h4>`;
+    for (const [type, count] of sortedTypes) {
+      html += `<div class="stats-list-item">
+        <span class="name">${escapeHtml(type)}</span>
+        <span class="count">\u00d7${count}</span>
+      </div>`;
+    }
+    // List individual subagent descriptions
+    html += '<div style="margin-top:6px;border-top:1px solid var(--border-color);padding-top:6px;">';
+    for (const sa of s.subagents) {
+      const modelTag = sa.model ? ` <span style="opacity:0.5">(${escapeHtml(sa.model)})</span>` : "";
+      html += `<div class="stats-list-item">
+        <span class="name">${escapeHtml(sa.description)}${modelTag}</span>
+      </div>`;
+    }
+    html += '</div></div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function statsRow(label, value) {
+  return `<div class="stats-row"><span>${escapeHtml(String(label))}</span><span class="val">${escapeHtml(String(value))}</span></div>`;
+}
+
+function formatCompact(n) {
+  if (n < 1000) return String(n);
+  if (n < 999950) return (n / 1000).toFixed(1) + "K";
+  return (n / 1000000).toFixed(2) + "M";
+}
+</script>
+
+</body>
+</html>
