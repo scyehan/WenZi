@@ -38,7 +38,10 @@ class SessionCache:
         entry = self._sessions.get(file_path)
         if entry is None:
             return None
-        return entry["mtime"], entry["data"]
+        try:
+            return entry["mtime"], entry["data"]
+        except (KeyError, TypeError):
+            return None
 
     def put(self, file_path: str, mtime: float, data: dict[str, Any]) -> None:
         """Store or update a session entry."""
@@ -50,7 +53,10 @@ class SessionCache:
         entry = self._indexes.get(index_path)
         if entry is None:
             return None
-        return entry["mtime"], entry["data"]
+        try:
+            return entry["mtime"], entry["data"]
+        except (KeyError, TypeError):
+            return None
 
     def put_index(self, index_path: str, mtime: float, sessions: list[dict[str, Any]]) -> None:
         """Store or update an index entry."""
