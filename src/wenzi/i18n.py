@@ -93,22 +93,22 @@ def init_i18n(
     logger.info("i18n initialized: locale=%s, keys=%d", resolved, len(_strings))
 
 
-def t(key: str, **kwargs: Any) -> str:
+def t(_key: str, **kwargs: Any) -> str:
     """Get translated string for key.
 
     Lookup order: current locale -> English fallback -> key itself.
     Supports parameter interpolation via str.format_map().
     """
-    value = _strings.get(key)
+    value = _strings.get(_key)
     if value is None:
-        value = _fallback_strings.get(key)
+        value = _fallback_strings.get(_key)
     if value is None:
-        value = key
+        value = _key
     if kwargs:
         try:
             return value.format_map(kwargs)
         except (KeyError, AttributeError, ValueError):
-            logger.warning("Missing i18n params for key %r: %s", key, kwargs)
+            logger.warning("Missing i18n params for key %r: %s", _key, kwargs)
             return value
     return value
 
