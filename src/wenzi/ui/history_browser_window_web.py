@@ -395,6 +395,9 @@ function post(msg) {
     window.webkit.messageHandlers.action.postMessage(msg);
 }
 
+/* --- Tag group labels (declared early so _initI18nLabels can update it) --- */
+var GROUP_LABELS = {mode: 'Mode', stt: 'STT', llm: 'LLM', special: ''};
+
 /* --- i18n: populate static labels --- */
 function _initI18nLabels() {
     searchEl.placeholder = i18n('search_placeholder');
@@ -575,7 +578,7 @@ function setRecords(records, totalCount, page, numPages, filteredCount) {
     });
 }
 
-let GROUP_LABELS = {mode: 'Mode', stt: 'STT', llm: 'LLM', special: ''};
+/* GROUP_LABELS declared earlier, before _initI18nLabels() */
 function setTagOptions(tags) {
     /* tags = [{name, count, group}, ...] where group is 'mode'|'stt'|'llm'|'special' */
     tagRow.innerHTML = '';
