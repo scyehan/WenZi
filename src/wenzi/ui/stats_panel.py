@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any, Dict, List
 
@@ -45,7 +46,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+__CHARTJS_INLINE__
 <style>
 :root {
     --bg: #ffffff; --text: #1d1d1f; --card-bg: #f5f5f7;
@@ -458,12 +459,22 @@ def _build_i18n_payload() -> Dict[str, str]:
     return {k.replace(".", "_"): v for k, v in raw.items()}
 
 
+_VENDOR_DIR = Path(__file__).parent / "vendor"
+
+
+def _read_chartjs() -> str:
+    """Read the vendored Chart.js file and wrap in a <script> tag."""
+    js_path = _VENDOR_DIR / "chart.min.js"
+    return "<script>" + js_path.read_text(encoding="utf-8") + "</script>"
+
+
 def build_html(payload: Dict[str, Any]) -> str:
     """Build the final HTML by injecting the JSON payload into the template."""
     payload_json = json.dumps(payload, ensure_ascii=False)
     i18n = _build_i18n_payload()
     i18n_json = json.dumps(i18n, ensure_ascii=False)
-    html = _HTML_TEMPLATE.replace("__STATS_DATA__", payload_json)
+    html = _HTML_TEMPLATE.replace("__CHARTJS_INLINE__", _read_chartjs())
+    html = html.replace("__STATS_DATA__", payload_json)
     html = html.replace("__I18N_DATA__", i18n_json)
     # Replace static HTML placeholders using the same i18n dict
     html = html.replace("__TAB_7D__", i18n.get("period_7d", ""))
