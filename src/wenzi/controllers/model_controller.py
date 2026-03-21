@@ -340,7 +340,7 @@ models:
                         prompt_enable_siri,
                     )
 
-                    app._set_status("Checking...")
+                    app._set_status("statusbar.status.checking")
                     ok, err = check_siri_available(
                         language=preset.language
                         or app._config.get("asr", {}).get("language", "zh"),
@@ -349,10 +349,10 @@ models:
                     if not ok:
                         logger.warning("Apple Speech preflight failed: %s", err)
                         prompt_enable_siri()
-                        app._set_status("WZ")
+                        app._set_status("statusbar.status.ready")
                         return
 
-                app._set_status("Unloading...")
+                app._set_status("statusbar.status.unloading")
                 old_transcriber.cleanup()
 
                 cached = is_model_cached(preset)
@@ -365,7 +365,7 @@ models:
                     )
                     monitor_thread.start()
                 else:
-                    app._set_status("Loading...")
+                    app._set_status("statusbar.status.loading")
 
                 asr_cfg = app._config["asr"]
                 new_transcriber = create_transcriber(
@@ -396,7 +396,7 @@ models:
                 app._config["asr"]["default_model"] = None
                 save_config(app._config, app._config_path)
 
-                app._set_status("WZ")
+                app._set_status("statusbar.status.ready")
                 logger.info("Switched to model: %s", preset.display_name)
                 try:
                     send_notification(
@@ -413,7 +413,7 @@ models:
                     monitor_thread.join(timeout=2)
 
                 logger.error("Model switch failed: %s", e)
-                app._set_status("Error")
+                app._set_status("statusbar.status.error")
 
                 can_clear = preset.backend not in ("apple", "whisper-api")
                 if can_clear:
@@ -485,7 +485,7 @@ models:
         """
         app = self._app
         if monitor_args is None:
-            app._set_status("Downloading...")
+            app._set_status("statusbar.status.downloading")
             stop_event.wait()
             return
 
@@ -526,7 +526,7 @@ models:
         old_preset = PRESET_BY_ID[old_preset_id]
         try:
             logger.info("Restoring previous model: %s", old_preset.display_name)
-            app._set_status("Restoring...")
+            app._set_status("statusbar.status.restoring")
             asr_cfg = app._config["asr"]
             restored = create_transcriber(
                 backend=old_preset.backend,
@@ -541,11 +541,11 @@ models:
             app._transcriber = restored
             app._current_preset_id = old_preset_id
             app._menu_builder.update_model_checkmarks()
-            app._set_status("WZ")
+            app._set_status("statusbar.status.ready")
             logger.info("Previous model restored")
         except Exception as e2:
             logger.error("Failed to restore previous model: %s", e2)
-            app._set_status("Error")
+            app._set_status("statusbar.status.error")
 
     def _clear_cache_and_retry_switch(
         self, preset: ModelPreset, old_preset_id
@@ -555,7 +555,7 @@ models:
         stop_event = threading.Event()
         monitor_thread = None
         try:
-            app._set_status("Clearing...")
+            app._set_status("statusbar.status.clearing")
             clear_model_cache(preset)
 
             monitor_args = self._make_download_monitor_args(preset)
@@ -594,14 +594,14 @@ models:
             app._config["asr"]["default_model"] = None
             save_config(app._config, app._config_path)
 
-            app._set_status("WZ")
+            app._set_status("statusbar.status.ready")
             logger.info("Model switched after cache clear: %s", preset.display_name)
         except Exception as e2:
             stop_event.set()
             if monitor_thread:
                 monitor_thread.join(timeout=2)
             logger.error("Retry after cache clear failed: %s", e2)
-            app._set_status("Error")
+            app._set_status("statusbar.status.error")
             topmost_alert(
                 title=t("alert.model.switch_failed.title"),
                 message=t("alert.model.switch_failed.retry_message", error=str(e2)[:200]),
@@ -641,7 +641,7 @@ models:
 
         def _do_switch():
             try:
-                app._set_status("Switching...")
+                app._set_status("statusbar.status.switching")
                 old_transcriber.cleanup()
 
                 asr_cfg = app._config["asr"]
@@ -665,7 +665,7 @@ models:
                 app._config["asr"]["default_model"] = rm.model
                 save_config(app._config, app._config_path)
 
-                app._set_status("WZ")
+                app._set_status("statusbar.status.ready")
                 logger.info("Switched to remote ASR: %s", rm.display_name)
                 try:
                     send_notification(
@@ -678,7 +678,7 @@ models:
 
             except Exception as e:
                 logger.error("Remote ASR switch failed: %s", e)
-                app._set_status("Error")
+                app._set_status("statusbar.status.error")
                 try:
                     send_notification(
                         t("app.name"),

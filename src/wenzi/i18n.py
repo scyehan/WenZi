@@ -99,7 +99,11 @@ def t(key: str, **kwargs: Any) -> str:
     Lookup order: current locale -> English fallback -> key itself.
     Supports parameter interpolation via str.format_map().
     """
-    value = _strings.get(key) or _fallback_strings.get(key) or key
+    value = _strings.get(key)
+    if value is None:
+        value = _fallback_strings.get(key)
+    if value is None:
+        value = key
     if kwargs:
         try:
             return value.format_map(kwargs)
@@ -136,6 +140,10 @@ def get_translations_for_prefix(prefix: str) -> Dict[str, str]:
     for key in all_keys:
         if key.startswith(prefix):
             short_key = key[len(prefix) :]
-            value = _strings.get(key) or _fallback_strings.get(key) or key
+            value = _strings.get(key)
+            if value is None:
+                value = _fallback_strings.get(key)
+            if value is None:
+                value = key
             result[short_key] = value
     return result

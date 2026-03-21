@@ -361,7 +361,7 @@ class SettingsController:
                         prompt_enable_siri,
                     )
 
-                    app._set_status("Checking...")
+                    app._set_status("statusbar.status.checking")
                     ok, err = check_siri_available(
                         language=preset.language
                         or app._config.get("asr", {}).get("language", "zh"),
@@ -378,10 +378,10 @@ class SettingsController:
                             old_preset_id,
                             app._current_remote_asr,
                         )
-                        app._set_status("WZ")
+                        app._set_status("statusbar.status.ready")
                         return
 
-                app._set_status("Unloading...")
+                app._set_status("statusbar.status.unloading")
                 old_transcriber.cleanup()
 
                 cached = is_model_cached(preset)
@@ -394,7 +394,7 @@ class SettingsController:
                     )
                     monitor_thread.start()
                 else:
-                    app._set_status("Loading...")
+                    app._set_status("statusbar.status.loading")
 
                 asr_cfg = app._config["asr"]
                 new_transcriber = create_transcriber(
@@ -425,7 +425,7 @@ class SettingsController:
                 app._config["asr"]["default_model"] = None
                 self._save_and_reload()
 
-                app._set_status("WZ")
+                app._set_status("statusbar.status.ready")
                 logger.info("Switched to model: %s (from settings)", preset.display_name)
                 try:
                     send_notification(t("app.name"), t("notification.model.switched"),
@@ -438,7 +438,7 @@ class SettingsController:
                 if monitor_thread:
                     monitor_thread.join(timeout=2)
                 logger.error("Model switch failed: %s", e)
-                app._set_status("Error")
+                app._set_status("statusbar.status.error")
 
                 can_clear = preset.backend not in ("apple", "whisper-api")
                 if can_clear:
@@ -477,7 +477,7 @@ class SettingsController:
         stop_event = threading.Event()
         monitor_thread = None
         try:
-            app._set_status("Clearing...")
+            app._set_status("statusbar.status.clearing")
             clear_model_cache(preset)
 
             monitor_args = app._model_controller._make_download_monitor_args(preset)
@@ -516,7 +516,7 @@ class SettingsController:
             app._config["asr"]["default_model"] = None
             self._save_and_reload()
 
-            app._set_status("WZ")
+            app._set_status("statusbar.status.ready")
             logger.info(
                 "Model switched after cache clear: %s (from settings)",
                 preset.display_name,
@@ -526,7 +526,7 @@ class SettingsController:
             if monitor_thread:
                 monitor_thread.join(timeout=2)
             logger.error("Retry after cache clear failed: %s", e2)
-            app._set_status("Error")
+            app._set_status("statusbar.status.error")
             topmost_alert(
                 title=t("alert.model.switch_failed.title"),
                 message=t("alert.model.switch_failed.retry_message", error=str(e2)[:200]),
@@ -575,7 +575,7 @@ class SettingsController:
 
         def _do_switch():
             try:
-                app._set_status("Switching...")
+                app._set_status("statusbar.status.switching")
                 old_transcriber.cleanup()
 
                 new_transcriber = create_transcriber(
@@ -598,12 +598,12 @@ class SettingsController:
                 app._config["asr"]["default_model"] = model
                 self._save_and_reload()
 
-                app._set_status("WZ")
+                app._set_status("statusbar.status.ready")
                 logger.info("Switched to remote ASR: %s / %s (from settings)",
                             provider, model)
             except Exception as e:
                 logger.error("Remote ASR switch failed: %s", e)
-                app._set_status("Error")
+                app._set_status("statusbar.status.error")
             finally:
                 app._busy = False
 

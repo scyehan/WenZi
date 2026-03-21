@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from wenzi.app import WenZiApp
     from wenzi.updater import AppUpdater
 
+from wenzi.i18n import t
 from wenzi.statusbar import StatusMenuItem
 
 logger = logging.getLogger(__name__)
@@ -182,8 +183,6 @@ class UpdateController:
         # Show brief confirmation and apply
         from wenzi.ui_helpers import restore_accessory, topmost_alert
 
-        from wenzi.i18n import t
-
         result = topmost_alert(
             title=t("alert.update.staged_title", version=staged_version),
             message=t("alert.update.staged_message"),
@@ -310,7 +309,6 @@ class UpdateController:
 
     def _try_auto_update(self, dmg_url: str) -> None:
         """Attempt in-app auto-update with user confirmation."""
-        from wenzi.i18n import t
         from wenzi.ui_helpers import restore_accessory, topmost_alert
         from wenzi.updater import AppUpdater
 
@@ -376,7 +374,6 @@ class UpdateController:
 
     def _show_update_error(self, msg: str) -> None:
         """Show error alert with browser fallback (main thread)."""
-        from wenzi.i18n import t
         from wenzi.ui_helpers import restore_accessory, topmost_alert
 
         self._updater = None
@@ -414,7 +411,6 @@ class UpdateController:
 
     def _on_restart_to_update(self, _: Any) -> None:
         """Confirm restart, swap app, and quit (main thread)."""
-        from wenzi.i18n import t
         from wenzi.ui_helpers import restore_accessory, topmost_alert
         from wenzi.updater import AppUpdater
 

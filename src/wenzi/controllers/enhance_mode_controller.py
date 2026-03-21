@@ -310,7 +310,7 @@ Output only the processed text without any explanation."""
             )
 
             old_status = app._current_status
-            app._set_status("VT \u23f3")
+            app._set_status("statusbar.status.vocab_building")
             try:
                 loop = _asyncio.new_event_loop()
                 summary = loop.run_until_complete(
@@ -347,7 +347,7 @@ Output only the processed text without any explanation."""
                 except Exception:
                     logger.debug("Notification center unavailable, skipping notification")
             finally:
-                app._set_status(old_status or "WZ")
+                app._set_status(old_status or "statusbar.status.ready")
                 progress_panel.close()
 
         build_thread = threading.Thread(target=_build, daemon=True)
