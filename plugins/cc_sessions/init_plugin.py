@@ -67,7 +67,11 @@ def _filter_sessions(
     if query.strip():
         scored = []
         for s in result:
-            matched, score = fuzzy_match(query, s["title"])
+            search_text = (
+                f"{s['title']} {s['project']} {s.get('git_branch', '')}"
+                f" {s.get('summary', '')} {s.get('first_prompt', '')[:200]}"
+            )
+            matched, score = fuzzy_match(query, search_text)
             if matched:
                 scored.append((score, s))
         scored.sort(key=lambda x: x[0], reverse=True)
