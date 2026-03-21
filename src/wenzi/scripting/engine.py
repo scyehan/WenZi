@@ -113,6 +113,12 @@ class ScriptEngine:
             self._bind_new_snippet_hotkey()
             self._wz.hotkey.start()
             logger.info("Scripts reloaded")
+            try:
+                from wenzi.scripting.api.alert import alert
+
+                alert("Scripts reloaded", duration=1.5)
+            except Exception:
+                logger.debug("Reload alert failed", exc_info=True)
         finally:
             self._reloading = False
 

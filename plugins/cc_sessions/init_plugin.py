@@ -88,22 +88,16 @@ def register(wz) -> None:
 
     def _open_viewer(session: Dict[str, Any]) -> None:
         """Open the session viewer panel using pull model."""
-        try:
-            with open(viewer_html_path, encoding="utf-8") as f:
-                html = f.read()
-        except OSError:
-            logger.exception("Failed to read viewer.html")
-            return
-
+        logger.info("Opening viewer for session: %s, file: %s",
+                     session["session_id"], session["file_path"])
         panel = wz.ui.webview_panel(
             title=session["title"],
-            html=html,
+            html_file=viewer_html_path,
             width=900,
             height=700,
             resizable=True,
             allowed_read_paths=[
                 os.path.expanduser("~/.claude/"),
-                plugin_dir,
             ],
         )
 

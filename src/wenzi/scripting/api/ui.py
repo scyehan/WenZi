@@ -14,7 +14,8 @@ class UIAPI:
     def webview_panel(
         self,
         title: str,
-        html: str,
+        html: str = "",
+        html_file: str = "",
         width: int = 900,
         height: int = 700,
         resizable: bool = True,
@@ -24,9 +25,15 @@ class UIAPI:
 
         The panel is not shown until ``panel.show()`` is called.
 
+        Provide either *html* (a string) or *html_file* (a path to an HTML
+        file on disk).  When *html_file* is used, the file is loaded directly
+        via ``loadFileURL`` — no temp file is created, and the file's
+        directory is automatically granted read access.
+
         Args:
             title: Window title.
-            html: Initial HTML content.
+            html: Initial HTML content string.
+            html_file: Path to an HTML file to load directly.
             width: Default width in pixels.
             height: Default height in pixels.
             resizable: Whether the window can be resized.
@@ -40,6 +47,7 @@ class UIAPI:
         return WebViewPanel(
             title=title,
             html=html,
+            html_file=html_file,
             width=width,
             height=height,
             resizable=resizable,

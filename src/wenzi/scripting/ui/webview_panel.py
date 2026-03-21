@@ -92,6 +92,26 @@ _BRIDGE_JS = r"""
     };
 
     window.wz = wz;
+
+    // Forward console output to Python logger via bridge
+    const _origConsole = {
+        log: console.log.bind(console),
+        warn: console.warn.bind(console),
+        error: console.error.bind(console),
+    };
+    function _forward(level, args) {
+        try {
+            const msg = Array.from(args).map(a =>
+                typeof a === "object" ? JSON.stringify(a) : String(a)
+            ).join(" ");
+            window.webkit.messageHandlers.wz.postMessage(
+                {type: "console", level: level, message: msg}
+            );
+        } catch {}
+    }
+    console.log   = function() { _origConsole.log(...arguments);   _forward("info",  arguments); };
+    console.warn  = function() { _origConsole.warn(...arguments);  _forward("warning", arguments); };
+    console.error = function() { _origConsole.error(...arguments); _forward("error", arguments); };
 })();
 """
 
@@ -101,6 +121,7 @@ _BRIDGE_JS = r"""
 
 _PanelCloseDelegate = None
 _MessageHandler = None
+_FileSchemeHandler = None
 
 
 def _get_close_delegate_class():
@@ -155,6 +176,98 @@ def _get_message_handler_class():
     return _MessageHandler
 
 
+def _get_file_scheme_handler_class():
+    global _FileSchemeHandler
+    if _FileSchemeHandler is not None:
+        return _FileSchemeHandler
+
+    import mimetypes
+    import objc
+    from Foundation import NSData, NSObject
+
+    import WebKit  # noqa: F401
+
+    WKURLSchemeHandler = objc.protocolNamed("WKURLSchemeHandler")
+
+    class WZFileSchemeHandler(NSObject, protocols=[WKURLSchemeHandler]):
+        """Serve local files via the ``wz-file://`` custom URL scheme.
+
+        Only files under paths listed in ``_allowed_prefixes`` are served.
+        """
+
+        # Pre-resolved allowed path prefixes (set once, each ending with os.sep)
+        _allowed_prefixes: list = []
+
+        def webView_startURLSchemeTask_(self, webView, task):
+            url = task.request().URL()
+            file_path = url.path()
+
+            # Security: check path against allowed prefixes
+            if not self._is_path_allowed(file_path):
+                logger.warning("wz-file:// blocked: %s", file_path)
+                self._fail_task(task, 403, "Forbidden")
+                return
+
+            try:
+                with open(file_path, "rb") as f:
+                    data = f.read()
+            except FileNotFoundError:
+                self._fail_task(task, 404, "Not Found")
+                return
+            except OSError as exc:
+                self._fail_task(task, 500, str(exc))
+                return
+
+            mime, _ = mimetypes.guess_type(file_path)
+            mime = mime or "application/octet-stream"
+
+            try:
+                from Foundation import NSHTTPURLResponse
+
+                response = NSHTTPURLResponse.alloc() \
+                    .initWithURL_statusCode_HTTPVersion_headerFields_(
+                        url, 200, "HTTP/1.1", {
+                            "Content-Type": mime,
+                            "Content-Length": str(len(data)),
+                            "Access-Control-Allow-Origin": "*",
+                        },
+                    )
+                task.didReceiveResponse_(response)
+                task.didReceiveData_(
+                    NSData.dataWithBytes_length_(data, len(data))
+                )
+                task.didFinish()
+            except Exception:
+                # Task may have been stopped — ignore
+                pass
+
+        def webView_stopURLSchemeTask_(self, webView, task):
+            pass
+
+        def _is_path_allowed(self, path):
+            real = os.path.realpath(path)
+            for prefix in self._allowed_prefixes or []:
+                # prefix is pre-resolved and ends with os.sep
+                if real.startswith(prefix) or real == prefix.rstrip(os.sep):
+                    return True
+            return False
+
+        def _fail_task(self, task, code, message):
+            try:
+                from Foundation import NSError
+
+                error = NSError.errorWithDomain_code_userInfo_(
+                    "WZFileSchemeHandler", code,
+                    {"NSLocalizedDescription": message},
+                )
+                task.didFailWithError_(error)
+            except Exception:
+                pass
+
+    _FileSchemeHandler = WZFileSchemeHandler
+    return _FileSchemeHandler
+
+
 # ---------------------------------------------------------------------------
 # WebViewPanel
 # ---------------------------------------------------------------------------
@@ -176,7 +289,8 @@ class WebViewPanel:
         self,
         *,
         title: str,
-        html: str,
+        html: str = "",
+        html_file: str = "",
         width: int = 900,
         height: int = 700,
         resizable: bool = True,
@@ -184,6 +298,7 @@ class WebViewPanel:
     ) -> None:
         self._title = title
         self._html = html
+        self._html_file = html_file
         self._width = width
         self._height = height
         self._resizable = resizable
@@ -221,10 +336,18 @@ class WebViewPanel:
 
         NSApp.setActivationPolicy_(0)  # Regular (foreground)
 
+        if self._open and self._panel is not None:
+            self._panel.makeKeyAndOrderFront_(None)
+            NSApp.activateIgnoringOtherApps_(True)
+            return
+
         if self._panel is None:
             self._build_panel()
 
-        self._load_html(self._html)
+        if self._html_file:
+            self._load_file(self._html_file)
+        else:
+            self._load_html(self._html)
         self._open = True
 
         self._panel.makeKeyAndOrderFront_(None)
@@ -324,6 +447,12 @@ class WebViewPanel:
                 ).start()
             else:
                 self._reject_call(call_id, f"No handler registered for '{name}'")
+
+        elif msg_type == "console":
+            level = body.get("level", "info")
+            message = body.get("message", "")
+            log_fn = getattr(logger, level, logger.info)
+            log_fn("[WebView] %s", message)
 
         else:
             logger.warning("Unknown bridge message type: %r", msg_type)
@@ -451,6 +580,22 @@ class WebViewPanel:
         config = WKWebViewConfiguration.alloc().init()
         config.setUserContentController_(content_controller)
 
+        # Register wz-file:// scheme handler for local file access from JS
+        file_handler_cls = _get_file_scheme_handler_class()
+        file_handler = file_handler_cls.alloc().init()
+        # Build allowed path prefixes: allowed_read_paths + HTML file's dir
+        allowed = [os.path.expanduser(p) for p in self._allowed_read_paths]
+        if self._html_file:
+            allowed.append(os.path.dirname(os.path.abspath(
+                os.path.expanduser(self._html_file)
+            )))
+        # Pre-resolve and normalize prefixes (each ends with os.sep)
+        file_handler._allowed_prefixes = [
+            os.path.realpath(p) + os.sep for p in allowed
+        ]
+        config.setURLSchemeHandler_forURLScheme_(file_handler, "wz-file")
+        self._file_handler = file_handler
+
         webview = WKWebView.alloc().initWithFrame_configuration_(
             NSMakeRect(0, 0, self._width, self._height),
             config,
@@ -460,6 +605,22 @@ class WebViewPanel:
 
         self._panel = panel
         self._webview = webview
+
+    def _access_url(self, extra_paths: list[str]) -> Any:
+        """Compute a common-ancestor access URL for loadFileURL.
+
+        Combines *extra_paths* with ``allowed_read_paths`` and returns an
+        ``NSURL`` pointing to their common ancestor directory.
+        """
+        from Foundation import NSURL
+
+        all_paths = list(extra_paths)
+        for p in self._allowed_read_paths:
+            all_paths.append(os.path.expanduser(p))
+        if not all_paths:
+            return NSURL.URLWithString_("about:blank")
+        ancestor = os.path.commonpath(all_paths) if len(all_paths) > 1 else all_paths[0]
+        return NSURL.fileURLWithPath_(ancestor)
 
     def _load_html(self, html: str) -> None:
         """Load HTML into the webview.
@@ -474,21 +635,16 @@ class WebViewPanel:
         from Foundation import NSURL
 
         if self._allowed_read_paths:
-            # Write HTML to a temp file so loadFileURL works
             tmp = tempfile.NamedTemporaryFile(
-                suffix=".html", delete=False, mode="w", encoding="utf-8"
+                suffix=".html", delete=False, mode="w", encoding="utf-8",
             )
             tmp.write(html)
             tmp.close()
 
             file_url = NSURL.fileURLWithPath_(tmp.name)
-            # Compute common ancestor when multiple paths are provided
-            expanded = [os.path.expanduser(p) for p in self._allowed_read_paths]
-            access_path = (
-                os.path.commonpath(expanded) if len(expanded) > 1 else expanded[0]
-            )
-            access_url = NSURL.fileURLWithPath_(access_path)
-            # Clean up previous temp file before loading new one
+            access_url = self._access_url([tmp.name])
+
+            # Clean up previous temp file
             if self._tmp_html_path is not None:
                 try:
                     os.unlink(self._tmp_html_path)
@@ -501,3 +657,22 @@ class WebViewPanel:
             self._webview.loadHTMLString_baseURL_(
                 html, NSURL.URLWithString_("about:blank")
             )
+
+    def _load_file(self, file_path: str) -> None:
+        """Load an HTML file directly via loadFileURL.
+
+        Grants read access to the file's directory and all allowed_read_paths.
+        """
+        if self._webview is None:
+            return
+
+        file_path = os.path.expanduser(file_path)
+        if not os.path.isfile(file_path):
+            logger.error("html_file not found: %s", file_path)
+            return
+
+        from Foundation import NSURL
+
+        file_url = NSURL.fileURLWithPath_(file_path)
+        access_url = self._access_url([os.path.dirname(file_path)])
+        self._webview.loadFileURL_allowingReadAccessToURL_(file_url, access_url)

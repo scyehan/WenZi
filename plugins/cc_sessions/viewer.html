@@ -535,13 +535,22 @@ async function loadSession(info) {
     setTimeout(() => { btn.textContent = orig; }, 1500);
   });
 
-  // Fetch JSONL
+  // Load JSONL via wz-file:// custom scheme (file:// fetch is blocked in WKWebView)
   let text;
   try {
-    const resp = await fetch("file://" + info.file);
+    const fileUrl = "wz-file://" + info.file.split("/").map(encodeURIComponent).join("/");
+    console.log("Loading session:", fileUrl);
+    const resp = await fetch(fileUrl);
+    if (!resp.ok) {
+      document.getElementById("loading-msg").textContent =
+        `Could not load session file (${resp.status}): ${info.file}`;
+      return;
+    }
     text = await resp.text();
-  } catch {
-    document.getElementById("loading-msg").textContent = "Could not load session file.";
+    console.log("Loaded text length:", text.length);
+  } catch (err) {
+    document.getElementById("loading-msg").textContent =
+      `Could not load session file: ${err.message || err}`;
     return;
   }
 

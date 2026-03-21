@@ -10,14 +10,14 @@ from wenzi.scripting.engine import ScriptEngine
 
 class TestScriptEngine:
     def test_init_creates_wz(self):
-        engine = ScriptEngine(script_dir="/tmp/wz_test_scripts")
+        engine = ScriptEngine(script_dir="/tmp/wz_test_scripts", plugins_dir="/tmp/nonexistent_vt_plugins")
         assert engine.wz is not None
         assert engine.wz._reload_callback is not None
 
     @patch("wenzi.scripting.api.hotkey.HotkeyAPI.start")
     @patch("wenzi.scripting.api.hotkey.HotkeyAPI.stop")
     def test_load_nonexistent_dir(self, mock_stop, mock_start):
-        engine = ScriptEngine(script_dir="/tmp/nonexistent_vt_scripts")
+        engine = ScriptEngine(script_dir="/tmp/nonexistent_vt_scripts", plugins_dir="/tmp/nonexistent_vt_plugins")
         engine.start()
         engine.stop()
 
@@ -31,7 +31,9 @@ class TestScriptEngine:
             'wz.leader("cmd_r", [{"key": "w", "app": "WeChat"}])\n'
         )
 
-        engine = ScriptEngine(script_dir=str(script_dir))
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+        engine = ScriptEngine(script_dir=str(script_dir), plugins_dir=str(plugins_dir))
         engine.start()
 
         assert "cmd_r" in engine._registry.leaders
@@ -47,7 +49,9 @@ class TestScriptEngine:
         init_py = script_dir / "init.py"
         init_py.write_text("raise ValueError('test error')\n")
 
-        engine = ScriptEngine(script_dir=str(script_dir))
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+        engine = ScriptEngine(script_dir=str(script_dir), plugins_dir=str(plugins_dir))
         # Should not raise, error is caught
         with patch("wenzi.scripting.engine.logger") as mock_logger:
             engine.start()
@@ -64,7 +68,12 @@ class TestScriptEngine:
             'wz.leader("cmd_r", [{"key": "w", "app": "WeChat"}])\n'
         )
 
-        engine = ScriptEngine(script_dir=str(script_dir))
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+        engine = ScriptEngine(
+            script_dir=str(script_dir),
+            plugins_dir=str(plugins_dir),
+        )
         engine.start()
         assert "cmd_r" in engine._registry.leaders
 
@@ -87,7 +96,12 @@ class TestScriptEngine:
         init_py = script_dir / "init.py"
         init_py.write_text("")
 
-        engine = ScriptEngine(script_dir=str(script_dir))
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
+        engine = ScriptEngine(
+            script_dir=str(script_dir),
+            plugins_dir=str(plugins_dir),
+        )
         engine.start()
 
         # Simulate reload already in progress
@@ -145,6 +159,7 @@ class TestScriptEngine:
         }
         engine = ScriptEngine(
             script_dir="/tmp/nonexistent_vt_scripts",
+            plugins_dir="/tmp/nonexistent_vt_plugins",
             config=config,
         )
         engine.start()
@@ -172,6 +187,7 @@ class TestScriptEngine:
         }
         engine = ScriptEngine(
             script_dir="/tmp/nonexistent_vt_scripts",
+            plugins_dir="/tmp/nonexistent_vt_plugins",
             config=config,
         )
         engine.start()
@@ -208,6 +224,7 @@ class TestScriptEngine:
         }
         engine = ScriptEngine(
             script_dir="/tmp/nonexistent_vt_scripts",
+            plugins_dir="/tmp/nonexistent_vt_plugins",
             config=config,
         )
         engine.start()
@@ -245,6 +262,7 @@ class TestScriptEngine:
         }
         engine = ScriptEngine(
             script_dir="/tmp/nonexistent_vt_scripts",
+            plugins_dir="/tmp/nonexistent_vt_plugins",
             config=config,
         )
         engine.start()
@@ -278,6 +296,7 @@ class TestScriptEngine:
         }
         engine = ScriptEngine(
             script_dir="/tmp/nonexistent_vt_scripts",
+            plugins_dir="/tmp/nonexistent_vt_plugins",
             config=config,
         )
         engine.start()
@@ -311,6 +330,7 @@ class TestScriptEngine:
         }
         engine = ScriptEngine(
             script_dir="/tmp/nonexistent_vt_scripts",
+            plugins_dir="/tmp/nonexistent_vt_plugins",
             config=config,
         )
         engine.start()
@@ -344,6 +364,7 @@ class TestScriptEngine:
         }
         engine = ScriptEngine(
             script_dir="/tmp/nonexistent_vt_scripts",
+            plugins_dir="/tmp/nonexistent_vt_plugins",
             config=config,
         )
         engine.start()
@@ -370,6 +391,7 @@ class TestScriptEngine:
         }
         engine = ScriptEngine(
             script_dir="/tmp/nonexistent_vt_scripts",
+            plugins_dir="/tmp/nonexistent_vt_plugins",
             config=config,
         )
         engine.start()
@@ -386,7 +408,7 @@ class TestScriptEngine:
         engine.stop()
 
     def test_wz_module_singleton(self):
-        engine = ScriptEngine(script_dir="/tmp/wz_test_scripts")
+        engine = ScriptEngine(script_dir="/tmp/wz_test_scripts", plugins_dir="/tmp/nonexistent_vt_plugins")
         import wenzi.scripting.api as api_mod
 
         assert api_mod.wz is engine.wz
@@ -401,8 +423,10 @@ class TestMultiFileScripts:
         script_dir = tmp_path / "scripts"
         script_dir.mkdir()
         (script_dir / "init.py").write_text("pass\n")
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
 
-        engine = ScriptEngine(script_dir=str(script_dir))
+        engine = ScriptEngine(script_dir=str(script_dir), plugins_dir=str(plugins_dir))
         engine.start()
         try:
             assert os.path.normpath(str(script_dir)) in sys.path
@@ -419,8 +443,10 @@ class TestMultiFileScripts:
         (script_dir / "init.py").write_text(
             "import helper\nwz._test_magic = helper.MAGIC\n"
         )
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
 
-        engine = ScriptEngine(script_dir=str(script_dir))
+        engine = ScriptEngine(script_dir=str(script_dir), plugins_dir=str(plugins_dir))
         engine.start()
         try:
             assert engine.wz._test_magic == 42
@@ -434,12 +460,17 @@ class TestMultiFileScripts:
     def test_reload_picks_up_submodule_changes(self, mock_stop, mock_start, tmp_path):
         script_dir = tmp_path / "scripts"
         script_dir.mkdir()
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
         (script_dir / "helper.py").write_text('VALUE = "old"\n')
         (script_dir / "init.py").write_text(
             "import helper\nwz._test_val = helper.VALUE\n"
         )
 
-        engine = ScriptEngine(script_dir=str(script_dir))
+        engine = ScriptEngine(
+            script_dir=str(script_dir),
+            plugins_dir=str(plugins_dir),
+        )
         engine.start()
         try:
             assert engine.wz._test_val == "old"
@@ -458,6 +489,8 @@ class TestMultiFileScripts:
     def test_reload_with_package(self, mock_stop, mock_start, tmp_path):
         """Reload picks up changes in sub-package modules."""
         script_dir = tmp_path / "scripts"
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
         pkg_dir = script_dir / "mypkg"
         pkg_dir.mkdir(parents=True)
         (pkg_dir / "__init__.py").write_text("")
@@ -466,7 +499,10 @@ class TestMultiFileScripts:
             "from mypkg.util import MSG\nwz._test_msg = MSG\n"
         )
 
-        engine = ScriptEngine(script_dir=str(script_dir))
+        engine = ScriptEngine(
+            script_dir=str(script_dir),
+            plugins_dir=str(plugins_dir),
+        )
         engine.start()
         norm_dir = os.path.normpath(str(script_dir))
         try:
@@ -485,8 +521,13 @@ class TestMultiFileScripts:
     def test_purge_only_removes_user_modules(self, tmp_path):
         script_dir = tmp_path / "scripts"
         script_dir.mkdir()
+        plugins_dir = tmp_path / "plugins"
+        plugins_dir.mkdir()
 
-        engine = ScriptEngine(script_dir=str(script_dir))
+        engine = ScriptEngine(
+            script_dir=str(script_dir),
+            plugins_dir=str(plugins_dir),
+        )
 
         # Inject a fake user module under scripts dir
         fake_mod = types.ModuleType("_wz_test_fake")
@@ -509,7 +550,7 @@ class TestMultiFileScripts:
         sibling_dir = tmp_path / "scripts-extra"
         sibling_dir.mkdir()
 
-        engine = ScriptEngine(script_dir=str(script_dir))
+        engine = ScriptEngine(script_dir=str(script_dir), plugins_dir="/tmp/nonexistent_vt_plugins")
 
         fake_mod = types.ModuleType("_wz_test_sibling")
         fake_mod.__file__ = str(sibling_dir / "foo.py")
@@ -527,7 +568,7 @@ class TestMultiFileScripts:
         ns_dir = script_dir / "nspkg"
         ns_dir.mkdir(parents=True)
 
-        engine = ScriptEngine(script_dir=str(script_dir))
+        engine = ScriptEngine(script_dir=str(script_dir), plugins_dir="/tmp/nonexistent_vt_plugins")
 
         # Namespace package: has __path__ but no __file__
         fake_ns = types.ModuleType("_wz_test_nspkg")
