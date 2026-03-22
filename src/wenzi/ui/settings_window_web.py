@@ -1452,19 +1452,19 @@ function renderPluginCard(p) {
   if (p.status === 'incompatible') {
     actions = '<button class="btn btn-secondary" disabled title="Requires WenZi >= ' + _esc(p.min_wenzi_version) + '">Install</button>';
   } else if (p.status === 'not_installed') {
-    actions = '<button class="btn btn-primary" onclick="installPlugin(\'' + _esc(p.id) + '\')">Install</button>';
+    actions = '<button class="btn btn-primary" onclick="installPlugin(\\\'' + _esc(p.id) + '\\\')">Install</button>';
   } else if (p.status === 'update_available') {
-    actions = '<button class="btn btn-primary" onclick="updatePlugin(\'' + _esc(p.id) + '\')">Update (' + _esc(p.installed_version) + ' \u2192 ' + _esc(p.version) + ')</button>';
+    actions = '<button class="btn btn-primary" onclick="updatePlugin(\\\'' + _esc(p.id) + '\\\')">Update (' + _esc(p.installed_version) + ' \u2192 ' + _esc(p.version) + ')</button>';
     actions += toggleHtml(p.id, p.enabled);
-    actions += '<button class="btn btn-danger" onclick="uninstallPlugin(\'' + _esc(p.id) + '\')">Uninstall</button>';
+    actions += '<button class="btn btn-danger" onclick="uninstallPlugin(\\\'' + _esc(p.id) + '\\\')">Uninstall</button>';
   } else if (p.status === 'installed') {
     actions += toggleHtml(p.id, p.enabled);
-    actions += '<button class="btn btn-danger" onclick="uninstallPlugin(\'' + _esc(p.id) + '\')">Uninstall</button>';
+    actions += '<button class="btn btn-danger" onclick="uninstallPlugin(\\\'' + _esc(p.id) + '\\\')">Uninstall</button>';
   } else if (p.status === 'manually_placed') {
     actions += toggleHtml(p.id, p.enabled);
   }
   return '<div class="plugin-card">'
-    + '<div class="plugin-icon">\uD83E\uDDE9</div>'
+    + '<div class="plugin-icon">&#x1F9E9;</div>'
     + '<div class="plugin-info">'
     + '<div><span class="plugin-name">' + _esc(p.name) + '</span>'
     + '<span class="plugin-version">v' + _esc(p.version) + '</span>'
@@ -1478,7 +1478,7 @@ function renderPluginCard(p) {
 
 function toggleHtml(pluginId, enabled) {
   var cls = enabled ? 'toggle on' : 'toggle';
-  return '<div class="' + cls + '" onclick="togglePlugin(this, \'' + _esc(pluginId) + '\')"><div class="toggle-knob"></div></div>';
+  return '<div class="' + cls + '" onclick="togglePlugin(this, \\\'' + _esc(pluginId) + '\\\')"><div class="toggle-knob"></div></div>';
 }
 
 function installPlugin(id) { postCallback('on_plugin_install_by_id', id); }
@@ -1988,7 +1988,6 @@ class SettingsWebPanel:
         NSApp.setActivationPolicy_(0)  # Regular (foreground)
 
         if self._panel is not None:
-            # Only reached when panel is already visible (close() sets _panel to None)
             self.update_state(state)
             return
 
