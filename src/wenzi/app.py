@@ -274,6 +274,7 @@ class WenZiApp(StatusBarApp):
             db_path=os.path.join(self._data_dir, "correction_tracker.db"),
         )
         if self._correction_tracker.is_empty():
+            logger.info("Correction tracker DB is empty, rebuilding from history in background")
             threading.Thread(
                 target=self._correction_tracker.rebuild_from_history,
                 args=(self._conversation_history,),

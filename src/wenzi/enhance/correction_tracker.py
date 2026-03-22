@@ -209,12 +209,17 @@ class CorrectionTracker:
                 self._upsert_pair(conn, session_id, SOURCE_ASR, original, corrected, asr_model, _llm, _app, now)
 
             # LLM diffs: enhanced_text → final_text (only if user corrected)
+            llm_pairs: list[tuple[str, str]] = []
             if user_corrected and _enhanced and _enhanced != final_text:
                 llm_pairs = extract_word_pairs(_enhanced, final_text)
                 for original, corrected in llm_pairs:
                     self._upsert_pair(conn, session_id, SOURCE_LLM, original, corrected, asr_model, _llm, _app, now)
 
             conn.commit()
+            logger.info(
+                "Correction recorded: %d ASR pairs, %d LLM pairs (asr=%s, app=%s)",
+                len(asr_pairs), len(llm_pairs), asr_model, _app or "(none)",
+            )
         finally:
             conn.close()
 
@@ -371,7 +376,13 @@ class CorrectionTracker:
                    ORDER BY freq DESC LIMIT ?""",
                 (SOURCE_ASR, asr_model, _app, min_count, top_k),
             ).fetchall()
-            return [row[0] for row in rows]
+            result = [row[0] for row in rows]
+            if result:
+                logger.info(
+                    "ASR hotwords from corrections: %s (asr=%s, app=%s)",
+                    ", ".join(result), asr_model, _app or "(none)",
+                )
+            return result
         finally:
             conn.close()
 
@@ -407,7 +418,7 @@ class CorrectionTracker:
                    ORDER BY freq DESC LIMIT ?""",
                 (SOURCE_LLM, llm_model, _app, min_count, top_k),
             ).fetchall()
-            return [
+            result = [
                 {
                     "corrected_word": corrected,
                     "variants": variants.split("|") if variants else [],
@@ -415,5 +426,12 @@ class CorrectionTracker:
                 }
                 for corrected, freq, variants in rows
             ]
+            if result:
+                logger.info(
+                    "LLM vocab from corrections: %s (llm=%s, app=%s)",
+                    ", ".join(r["corrected_word"] for r in result),
+                    llm_model, _app or "(none)",
+                )
+            return result
         finally:
             conn.close()
