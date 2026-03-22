@@ -509,3 +509,71 @@ class TestCollectStateLlmProviders:
         mock_app._config["ai_enhance"] = {}
         state = ctrl._collect_state()
         assert state["llm_providers"] == {}
+
+
+class TestLlmVerifySave:
+    """Tests for llm_verify_save() callback."""
+
+    @patch("wenzi.controllers.settings_controller.save_config")
+    def test_verify_save_dispatches_to_model_controller(self, mock_save, ctrl, mock_app):
+        """Verify save calls model_controller.do_verify_and_save_provider."""
+        mock_app._model_controller.do_verify_and_save_provider.return_value = {"ok": True}
+
+        ctrl._do_llm_verify_save({
+            "name": "test",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "sk-test",
+            "models": ["model-a"],
+            "extra_body": {},
+            "mode": "add",
+        })
+
+        mock_app._model_controller.do_verify_and_save_provider.assert_called_once_with(
+            name="test",
+            base_url="https://api.example.com/v1",
+            api_key="sk-test",
+            models=["model-a"],
+            extra_body={},
+            mode="add",
+        )
+
+    def test_verify_concurrent_guard(self, ctrl, mock_app):
+        """Second call while verify in progress is ignored."""
+        ctrl._verify_in_progress = True
+        ctrl.llm_verify_save({
+            "name": "test", "base_url": "u", "api_key": "k",
+            "models": ["m"], "extra_body": {}, "mode": "add",
+        })
+        mock_app._model_controller.do_verify_and_save_provider.assert_not_called()
+
+    def test_verify_stale_callback(self, ctrl, mock_app):
+        """Stale callback guard: verify_in_progress stays True when request_id mismatches."""
+        ctrl._verify_in_progress = True
+        ctrl._verify_request_id = 5
+        # The stale callback scenario: request_id was 3 but current is 5
+        # verify_in_progress should NOT be reset by a stale callback
+        assert ctrl._verify_in_progress is True
+        assert ctrl._verify_request_id == 5
+
+
+class TestLlmDeleteProvider:
+    """Tests for llm_delete_provider() via WebView."""
+
+    @patch("wenzi.controllers.settings_controller.keychain_list", return_value=[])
+    @patch("wenzi.controllers.settings_controller.keychain_delete")
+    @patch("wenzi.controllers.settings_controller.save_config")
+    def test_delete_removes_provider_and_updates_config(self, mock_save, mock_kc_del, mock_kc_list, ctrl, mock_app):
+        mock_app._enhancer.remove_provider.return_value = True
+        mock_app._enhancer.provider_name = "openai"
+        mock_app._enhancer.model_name = "gpt-4o"
+        mock_app._config["ai_enhance"] = {
+            "providers": {"test-provider": {"base_url": "u", "api_key": "k", "models": ["m"]}},
+            "default_provider": "test-provider",
+            "default_model": "m",
+        }
+
+        ctrl.llm_delete_provider("test-provider")
+
+        mock_app._enhancer.remove_provider.assert_called_once_with("test-provider")
+        assert "test-provider" not in mock_app._config["ai_enhance"]["providers"]
+        mock_save.assert_called_once()

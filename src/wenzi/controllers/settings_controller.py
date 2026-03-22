@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 from wenzi import get_version
 from wenzi.config import BUILTIN_REGISTRY_URL, save_config
+from wenzi.keychain import keychain_delete, keychain_list
 from wenzi.enhance.enhancer import MODE_OFF
 from wenzi.i18n import build_doc_url, t
 from wenzi.transcription.model_registry import (
@@ -54,6 +55,8 @@ class SettingsController:
         self._registry_cache_dir = os.path.join(app._config_dir, "registry_cache")
         self._needs_reload = False
         self._last_plugin_infos: list[PluginInfo] = []
+        self._verify_in_progress = False
+        self._verify_request_id = 0
 
     def _save_and_reload(self) -> None:
         """Save config and refresh the Settings panel if visible."""
@@ -198,8 +201,8 @@ class SettingsController:
             "on_stt_add_provider": lambda: app._model_controller.on_asr_add_provider(None),
             "on_stt_remove_provider": self.stt_remove_provider,
             "on_llm_select": self.llm_select,
-            "on_llm_add_provider": lambda: app._model_controller.on_enhance_add_provider(None),
-            "on_llm_remove_provider": self.llm_remove_provider,
+            "on_llm_verify_save": self.llm_verify_save,
+            "on_llm_delete_provider": self.llm_delete_provider,
             "on_model_timeout": self.model_timeout_change,
             "on_enhance_mode_select": self.enhance_mode_select,
             "on_enhance_mode_edit": self.enhance_mode_edit,
@@ -729,6 +732,91 @@ class SettingsController:
                 item = app._llm_remove_provider_items.get(first_name)
                 if item:
                     app._model_controller.on_enhance_remove_provider(item)
+
+    def llm_verify_save(self, data: dict) -> None:
+        """Handle verify & save from WebView provider form.
+
+        Spawns a background thread for the network call.
+        Posts result back to JS via evaluateJavaScript.
+        """
+        if self._verify_in_progress:
+            return
+        self._verify_in_progress = True
+        self._verify_request_id += 1
+        request_id = self._verify_request_id
+        app = self._app
+
+        def _do():
+            import json as _json
+            try:
+                result = app._model_controller.do_verify_and_save_provider(
+                    name=data["name"],
+                    base_url=data["base_url"],
+                    api_key=data["api_key"],
+                    models=data["models"],
+                    extra_body=data.get("extra_body", {}),
+                    mode=data.get("mode", "add"),
+                )
+            except Exception as e:
+                logger.error("Verify/save failed: %s", e, exc_info=True)
+                result = {"ok": False, "error": str(e)}
+
+            def _callback():
+                if self._verify_request_id != request_id:
+                    return
+                self._verify_in_progress = False
+                panel = app._settings_panel
+                if panel and panel.is_visible:
+                    payload = _json.dumps(result, ensure_ascii=False)
+                    panel._webview.evaluateJavaScript_completionHandler_(
+                        f"_providerSaveResult({payload})", None
+                    )
+                    if result.get("ok"):
+                        self._refresh_panel()
+
+            from PyObjCTools import AppHelper
+            AppHelper.callAfter(_callback)
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _do_llm_verify_save(self, data: dict) -> dict:
+        """Synchronous verify+save for testing. Returns result dict."""
+        app = self._app
+        return app._model_controller.do_verify_and_save_provider(
+            name=data["name"],
+            base_url=data["base_url"],
+            api_key=data["api_key"],
+            models=data["models"],
+            extra_body=data.get("extra_body", {}),
+            mode=data.get("mode", "add"),
+        )
+
+    def llm_delete_provider(self, provider: str) -> None:
+        """Delete provider from WebView inline confirmation."""
+        app = self._app
+        if not app._enhancer:
+            return
+        try:
+            app._enhancer.remove_provider(provider)
+
+            app._config.setdefault("ai_enhance", {})
+            providers_cfg = app._config["ai_enhance"].get("providers", {})
+            providers_cfg.pop(provider, None)
+
+            for account in keychain_list(f"ai_enhance.providers.{provider}."):
+                keychain_delete(account)
+
+            app._config["ai_enhance"]["default_provider"] = app._enhancer.provider_name
+            app._config["ai_enhance"]["default_model"] = app._enhancer.model_name
+
+            app._menu_builder.build_llm_model_menu()
+
+            # _save_and_reload() saves config AND refreshes the WebView
+            self._save_and_reload()
+            logger.info("Removed LLM provider: %s (from settings)", provider)
+
+        except Exception as e:
+            logger.error("Remove provider failed: %s", e, exc_info=True)
 
     def model_timeout_change(self, value: int) -> None:
         """Handle model timeout change from Settings panel."""
