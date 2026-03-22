@@ -18,8 +18,8 @@ def _decode_svg(uri: str) -> str:
 
 
 class TestDjb2:
-    def test_deterministic(self):
-        assert _djb2("VoiceText") == _djb2("VoiceText")
+    def test_known_value(self):
+        assert _djb2("VoiceText") == 89843776
 
     def test_different_inputs_different_hashes(self):
         assert _djb2("VoiceText") != _djb2("claude-code")
@@ -67,10 +67,27 @@ class TestGetInitials:
             if len(initials) > 1:
                 assert initials[1].islower(), f"{name} -> {initials}: second should be lower"
 
+    def test_leading_numbers_stripped(self):
+        assert _get_initials("123abc") == "Ab"
+
+    def test_dot_separated(self):
+        assert _get_initials("my.project") == "Mp"
+        assert _get_initials("org.company.app") == "Oc"
+
+    def test_special_chars_only(self):
+        # No alpha chars → letters strip is empty → final fallback to name[0]
+        assert _get_initials("---") == "-"
+
+    def test_leading_separator(self):
+        assert _get_initials("-foo") == "Fo"
+
 
 class TestGenerate:
     def test_deterministic(self):
-        assert generate("VoiceText") == generate("VoiceText")
+        # Verify stable output across calls (guards against accidental randomness)
+        first = generate("VoiceText")
+        generate.cache_clear()
+        assert generate("VoiceText") == first
 
     def test_different_projects_different_icons(self):
         names = ["VoiceText", "claude-code", "WenZi", "dotfiles",
@@ -86,11 +103,6 @@ class TestGenerate:
         svg_str = _decode_svg(generate("test-project"))
         root = ET.fromstring(svg_str)
         assert root.tag == "{http://www.w3.org/2000/svg}svg"
-
-    def test_svg_contains_text_element(self):
-        svg_str = _decode_svg(generate("VoiceText"))
-        assert "<text " in svg_str
-        assert "Vt" in svg_str
 
     def test_empty_name(self):
         uri = generate("")

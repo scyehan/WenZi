@@ -22,20 +22,15 @@ def _djb2(s: str) -> int:
 def _get_initials(name: str) -> str:
     """Extract two-letter initials from a project name.
 
-    Rules:
-    - Hyphen/underscore/space separated: first letter of first two parts
-      e.g. "claude-code" -> "Cc", "api-server" -> "As"
-    - CamelCase: first letter + next capital
-      e.g. "VoiceText" -> "Vt", "WenZi" -> "Wz"
-    - Fallback: first two characters
-      e.g. "dotfiles" -> "Do", "blog" -> "Bl"
-    - Single char or empty: return what's available
+    Tries separator-based splitting, then camelCase detection,
+    then falls back to the first two letters. Non-letter characters
+    are stripped before the fallback so avatars always show letters.
     """
     if not name:
         return "?"
 
     # Try separator-based splitting
-    parts = re.split(r"[-_\s]+", name)
+    parts = re.split(r"[-_.\s]+", name)
     if len(parts) >= 2 and parts[0] and parts[1]:
         return parts[0][0].upper() + parts[1][0].lower()
 
@@ -44,9 +39,12 @@ def _get_initials(name: str) -> str:
     if match:
         return match.group(1).upper() + match.group(2).lower()
 
-    # Fallback: first two characters
-    if len(name) >= 2:
-        return name[0].upper() + name[1].lower()
+    # Fallback: first two letters (strip non-alpha characters)
+    letters = re.sub(r"[^a-zA-Z]", "", name)
+    if len(letters) >= 2:
+        return letters[0].upper() + letters[1].lower()
+    if letters:
+        return letters[0].upper()
 
     return name[0].upper()
 
