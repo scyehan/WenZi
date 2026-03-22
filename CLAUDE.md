@@ -31,6 +31,10 @@ Known dangerous defaults:
 
 **Rule:** Always check what default paths a class uses before instantiating it in tests. Pass `tmp_path`-based paths for any file/directory parameters. Follow existing test patterns in the same file.
 
+## Writing Efficient Tests
+
+When writing or optimizing tests, refer to [`dev/writing-efficient-tests.md`](dev/writing-efficient-tests.md) for patterns on polling instead of sleep, mocking heavyweight imports, monkeypatching constants, shared fixtures, and other techniques that keep the test suite fast.
+
 ## UI Dialogs
 
 This is a macOS statusbar (accessory) app built with pure PyObjC (via `statusbar.py`). Standard modal dialogs will not appear on screen because the app has no foreground presence.
