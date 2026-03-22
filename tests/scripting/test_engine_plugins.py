@@ -129,6 +129,9 @@ class TestLoadPlugins:
         (bad / "__init__.py").write_text(
             "def setup(wz): raise RuntimeError('plugin error')\n"
         )
+        (bad / "plugin.toml").write_text(
+            '[plugin]\nid = "com.test.aaa-bad"\nname = "Bad Plugin"\n'
+        )
 
         # Good plugin
         good = plugins_dir / "zzz_good"
@@ -150,6 +153,16 @@ class TestLoadPlugins:
 
         import zzz_good
         assert zzz_good.LOADED is True
+
+        # Verify load errors are recorded
+        assert "aaa_bad" in engine._plugin_load_errors
+        assert "plugin error" in engine._plugin_load_errors["aaa_bad"]["message"]
+        assert engine._plugin_load_errors["aaa_bad"]["traceback"]  # non-empty
+
+        # Verify get_load_errors_by_id maps dir name to bundle ID
+        errors_by_id = engine.get_load_errors_by_id()
+        assert "com.test.aaa-bad" in errors_by_id
+        assert "plugin error" in errors_by_id["com.test.aaa-bad"]["message"]
 
         # Cleanup
         for name in list(sys.modules):
