@@ -154,6 +154,28 @@ def register(wz) -> None:
     plugin_dir = os.path.dirname(os.path.abspath(__file__))
     viewer_html_path = os.path.join(plugin_dir, "viewer.html")
 
+    def _copy_text(text: str) -> None:
+        from wenzi.scripting.sources import copy_to_clipboard
+        copy_to_clipboard(text)
+
+    def _register_subagent_handlers(panel) -> None:
+        """Register shared subagent bridge handlers on a viewer panel."""
+
+        @panel.handle("check_subagent_exists")
+        def check_subagent_exists(data):
+            root_path = data.get("root_session_path", "")
+            agent_ids = data.get("agent_ids", [])
+            return _check_subagent_exists(root_path, agent_ids)
+
+        @panel.handle("open_subagent")
+        def open_subagent(data):
+            _open_subagent_viewer(
+                data.get("root_session_path", ""),
+                data.get("parent_file_path", ""),
+                data.get("agent_id", ""),
+                data.get("description", ""),
+            )
+
     def _open_viewer(session: Dict[str, Any]) -> None:
         """Open the session viewer panel using pull model."""
         logger.info("Opening viewer for session: %s, file: %s",
@@ -182,28 +204,8 @@ def register(wz) -> None:
                 "is_subagent": False,
             }
 
-        def _copy_text(text: str) -> None:
-            from wenzi.scripting.sources import copy_to_clipboard
-
-            copy_to_clipboard(text)
-
         panel.on("copy_resume", lambda data: _copy_text(data.get("text", "")))
-
-        @panel.handle("check_subagent_exists")
-        def check_subagent_exists(data):
-            root_path = data.get("root_session_path", "")
-            agent_ids = data.get("agent_ids", [])
-            return _check_subagent_exists(root_path, agent_ids)
-
-        @panel.handle("open_subagent")
-        def open_subagent(data):
-            _open_subagent_viewer(
-                data.get("root_session_path", ""),
-                data.get("parent_file_path", ""),
-                data.get("agent_id", ""),
-                data.get("description", ""),
-            )
-
+        _register_subagent_handlers(panel)
         panel.show()
 
     def _open_subagent_viewer(
@@ -217,8 +219,8 @@ def register(wz) -> None:
         if not os.path.isfile(subagent_path):
             logger.warning("Subagent file not found: %s", subagent_path)
             return
-
         meta = _parse_subagent_meta(subagent_path)
+
         session_id = f"agent-{agent_id}"
 
         panel = wz.ui.webview_panel(
@@ -246,30 +248,12 @@ def register(wz) -> None:
                 "is_subagent": True,
             }
 
-        @panel.handle("check_subagent_exists")
-        def check_subagent_exists(data):
-            root_path = data.get("root_session_path", "")
-            agent_ids = data.get("agent_ids", [])
-            return _check_subagent_exists(root_path, agent_ids)
-
-        @panel.handle("open_subagent")
-        def open_subagent(data):
-            _open_subagent_viewer(
-                data.get("root_session_path", ""),
-                data.get("parent_file_path", ""),
-                data.get("agent_id", ""),
-                data.get("description", ""),
-            )
-
         @panel.handle("open_parent_session")
         def open_parent(_data):
             panel.close()
 
-        def _copy_text(text: str) -> None:
-            from wenzi.scripting.sources import copy_to_clipboard
-            copy_to_clipboard(text)
-
         panel.on("copy_resume", lambda data: _copy_text(data.get("text", "")))
+        _register_subagent_handlers(panel)
         panel.show()
 
     def _delete_session(session: Dict[str, Any]) -> None:
