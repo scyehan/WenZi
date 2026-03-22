@@ -23,7 +23,7 @@ from wenzi.transcription.model_registry import (
     is_model_cached,
 )
 from wenzi.scripting.plugin_installer import PluginInstaller
-from wenzi.scripting.plugin_registry import PluginInfo, PluginRegistry
+from wenzi.scripting.plugin_registry import PluginInfo, PluginRegistry, PluginStatus
 from wenzi.statusbar import send_notification
 from wenzi.transcription.base import create_transcriber
 from wenzi.ui_helpers import restore_accessory, topmost_alert
@@ -1463,22 +1463,20 @@ class SettingsController:
 
     def _add_local_only_plugins(self, result: list[dict], disabled: set) -> None:
         """Append locally-installed plugins that don't appear in any registry."""
-        from wenzi.scripting.plugin_meta import load_plugin_meta
+        from wenzi.scripting.plugin_meta import load_install_info, scan_local_plugins
 
         known_ids = {p["id"] for p in result}
-        plugins_dir = self._plugin_registry._plugins_dir
-        if not os.path.isdir(plugins_dir):
-            return
-        for entry in os.listdir(plugins_dir):
-            entry_path = os.path.join(plugins_dir, entry)
-            if not os.path.isdir(entry_path):
-                continue
-            meta = load_plugin_meta(entry_path)
+        for entry, entry_path, meta in scan_local_plugins(
+            self._plugin_registry.plugins_dir
+        ):
             pid = meta.id or entry
             if pid in known_ids:
                 continue
             is_enabled = pid not in disabled and entry not in disabled
-            has_install = os.path.isfile(os.path.join(entry_path, "install.toml"))
+            has_install = load_install_info(entry_path) is not None
+            status = (
+                PluginStatus.INSTALLED if has_install else PluginStatus.MANUALLY_PLACED
+            )
             result.append(
                 {
                     "id": pid,
@@ -1489,7 +1487,7 @@ class SettingsController:
                     "min_wenzi_version": meta.min_wenzi_version,
                     "source_url": "",
                     "registry_name": "Local",
-                    "status": "installed" if has_install else "manually_placed",
+                    "status": status.value,
                     "installed_version": meta.version,
                     "is_official": False,
                     "enabled": is_enabled,

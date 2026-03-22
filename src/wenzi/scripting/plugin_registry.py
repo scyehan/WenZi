@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import logging
-import os
 import tomllib
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
 from wenzi.scripting.plugin_meta import (
-    INSTALL_TOML,
     PluginMeta,
-    find_plugin_dir,
+    load_install_info,
     read_source,
+    scan_local_plugins,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,6 +40,10 @@ class PluginRegistry:
     def __init__(self, plugins_dir: str):
         self._plugins_dir = plugins_dir
 
+    @property
+    def plugins_dir(self) -> str:
+        return self._plugins_dir
+
     def parse_registry(self, source: str) -> list[dict[str, Any]]:
         _, entries = self.parse_registry_with_name(source)
         return entries
@@ -52,18 +55,6 @@ class PluginRegistry:
         entries = data.get("plugins", [])
         return name, [e for e in entries if isinstance(e, dict) and e.get("id")]
 
-    def load_install_info(self, plugin_dir: str) -> dict[str, str] | None:
-        install_path = os.path.join(plugin_dir, INSTALL_TOML)
-        if not os.path.isfile(install_path):
-            return None
-        try:
-            with open(install_path, "rb") as f:
-                data = tomllib.load(f)
-            return data.get("install", {})
-        except Exception:
-            logger.warning("Failed to parse %s", install_path, exc_info=True)
-            return None
-
     @staticmethod
     def _parse_version(version: str) -> tuple[int, ...]:
         try:
@@ -71,22 +62,24 @@ class PluginRegistry:
         except (ValueError, AttributeError):
             return (0,)
 
-    def compute_status(
+    def _compute_status(
         self,
         plugin_id: str,
         registry_version: str,
         min_wenzi_version: str,
         current_wenzi_version: str,
+        local_index: dict[str, str],
     ) -> tuple[PluginStatus, str | None]:
+        """Compute plugin status using a pre-built local index (id -> dir_path)."""
         if min_wenzi_version and current_wenzi_version != "dev":
             if self._parse_version(current_wenzi_version) < self._parse_version(
                 min_wenzi_version
             ):
                 return PluginStatus.INCOMPATIBLE, None
-        local_dir = find_plugin_dir(self._plugins_dir, plugin_id)
+        local_dir = local_index.get(plugin_id)
         if local_dir is None:
             return PluginStatus.NOT_INSTALLED, None
-        install_info = self.load_install_info(local_dir)
+        install_info = load_install_info(local_dir)
         if install_info is None:
             return PluginStatus.MANUALLY_PLACED, None
         installed_ver = install_info.get("installed_version", "")
@@ -94,39 +87,27 @@ class PluginRegistry:
             return PluginStatus.UPDATE_AVAILABLE, installed_ver
         return PluginStatus.INSTALLED, installed_ver
 
-    def _entry_to_plugin_info(
+    # Keep public API for backward compat (used by tests)
+    def compute_status(
         self,
-        entry: dict[str, Any],
-        registry_name: str,
-        is_official: bool,
+        plugin_id: str,
+        registry_version: str,
+        min_wenzi_version: str,
         current_wenzi_version: str,
-    ) -> PluginInfo | None:
-        plugin_id = entry.get("id", "")
-        if not plugin_id:
-            return None
-        source_url = entry.get("source", "")
-        meta = PluginMeta(
-            name=str(entry.get("name", plugin_id)),
-            id=plugin_id,
-            description=str(entry.get("description", "")),
-            version=str(entry.get("version", "")),
-            author=str(entry.get("author", "")),
-            min_wenzi_version=str(entry.get("min_wenzi_version", "")),
+    ) -> tuple[PluginStatus, str | None]:
+        local_index = self._build_local_index()
+        return self._compute_status(
+            plugin_id, registry_version, min_wenzi_version,
+            current_wenzi_version, local_index,
         )
-        status, installed_ver = self.compute_status(
-            plugin_id,
-            meta.version,
-            meta.min_wenzi_version,
-            current_wenzi_version,
-        )
-        return PluginInfo(
-            meta=meta,
-            source_url=source_url,
-            registry_name=registry_name,
-            status=status,
-            installed_version=installed_ver,
-            is_official=is_official,
-        )
+
+    def _build_local_index(self) -> dict[str, str]:
+        """Build {plugin_id: dir_path} from local plugins. One scan."""
+        return {
+            meta.id: path
+            for _name, path, meta in scan_local_plugins(self._plugins_dir)
+            if meta.id
+        }
 
     def merge_registries(
         self,
@@ -136,15 +117,15 @@ class PluginRegistry:
     ) -> list[PluginInfo]:
         seen_ids: set[str] = set()
         result: list[PluginInfo] = []
+        local_index = self._build_local_index()
 
-        # Process official registry first — its entries take priority
         try:
             official_name, official_entries = self.parse_registry_with_name(
                 official_source
             )
             for entry in official_entries:
                 info = self._entry_to_plugin_info(
-                    entry, official_name, True, current_wenzi_version
+                    entry, official_name, True, current_wenzi_version, local_index
                 )
                 if info and info.meta.id not in seen_ids:
                     seen_ids.add(info.meta.id)
@@ -154,13 +135,12 @@ class PluginRegistry:
                 "Failed to load official registry %s", official_source, exc_info=True
             )
 
-        # Process extra (third-party) registries — skip duplicates
         for source in extra_sources:
             try:
                 reg_name, entries = self.parse_registry_with_name(source)
                 for entry in entries:
                     info = self._entry_to_plugin_info(
-                        entry, reg_name, False, current_wenzi_version
+                        entry, reg_name, False, current_wenzi_version, local_index
                     )
                     if info and info.meta.id not in seen_ids:
                         seen_ids.add(info.meta.id)
@@ -171,3 +151,35 @@ class PluginRegistry:
                 )
 
         return result
+
+    def _entry_to_plugin_info(
+        self,
+        entry: dict[str, Any],
+        registry_name: str,
+        is_official: bool,
+        current_wenzi_version: str,
+        local_index: dict[str, str],
+    ) -> PluginInfo | None:
+        plugin_id = entry.get("id", "")
+        if not plugin_id:
+            return None
+        meta = PluginMeta(
+            name=str(entry.get("name", plugin_id)),
+            id=plugin_id,
+            description=str(entry.get("description", "")),
+            version=str(entry.get("version", "")),
+            author=str(entry.get("author", "")),
+            min_wenzi_version=str(entry.get("min_wenzi_version", "")),
+        )
+        status, installed_ver = self._compute_status(
+            plugin_id, meta.version, meta.min_wenzi_version,
+            current_wenzi_version, local_index,
+        )
+        return PluginInfo(
+            meta=meta,
+            source_url=entry.get("source", ""),
+            registry_name=registry_name,
+            status=status,
+            installed_version=installed_ver,
+            is_official=is_official,
+        )

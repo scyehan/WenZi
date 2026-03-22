@@ -1,6 +1,6 @@
 """Tests for plugin registry — fetch, merge, status calculation."""
 
-from wenzi.scripting.plugin_meta import PluginMeta
+from wenzi.scripting.plugin_meta import PluginMeta, load_install_info
 from wenzi.scripting.plugin_registry import (
     PluginInfo,
     PluginRegistry,
@@ -67,8 +67,7 @@ class TestLoadInstallInfo:
             '[install]\nsource_url = "https://example.com/plugin.toml"\n'
             'installed_version = "1.0.0"\ninstalled_at = "2026-03-22T10:00:00"\n'
         )
-        registry = PluginRegistry(plugins_dir=str(plugins_dir))
-        info = registry.load_install_info(str(plugin_dir))
+        info = load_install_info(str(plugin_dir))
         assert info["source_url"] == "https://example.com/plugin.toml"
         assert info["installed_version"] == "1.0.0"
 
@@ -76,8 +75,7 @@ class TestLoadInstallInfo:
         plugins_dir = tmp_path / "plugins"
         plugin_dir = plugins_dir / "manual"
         plugin_dir.mkdir(parents=True)
-        registry = PluginRegistry(plugins_dir=str(plugins_dir))
-        assert registry.load_install_info(str(plugin_dir)) is None
+        assert load_install_info(str(plugin_dir)) is None
 
 
 class TestComputeStatus:

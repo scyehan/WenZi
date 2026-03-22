@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from wenzi.scripting.plugin_meta import (
     INSTALL_TOML,
     find_plugin_dir,
+    load_install_info,
     load_plugin_meta,
     read_source,
 )
@@ -29,48 +30,22 @@ class PluginInstaller:
 
         Returns the install directory path. Rolls back on failure.
         """
-        raw = read_source(source_url)
-        data = tomllib.loads(raw.decode("utf-8"))
-        section = data.get("plugin", {})
+        raw, section = self._fetch_plugin_toml(source_url)
         plugin_id = section.get("id", "")
         if not plugin_id:
             raise ValueError("plugin.toml missing required 'id' field")
 
         version = str(section.get("version", ""))
-        files = section.get("files", [])
-        if isinstance(files, str):
-            files = [files]
+        files = self._parse_files(section)
 
-        # Determine install directory from last segment of id
-        dir_name = plugin_id.rsplit(".", 1)[-1] if "." in plugin_id else plugin_id
-        install_dir = os.path.join(self._plugins_dir, dir_name)
-
-        # Handle dir name collision with different id
-        if os.path.isdir(install_dir):
-            existing_meta = load_plugin_meta(install_dir)
-            if existing_meta.id and existing_meta.id != plugin_id:
-                for i in range(2, 100):
-                    install_dir = os.path.join(self._plugins_dir, f"{dir_name}-{i}")
-                    if not os.path.isdir(install_dir):
-                        break
-                else:
-                    raise ValueError(f"Cannot find available directory for {plugin_id}")
-
+        install_dir = self._resolve_install_dir(plugin_id)
         base_url = source_url.rsplit("/", 1)[0]
 
         os.makedirs(install_dir, exist_ok=True)
         try:
-            for fname in files:
-                file_url = f"{base_url}/{fname}"
-                file_data = read_source(file_url)
-                file_path = os.path.join(install_dir, fname)
-                os.makedirs(os.path.dirname(file_path), exist_ok=True)
-                with open(file_path, "wb") as f:
-                    f.write(file_data)
-            # Write plugin.toml
+            self._download_files(base_url, files, install_dir)
             with open(os.path.join(install_dir, "plugin.toml"), "wb") as f:
                 f.write(raw)
-            # Write install.toml
             self._write_install_toml(install_dir, source_url, version)
         except Exception:
             if os.path.isdir(install_dir):
@@ -83,28 +58,19 @@ class PluginInstaller:
         plugin_dir = find_plugin_dir(self._plugins_dir, plugin_id)
         if plugin_dir is None:
             raise ValueError(f"Plugin {plugin_id!r} not found")
-        install_info = self._read_install_toml(plugin_dir)
-        if install_info is None:
+        info = load_install_info(plugin_dir)
+        if info is None:
             raise ValueError(f"Plugin {plugin_id!r} has no install.toml (manually placed)")
-        source_url = install_info.get("source_url", "")
+        source_url = info.get("source_url", "")
         if not source_url:
             raise ValueError(f"Plugin {plugin_id!r} has no source_url in install.toml")
 
-        raw = read_source(source_url)
-        data = tomllib.loads(raw.decode("utf-8"))
-        section = data.get("plugin", {})
+        raw, section = self._fetch_plugin_toml(source_url)
         version = str(section.get("version", ""))
-        files = section.get("files", [])
-        if isinstance(files, str):
-            files = [files]
+        files = self._parse_files(section)
         base_url = source_url.rsplit("/", 1)[0]
 
-        for fname in files:
-            file_data = read_source(f"{base_url}/{fname}")
-            file_path = os.path.join(plugin_dir, fname)
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            with open(file_path, "wb") as f:
-                f.write(file_data)
+        self._download_files(base_url, files, plugin_dir)
         with open(os.path.join(plugin_dir, "plugin.toml"), "wb") as f:
             f.write(raw)
         self._write_install_toml(plugin_dir, source_url, version)
@@ -117,13 +83,46 @@ class PluginInstaller:
             raise ValueError(f"Plugin {plugin_id!r} not found")
         shutil.rmtree(plugin_dir)
 
-    def _read_install_toml(self, plugin_dir: str) -> dict | None:
-        path = os.path.join(plugin_dir, INSTALL_TOML)
-        if not os.path.isfile(path):
-            return None
-        with open(path, "rb") as f:
-            data = tomllib.load(f)
-        return data.get("install", {})
+    # -- private helpers --
+
+    @staticmethod
+    def _fetch_plugin_toml(source_url: str) -> tuple[bytes, dict]:
+        """Fetch and parse plugin.toml. Returns (raw_bytes, plugin_section)."""
+        raw = read_source(source_url)
+        data = tomllib.loads(raw.decode("utf-8"))
+        return raw, data.get("plugin", {})
+
+    @staticmethod
+    def _parse_files(section: dict) -> list[str]:
+        files = section.get("files", [])
+        if isinstance(files, str):
+            files = [files]
+        return files
+
+    @staticmethod
+    def _download_files(base_url: str, files: list[str], target_dir: str) -> None:
+        for fname in files:
+            file_data = read_source(f"{base_url}/{fname}")
+            file_path = os.path.join(target_dir, fname)
+            parent = os.path.dirname(file_path)
+            if parent and parent != target_dir:
+                os.makedirs(parent, exist_ok=True)
+            with open(file_path, "wb") as f:
+                f.write(file_data)
+
+    def _resolve_install_dir(self, plugin_id: str) -> str:
+        dir_name = plugin_id.rsplit(".", 1)[-1] if "." in plugin_id else plugin_id
+        install_dir = os.path.join(self._plugins_dir, dir_name)
+        if os.path.isdir(install_dir):
+            existing_meta = load_plugin_meta(install_dir)
+            if existing_meta.id and existing_meta.id != plugin_id:
+                for i in range(2, 100):
+                    install_dir = os.path.join(self._plugins_dir, f"{dir_name}-{i}")
+                    if not os.path.isdir(install_dir):
+                        break
+                else:
+                    raise ValueError(f"Cannot find available directory for {plugin_id}")
+        return install_dir
 
     @staticmethod
     def _write_install_toml(plugin_dir: str, source_url: str, version: str) -> None:

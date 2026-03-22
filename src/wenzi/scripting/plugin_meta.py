@@ -88,15 +88,39 @@ def read_source(source: str) -> bytes:
             return f.read()
 
 
-def find_plugin_dir(plugins_dir: str, plugin_id: str) -> str | None:
-    """Find local plugin directory by scanning for matching bundle id."""
+def scan_local_plugins(plugins_dir: str) -> list[tuple[str, str, PluginMeta]]:
+    """Scan *plugins_dir* and return ``(dir_name, dir_path, meta)`` for each plugin."""
     if not os.path.isdir(plugins_dir):
-        return None
-    for entry in os.listdir(plugins_dir):
+        return []
+    result = []
+    for entry in sorted(os.listdir(plugins_dir)):
         entry_path = os.path.join(plugins_dir, entry)
         if not os.path.isdir(entry_path):
             continue
+        if not os.path.isfile(os.path.join(entry_path, PLUGIN_TOML)):
+            continue
         meta = load_plugin_meta(entry_path)
+        result.append((entry, entry_path, meta))
+    return result
+
+
+def find_plugin_dir(plugins_dir: str, plugin_id: str) -> str | None:
+    """Find local plugin directory by scanning for matching bundle id."""
+    for _name, path, meta in scan_local_plugins(plugins_dir):
         if meta.id == plugin_id:
-            return entry_path
+            return path
     return None
+
+
+def load_install_info(plugin_dir: str) -> dict[str, str] | None:
+    """Read install.toml from a plugin directory. Returns None if missing."""
+    install_path = os.path.join(plugin_dir, INSTALL_TOML)
+    if not os.path.isfile(install_path):
+        return None
+    try:
+        with open(install_path, "rb") as f:
+            data = tomllib.load(f)
+        return data.get("install", {})
+    except Exception:
+        logger.warning("Failed to parse %s", install_path, exc_info=True)
+        return None
