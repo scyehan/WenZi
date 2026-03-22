@@ -106,6 +106,50 @@ class TestToggleTriggersAutoReload:
         assert ctrl._needs_reload is False
 
 
+# ── _finish_plugins_fetch (race condition fix) ────────────────────
+
+
+class TestFinishPluginsFetch:
+    """Verify that status computation runs on the main thread, not in _fetch."""
+
+    def test_recomputes_statuses_on_main_thread(self, ctrl):
+        """_finish_plugins_fetch should recompute statuses from fresh local scan."""
+        info = PluginInfo(
+            meta=PluginMeta(
+                name="Test", id="com.test.plugin", version="1.0.0",
+            ),
+            source_url="https://example.com/plugin.toml",
+            registry_name="Official",
+            status=PluginStatus.NOT_INSTALLED,  # stale status from fetch
+            is_official=True,
+        )
+        ctrl._last_plugin_infos = [info]
+        # Mock _compute_status to return INSTALLED (simulating fresh local scan)
+        ctrl._plugin_registry._compute_status = MagicMock(
+            return_value=(PluginStatus.INSTALLED, "1.0.0")
+        )
+
+        ctrl._finish_plugins_fetch()
+
+        # Status should have been recomputed
+        assert info.status == PluginStatus.INSTALLED
+        assert info.installed_version == "1.0.0"
+        # UI should be updated with plugins_loading cleared
+        state = ctrl._app._settings_panel.update_state.call_args[0][0]
+        assert state["plugins_loading"] is False
+        assert "plugins" in state
+
+    def test_handles_empty_infos_without_loop(self, ctrl):
+        """Empty _last_plugin_infos must not trigger _on_plugins_tab_open."""
+        ctrl._last_plugin_infos = []
+
+        ctrl._finish_plugins_fetch()
+
+        state = ctrl._app._settings_panel.update_state.call_args[0][0]
+        assert state["plugins_loading"] is False
+        assert state["plugins"] == []
+
+
 class TestPluginInfosToState:
     """Test _plugin_infos_to_state conversion logic."""
 

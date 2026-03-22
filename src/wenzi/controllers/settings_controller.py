@@ -1304,11 +1304,7 @@ class SettingsController:
                     current_wenzi_version=current_ver,
                 )
                 self._last_plugin_infos = infos
-                plugins_data = self._plugin_infos_to_state(infos)
-                AppHelper.callAfter(
-                    panel.update_state,
-                    {"plugins": plugins_data, "plugins_loading": False},
-                )
+                AppHelper.callAfter(self._finish_plugins_fetch)
             except Exception as e:
                 logger.error("Failed to fetch plugins", exc_info=True)
                 AppHelper.callAfter(
@@ -1418,16 +1414,22 @@ class SettingsController:
             return
         self._on_plugin_reload()
 
-    def _refresh_plugin_state(self) -> None:
-        """Recompute plugin statuses from cached registry data + fresh local scan.
+    def _finish_plugins_fetch(self) -> None:
+        """Recompute plugin statuses on main thread after background fetch.
 
-        Unlike ``_on_plugins_tab_open``, this does NOT re-fetch registries from
-        the network — it only re-scans the local plugins directory to update
-        installation statuses.
+        Local-dir scanning must happen here (not in the fetch thread) to
+        avoid a race where stale data overwrites fresher state from
+        ``_refresh_plugin_state``.
         """
-        if not self._last_plugin_infos:
-            self._on_plugins_tab_open()
-            return
+        if self._last_plugin_infos:
+            self._recompute_plugin_statuses()
+        plugins_data = self._plugin_infos_to_state(self._last_plugin_infos or [])
+        self._app._settings_panel.update_state(
+            {"plugins": plugins_data, "plugins_loading": False}
+        )
+
+    def _recompute_plugin_statuses(self) -> None:
+        """Update statuses in ``_last_plugin_infos`` from a fresh local scan."""
         local_index = self._plugin_registry._build_local_index()
         for info in self._last_plugin_infos:
             status, installed_ver = self._plugin_registry._compute_status(
@@ -1439,6 +1441,18 @@ class SettingsController:
             )
             info.status = status
             info.installed_version = installed_ver
+
+    def _refresh_plugin_state(self) -> None:
+        """Recompute plugin statuses from cached registry data + fresh local scan.
+
+        Unlike ``_on_plugins_tab_open``, this does NOT re-fetch registries from
+        the network — it only re-scans the local plugins directory to update
+        installation statuses.
+        """
+        if not self._last_plugin_infos:
+            self._on_plugins_tab_open()
+            return
+        self._recompute_plugin_statuses()
         plugins_data = self._plugin_infos_to_state(self._last_plugin_infos)
         self._app._settings_panel.update_state({"plugins": plugins_data})
 
