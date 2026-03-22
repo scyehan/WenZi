@@ -733,10 +733,7 @@ class TextEnhancer:
                                 frequency=item.get("frequency", 1),
                             ))
                     if tracker_entries:
-                        if self._vocab_index is not None:
-                            tracker_lines = self._vocab_index.format_entry_lines(tracker_entries)
-                        else:
-                            tracker_lines = "\n".join(f"- {e.term}" for e in tracker_entries)
+                        tracker_lines = VocabularyIndex.format_entry_lines(tracker_entries)
                         if vocab_lines:
                             vocab_lines = vocab_lines + "\n" + tracker_lines
                         else:
@@ -1223,7 +1220,7 @@ def create_enhancer(
     data_dir: str | None = None,
     cache_dir: str | None = None,
     conversation_history: Optional[ConversationHistory] = None,
-    correction_tracker: Optional[Any] = None,
+    correction_tracker: Optional[CorrectionTracker] = None,
 ) -> Optional[TextEnhancer]:
     """Factory function to create a TextEnhancer from app config.
 

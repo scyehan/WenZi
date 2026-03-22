@@ -186,8 +186,8 @@ def test_short_latin_original_auto_excluded(tmp_path):
     conn = sqlite3.connect(str(tmp_path / "t.db"))
     row = conn.execute("SELECT excluded FROM correction_pairs WHERE original_word='set' AND corrected_word='STT'").fetchone()
     conn.close()
-    if row:
-        assert row[0] == 1
+    assert row is not None, "Expected a correction pair for set→STT"
+    assert row[0] == 1
 
 
 def test_normal_word_not_excluded(tmp_path):

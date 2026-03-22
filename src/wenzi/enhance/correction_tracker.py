@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from typing import Optional
 
@@ -135,7 +136,7 @@ class CorrectionTracker:
 
     def _get_conn(self) -> sqlite3.Connection:
         """Open a new connection with foreign keys enabled."""
-        conn = sqlite3.connect(self._db_path)
+        conn = sqlite3.connect(self._db_path, timeout=5)
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
 
@@ -168,8 +169,6 @@ class CorrectionTracker:
         LLM pairs are only extracted when user_corrected is True and
         enhanced_text differs from final_text.
         """
-        from datetime import datetime, timezone
-
         now = timestamp or datetime.now(timezone.utc).isoformat()
         _llm = llm_model or ""
         _app = app_bundle_id or ""
@@ -268,7 +267,7 @@ class CorrectionTracker:
                 asr_model=record.get("stt_model", ""),
                 llm_model=record.get("llm_model", ""),
                 app_bundle_id=app_bundle_id,
-                enhance_mode="proofread",
+                enhance_mode=record.get("enhance_mode", "proofread"),
                 audio_duration=record.get("audio_duration"),
                 user_corrected=record.get("user_corrected", False),
                 timestamp=ts,
@@ -306,10 +305,10 @@ class CorrectionTracker:
             rows = conn.execute(
                 """SELECT corrected_word, SUM(count) as freq
                    FROM correction_pairs
-                   WHERE source = 'asr' AND asr_model = ? AND app_bundle_id = ? AND excluded = 0
+                   WHERE source = ? AND asr_model = ? AND app_bundle_id = ? AND excluded = 0
                    GROUP BY corrected_word HAVING freq >= ?
                    ORDER BY freq DESC LIMIT ?""",
-                (asr_model, _app, min_count, top_k),
+                (SOURCE_ASR, asr_model, _app, min_count, top_k),
             ).fetchall()
             return [row[0] for row in rows]
         finally:
@@ -331,20 +330,26 @@ class CorrectionTracker:
         _app = app_bundle_id or ""
         conn = self._get_conn()
         try:
-            # Single query: aggregate frequency and collect variants via GROUP_CONCAT
+            # Aggregate frequency and collect distinct variants in one query.
+            # SQLite does not support DISTINCT with a custom separator in
+            # GROUP_CONCAT, so we use a subquery to deduplicate first.
             rows = conn.execute(
-                """SELECT corrected_word, SUM(count) as freq,
-                          GROUP_CONCAT(DISTINCT original_word) as variants
-                   FROM correction_pairs
-                   WHERE source = 'llm' AND llm_model = ? AND app_bundle_id = ? AND excluded = 0
+                """SELECT corrected_word, SUM(cnt) as freq,
+                          GROUP_CONCAT(original_word, '|') as variants
+                   FROM (
+                       SELECT corrected_word, original_word, SUM(count) as cnt
+                       FROM correction_pairs
+                       WHERE source = ? AND llm_model = ? AND app_bundle_id = ? AND excluded = 0
+                       GROUP BY corrected_word, original_word
+                   )
                    GROUP BY corrected_word HAVING freq >= ?
                    ORDER BY freq DESC LIMIT ?""",
-                (llm_model, _app, min_count, top_k),
+                (SOURCE_LLM, llm_model, _app, min_count, top_k),
             ).fetchall()
             return [
                 {
                     "corrected_word": corrected,
-                    "variants": variants.split(",") if variants else [],
+                    "variants": variants.split("|") if variants else [],
                     "frequency": freq,
                 }
                 for corrected, freq, variants in rows
