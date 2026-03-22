@@ -1342,8 +1342,7 @@ class SettingsController:
             try:
                 self._plugin_installer.install(url)
                 self._needs_reload = True
-                AppHelper.callAfter(self._refresh_plugin_state)
-                AppHelper.callAfter(panel.update_state, {"show_reload_banner": True})
+                AppHelper.callAfter(self._auto_reload_if_needed)
             except Exception as e:
                 AppHelper.callAfter(
                     panel.update_state, {"plugins_error": f"Install failed: {e}"}
@@ -1361,8 +1360,7 @@ class SettingsController:
             try:
                 self._plugin_installer.update(plugin_id)
                 self._needs_reload = True
-                AppHelper.callAfter(self._refresh_plugin_state)
-                AppHelper.callAfter(panel.update_state, {"show_reload_banner": True})
+                AppHelper.callAfter(self._auto_reload_if_needed)
             except Exception as e:
                 AppHelper.callAfter(
                     panel.update_state, {"plugins_error": f"Update failed: {e}"}
@@ -1372,11 +1370,12 @@ class SettingsController:
 
     def _on_plugin_uninstall(self, plugin_id: str) -> None:
         """Uninstall a plugin."""
+        from PyObjCTools import AppHelper
+
         try:
             self._plugin_installer.uninstall(plugin_id)
             self._needs_reload = True
-            self._refresh_plugin_state()
-            self._app._settings_panel.update_state({"show_reload_banner": True})
+            AppHelper.callAfter(self._auto_reload_if_needed)
         except Exception as e:
             self._app._settings_panel.update_state(
                 {"plugins_error": f"Uninstall failed: {e}"}
@@ -1384,6 +1383,8 @@ class SettingsController:
 
     def _on_plugin_toggle(self, plugin_id: str, enabled: bool) -> None:
         """Enable or disable a plugin."""
+        from PyObjCTools import AppHelper
+
         disabled = list(self._app._config.get("disabled_plugins", []))
         changed = False
         if enabled and plugin_id in disabled:
@@ -1397,8 +1398,7 @@ class SettingsController:
         self._app._config["disabled_plugins"] = disabled
         self._save_and_reload()
         self._needs_reload = True
-        self._refresh_plugin_state()
-        self._app._settings_panel.update_state({"show_reload_banner": True})
+        AppHelper.callAfter(self._auto_reload_if_needed)
 
     def _on_plugin_reload(self) -> None:
         """Reload all plugins in the script engine."""
@@ -1411,6 +1411,12 @@ class SettingsController:
             {"show_reload_banner": False, "plugins_error": None}
         )
         self._refresh_plugin_state()
+
+    def _auto_reload_if_needed(self) -> None:
+        """Auto-reload plugins if a reload is pending."""
+        if not self._needs_reload:
+            return
+        self._on_plugin_reload()
 
     def _refresh_plugin_state(self) -> None:
         """Recompute plugin statuses from cached registry data + fresh local scan.
