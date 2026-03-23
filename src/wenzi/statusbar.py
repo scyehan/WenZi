@@ -367,7 +367,12 @@ def restart_application() -> None:
     import sys
 
     pid = os.getpid()
-    cmd = shlex.join([sys.executable] + sys.argv)
+
+    if getattr(sys, "frozen", False):
+        # PyInstaller bundle: exec the binary directly, bypassing Launch Services.
+        cmd = shlex.quote(sys.executable)
+    else:
+        cmd = shlex.join([sys.executable] + sys.argv)
 
     # Use /bin/sh so the watcher is fully independent of the Python runtime.
     # `kill -0` checks if the process is still alive; once it's gone, relaunch.
