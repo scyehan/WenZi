@@ -17,18 +17,21 @@ _version = _pyproject['project']['version']
 
 block_cipher = None
 
+from PyInstaller.utils.hooks import collect_all
+certifi_datas, certifi_binaries, certifi_hiddenimports = collect_all('certifi')
+
 a = Analysis(
     ['src/wenzi/__main__.py'],
     pathex=['src'],
-    binaries=[],
-    datas=[
+    binaries=certifi_binaries,
+    datas=certifi_datas + [
         (os.path.join(_spec_dir, 'src/wenzi/audio/sounds'), 'wenzi/audio/sounds'),
         (os.path.join(_spec_dir, 'src/wenzi/enhance/data'), 'wenzi/enhance/data'),
         (os.path.join(_spec_dir, 'src/wenzi/locales'), 'wenzi/locales'),
         (os.path.join(_spec_dir, 'src/wenzi/ui/vendor'), 'wenzi/ui/vendor'),
         (os.path.join(_spec_dir, 'src/wenzi/ui/templates'), 'wenzi/ui/templates'),
     ],
-    hiddenimports=[
+    hiddenimports=certifi_hiddenimports + [
         # wenzi core
         'wenzi',
         'wenzi._build_info',

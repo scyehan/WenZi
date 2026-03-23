@@ -18,6 +18,7 @@ dependencies = [
     "pyyaml>=6.0",
     "simpleeval>=1.0.5",
     "pint>=0.24",
+    "certifi>=2024.0",
 ]
 
 [project.optional-dependencies]
