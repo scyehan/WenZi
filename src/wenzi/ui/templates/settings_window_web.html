@@ -426,6 +426,8 @@ input[type="range"] {
 .plugin-progress-bar { height:100%; background:#007aff; border-radius:1px; width:0%; transition:width 0.3s ease; }
 .plugin-error { font-size:12px; color:#d32f2f; margin-top:4px; }
 .plugin-card-error { border-color:#e57373; }
+.plugin-card-incompatible { opacity:0.55; }
+.toggle-disabled { opacity:0.5; pointer-events:none; }
 .version-popover { position:absolute; top:100%; right:0; margin-top:4px; padding:10px; background:white; border:1px solid #d2d2d7; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:100; display:none; min-width:220px; }
 .version-popover.show { display:block; }
 .version-popover label { font-size:12px; color:#86868b; display:block; margin-bottom:4px; }
@@ -2330,7 +2332,12 @@ function renderPluginCard(p) {
   var toggleBtn = '<div class="' + (p.enabled ? 'toggle on' : 'toggle') + '" data-action="plugin-toggle" data-id="' + _esc(p.id) + '"></div>';
   var uninstallBtn = '<button class="btn btn-danger" data-action="plugin-uninstall" data-id="' + _esc(p.id) + '">Uninstall</button>';
   if (p.status === 'incompatible') {
-    actions = '<button class="btn btn-secondary" disabled title="Requires WenZi >= ' + _esc(p.min_wenzi_version) + '">Install</button>';
+    var reqLabel = '<span class="plugin-badge badge-local" style="opacity:0.7;">Requires WenZi \u2265 ' + _esc(p.min_wenzi_version) + '</span>';
+    if (p.installed_version) {
+      actions = reqLabel + '<div class="toggle toggle-disabled"></div>';
+    } else {
+      actions = '<button class="btn btn-secondary" disabled title="Requires WenZi >= ' + _esc(p.min_wenzi_version) + '">Install</button>';
+    }
   } else if (p.status === 'not_installed') {
     actions = '<button class="btn btn-primary" data-action="plugin-install" data-id="' + _esc(p.id) + '">Install</button>';
   } else if (p.status === 'update_available') {
@@ -2358,7 +2365,8 @@ function renderPluginCard(p) {
   var bodyHtml = '<div class="plugin-body">' + _esc(p.description) + errorHtml
     + '<div class="plugin-progress"><div class="plugin-progress-bar"></div></div>'
     + '</div>';
-  return '<div class="plugin-card' + (p.load_error ? ' plugin-card-error' : '') + '" data-plugin-id="' + _esc(p.id) + '">'
+  var incompatClass = (p.status === 'incompatible' && p.installed_version) ? ' plugin-card-incompatible' : '';
+  return '<div class="plugin-card' + (p.load_error ? ' plugin-card-error' : '') + incompatClass + '" data-plugin-id="' + _esc(p.id) + '">'
     + '<div class="plugin-icon">&#x1F9E9;</div>'
     + '<div class="plugin-info">'
     + '<div><span class="plugin-name">' + _esc(p.name) + '</span>'

@@ -896,14 +896,6 @@ class ScriptEngine:
     @staticmethod
     def _version_compatible(min_version: str) -> bool:
         """Return True if the running WenZi version meets *min_version*."""
-        from wenzi import get_version
+        from wenzi import is_version_compatible
 
-        current = get_version()
-        if current == "dev":
-            return True  # dev mode is always compatible
-        try:
-            cur = tuple(int(x) for x in current.split("."))
-            req = tuple(int(x) for x in min_version.split("."))
-        except (ValueError, AttributeError):
-            return True  # unparseable → allow
-        return cur >= req
+        return is_version_compatible(min_version)
