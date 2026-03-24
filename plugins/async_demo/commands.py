@@ -33,6 +33,8 @@ def register(wz):
         wz.notify("Async Sleep", f"Woke up after {seconds}s!", sound=_rand_sound())
 
     async def _fetch_url(url: str):
+        import subprocess
+        import tempfile
         import urllib.request
 
         wz.alert(f"Fetching {url}...", duration=10.0)
@@ -43,10 +45,17 @@ def register(wz):
         )
         elapsed = time.monotonic() - start
         status = resp.status
-        length = len(resp.read())
-        msg = f"HTTP {status}, {length} bytes in {elapsed:.2f}s"
+        body = resp.read()
+        msg = f"HTTP {status}, {len(body)} bytes in {elapsed:.2f}s"
         wz.alert(msg, duration=3.0)
         wz.notify("Async Fetch", msg, sound=_rand_sound())
+
+        content_type = resp.headers.get("Content-Type", "")
+        ext = ".json" if "json" in content_type else ".html" if "html" in content_type else ".txt"
+        with tempfile.NamedTemporaryFile(suffix=ext, prefix="async-fetch-", delete=False) as f:
+            f.write(body)
+            tmp_path = f.name
+        await loop.run_in_executor(None, subprocess.run, ["open", "-e", tmp_path])
 
     wz.chooser.register_command(
         name="async-fetch",
