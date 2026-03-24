@@ -177,3 +177,64 @@ class TestPoolMonitor:
         monitor.stop_periodic()
         mock_task.cancel.assert_called_once()
         assert monitor._periodic_task is None
+
+
+# ---------------------------------------------------------------------------
+# Dedicated log file setup
+# ---------------------------------------------------------------------------
+
+class TestPoolMonitorLogFile:
+    """Verify that _setup_logging configures a dedicated pool_monitor log."""
+
+    def test_dedicated_handler_is_attached(self, tmp_path, monkeypatch):
+        """After _setup_logging, wenzi.enhance.pool_monitor logger should have
+        its own file handler writing to pool_monitor.log with propagate=False."""
+        import logging
+        import logging.handlers
+
+        monkeypatch.setattr("wenzi.app.LOG_DIR", tmp_path)
+        monkeypatch.setattr("wenzi.app.LOG_FILE", tmp_path / "wenzi.log")
+
+        # Minimal config dict
+        config = {"logging": {"level": "INFO"}}
+
+        # Build a lightweight WenZiApp stub that only runs _setup_logging
+        from wenzi.app import WenZiApp
+
+        app = object.__new__(WenZiApp)
+        app._config = config
+
+        # Clean up root logger handlers to avoid test pollution
+        root = logging.getLogger()
+        old_handlers = root.handlers[:]
+        root.handlers.clear()
+
+        pool_logger = logging.getLogger("wenzi.enhance.pool_monitor")
+        old_pool_handlers = pool_logger.handlers[:]
+        old_propagate = pool_logger.propagate
+        pool_logger.handlers.clear()
+
+        try:
+            app._setup_logging()
+
+            assert pool_logger.propagate is False
+            file_handlers = [
+                h for h in pool_logger.handlers
+                if isinstance(h, logging.handlers.RotatingFileHandler)
+            ]
+            assert len(file_handlers) == 1
+            handler = file_handlers[0]
+            assert handler.baseFilename == str(tmp_path / "pool_monitor.log")
+            assert handler.level == logging.DEBUG
+            # Call again — should NOT accumulate a second handler
+            app._setup_logging()
+            file_handlers_after = [
+                h for h in pool_logger.handlers
+                if isinstance(h, logging.handlers.RotatingFileHandler)
+            ]
+            assert len(file_handlers_after) == 1
+        finally:
+            # Restore original state
+            root.handlers[:] = old_handlers
+            pool_logger.handlers[:] = old_pool_handlers
+            pool_logger.propagate = old_propagate
