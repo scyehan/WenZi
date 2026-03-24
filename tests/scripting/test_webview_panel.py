@@ -68,6 +68,14 @@ class TestWebViewPanelDefaults:
         p = WebViewPanel(title="T", html="<b>x</b>")
         assert "close" not in p._event_handlers
 
+    def test_default_floating(self):
+        p = WebViewPanel(title="T", html="<b>x</b>")
+        assert p._floating is True
+
+    def test_floating_disabled(self):
+        p = WebViewPanel(title="T", html="<b>x</b>", floating=False)
+        assert p._floating is False
+
 
 # ---------------------------------------------------------------------------
 # Bridge: on() / handle() registration

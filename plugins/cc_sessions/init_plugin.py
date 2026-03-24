@@ -229,6 +229,7 @@ def register(wz) -> None:
             height=700,
             resizable=True,
             titlebar_hidden=True,
+            floating=False,
             allowed_read_paths=[
                 os.path.expanduser("~/.claude/"),
             ],
@@ -276,6 +277,7 @@ def register(wz) -> None:
             height=700,
             resizable=True,
             titlebar_hidden=True,
+            floating=False,
             allowed_read_paths=[
                 os.path.expanduser("~/.claude/"),
             ],

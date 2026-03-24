@@ -323,6 +323,7 @@ class WebViewPanel:
         resizable: bool = True,
         allowed_read_paths: Optional[List[str]] = None,
         titlebar_hidden: bool = False,
+        floating: bool = True,
     ) -> None:
         self._title = title
         self._html = html
@@ -332,6 +333,7 @@ class WebViewPanel:
         self._resizable = resizable
         self._allowed_read_paths = allowed_read_paths or []
         self._titlebar_hidden = titlebar_hidden
+        self._floating = floating
 
         self._panel = None
         self._webview = None
@@ -585,8 +587,9 @@ class WebViewPanel:
             False,
         )
         panel.setTitle_(self._title)
-        panel.setLevel_(NSStatusWindowLevel)
-        panel.setFloatingPanel_(True)
+        if self._floating:
+            panel.setLevel_(NSStatusWindowLevel)
+            panel.setFloatingPanel_(True)
         panel.setHidesOnDeactivate_(False)
         panel.center()
 
