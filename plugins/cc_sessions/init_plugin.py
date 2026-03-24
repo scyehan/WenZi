@@ -228,6 +228,7 @@ def register(wz) -> None:
             width=900,
             height=700,
             resizable=True,
+            titlebar_hidden=True,
             allowed_read_paths=[
                 os.path.expanduser("~/.claude/"),
             ],
@@ -240,6 +241,7 @@ def register(wz) -> None:
                 "project": session["project"],
                 "cwd": session["cwd"],
                 "session_id": session["session_id"],
+                "title": session["title"],
                 "git_branch": session.get("git_branch", ""),
                 "version": session.get("version", ""),
                 "root_session_path": session["file_path"],
@@ -247,6 +249,7 @@ def register(wz) -> None:
             }
 
         panel.on("copy_resume", lambda data: _copy_text(data.get("text", "")))
+
         _register_subagent_handlers(panel)
         _start_auto_reload(panel, session["file_path"])
         panel.show()
@@ -272,6 +275,7 @@ def register(wz) -> None:
             width=900,
             height=700,
             resizable=True,
+            titlebar_hidden=True,
             allowed_read_paths=[
                 os.path.expanduser("~/.claude/"),
             ],
@@ -284,6 +288,7 @@ def register(wz) -> None:
                 "project": meta.get("project", ""),
                 "cwd": meta.get("cwd", ""),
                 "session_id": session_id,
+                "title": f"Subagent: {description}",
                 "git_branch": meta.get("git_branch", ""),
                 "version": meta.get("version", ""),
                 "root_session_path": root_session_path,
@@ -296,6 +301,7 @@ def register(wz) -> None:
             panel.close()
 
         panel.on("copy_resume", lambda data: _copy_text(data.get("text", "")))
+
         _register_subagent_handlers(panel)
         _start_auto_reload(panel, subagent_path)
         panel.show()

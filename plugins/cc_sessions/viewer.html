@@ -97,6 +97,53 @@
     overflow: hidden;
   }
 
+  /* ── Custom title bar (replaces native title bar) ── */
+  .titlebar {
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    height: 28px;
+    background: var(--bg-secondary);
+    font-size: 12px;
+    flex-shrink: 0;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .titlebar-title {
+    flex: 1;
+    text-align: center;
+    color: var(--text-secondary);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0 20px;
+  }
+  .titlebar-close {
+    width: 12px;
+    height: 12px;
+    border: none;
+    background: #ff5f57;
+    border-radius: 50%;
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .titlebar-close::before {
+    content: '×';
+    position: absolute;
+    inset: 0;
+    font-size: 10px;
+    line-height: 12px;
+    text-align: center;
+    color: transparent;
+    font-weight: bold;
+  }
+  .titlebar-close:hover::before {
+    color: rgba(0, 0, 0, 0.6);
+  }
+
   .info-bar {
     display: flex;
     align-items: center;
@@ -696,6 +743,10 @@
 <body>
 
 <div class="app">
+  <div class="titlebar" id="titlebar">
+    <button class="titlebar-close" id="titlebar-close" title="Close (⌘W)"></button>
+    <span class="titlebar-title" id="titlebar-title"></span>
+  </div>
   <div class="info-bar" id="info-bar">
     <a class="parent-link" id="parent-link" style="display:none;" href="#">&#8592; Parent Session</a>
     <span class="label">Project:</span>
@@ -996,9 +1047,17 @@ function setupAutoReload() {
 
 async function loadSession(info) {
   // Update info bar
+  if (info.title) {
+    const t = info.title.length > 20 ? info.title.slice(0, 20) + "…" : info.title;
+    document.getElementById("titlebar-title").textContent = t;
+  }
   if (info.project) document.getElementById("info-project").textContent = info.project;
   if (info.git_branch) document.getElementById("info-branch").textContent = info.git_branch;
   if (info.version) document.getElementById("info-version").textContent = info.version;
+
+  document.getElementById("titlebar-close").addEventListener("click", () => {
+    wz.send("close");
+  });
 
   // Subagent mode: show parent link, hide resume button
   if (info.is_subagent) {

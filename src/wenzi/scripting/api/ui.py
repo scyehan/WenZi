@@ -20,6 +20,7 @@ class UIAPI:
         height: int = 700,
         resizable: bool = True,
         allowed_read_paths: Optional[List[str]] = None,
+        titlebar_hidden: bool = False,
     ):
         """Create and return a new WebView panel.
 
@@ -38,6 +39,8 @@ class UIAPI:
             height: Default height in pixels.
             resizable: Whether the window can be resized.
             allowed_read_paths: Directories the WebView can read via file://.
+            titlebar_hidden: Hide the native title bar and traffic light
+                buttons so the web content fills the entire window.
 
         Returns:
             A :class:`WebViewPanel` instance.
@@ -52,4 +55,5 @@ class UIAPI:
             height=height,
             resizable=resizable,
             allowed_read_paths=allowed_read_paths,
+            titlebar_hidden=titlebar_hidden,
         )
