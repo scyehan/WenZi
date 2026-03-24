@@ -1,0 +1,138 @@
+"""Async demo commands — one command per async feature."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+
+logger = logging.getLogger(__name__)
+
+
+def register(wz):
+    """Register all async demo commands in the launcher."""
+
+    @wz.chooser.command("async-sleep", title="Async Sleep", subtitle="async def callback with await asyncio.sleep")
+    async def cmd_sleep(args):
+        s = args.strip()
+        seconds = float(s) if s else 1.0
+        wz.alert(f"Sleeping {seconds}s...", duration=seconds + 0.5)
+        await asyncio.sleep(seconds)
+        wz.notify("Async Sleep", f"Woke up after {seconds}s!")
+
+    async def _fetch_url(url: str):
+        import urllib.request
+
+        loop = asyncio.get_running_loop()
+        start = time.monotonic()
+        resp = await loop.run_in_executor(
+            None, urllib.request.urlopen, url,
+        )
+        elapsed = time.monotonic() - start
+        status = resp.status
+        length = len(resp.read())
+        wz.notify(
+            "Async Fetch",
+            f"{url} — HTTP {status}, {length} bytes in {elapsed:.2f}s",
+        )
+
+    wz.chooser.register_command(
+        name="async-fetch",
+        title="Async Fetch",
+        subtitle="lambda returning coroutine (HTTP GET)",
+        action=lambda args: _fetch_url(
+            args.strip() or "https://httpbin.org/get"
+        ),
+    )
+
+    _timer_state = {"id": None, "count": 0}
+
+    @wz.chooser.command("async-timer", title="Async Timer", subtitle="Start/stop an async repeating timer")
+    async def cmd_timer(args):
+        if _timer_state["id"] is not None:
+            wz.timer.cancel(_timer_state["id"])
+            wz.notify("Async Timer", f"Stopped after {_timer_state['count']} ticks")
+            _timer_state["id"] = None
+            _timer_state["count"] = 0
+            return
+
+        _timer_state["count"] = 0
+
+        async def tick():
+            _timer_state["count"] += 1
+            n = _timer_state["count"]
+            wz.alert(f"Tick #{n}", duration=1.5)
+            logger.info("Async timer tick #%d", n)
+
+        _timer_state["id"] = wz.timer.every(2.0, tick)
+        wz.notify("Async Timer", "Started — run again to stop")
+
+    @wz.on("transcription_done")
+    async def on_transcription(data):
+        text = data.get("asr_text", "")
+        await asyncio.sleep(0.1)
+        logger.info("[async-demo] transcription_done: %s", text[:50])
+
+    @wz.chooser.command("async-event", title="Async Event", subtitle="Verify async event listener is registered")
+    def cmd_event(args):
+        wz.notify(
+            "Async Event",
+            "async on('transcription_done') handler is active. "
+            "Dictate something to trigger it.",
+        )
+
+    @wz.chooser.command("async-concurrent", title="Async Concurrent", subtitle="Run multiple async tasks in parallel")
+    async def cmd_concurrent(args):
+        wz.alert("Running 3 tasks concurrently...", duration=3.0)
+
+        async def task(name: str, delay: float) -> str:
+            await asyncio.sleep(delay)
+            return f"{name} done in {delay}s"
+
+        start = time.monotonic()
+        results = await asyncio.gather(
+            task("A", 1.0),
+            task("B", 1.5),
+            task("C", 0.5),
+        )
+        elapsed = time.monotonic() - start
+        wz.notify(
+            "Async Concurrent",
+            f"All done in {elapsed:.1f}s: {', '.join(results)}",
+        )
+
+    @wz.chooser.command("async-error", title="Async Error", subtitle="Raise an exception — check log for error output")
+    async def cmd_error(args):
+        wz.alert("Raising error in 0.5s...", duration=2.0)
+        await asyncio.sleep(0.5)
+        raise RuntimeError("Intentional async error from async-demo plugin")
+
+    @wz.chooser.command("async-run", title="Async Run", subtitle="Submit a coroutine via wz.run()")
+    def cmd_run(args):
+        async def background_work():
+            wz.alert("wz.run() started...", duration=2.0)
+            await asyncio.sleep(1.0)
+            wz.notify("Async Run", "wz.run() coroutine completed!")
+
+        wz.run(background_work())
+
+    @wz.chooser.command("async-pick", title="Async Pick", subtitle="Async callback on chooser.pick() selection")
+    def cmd_pick(args):
+        items = [
+            {"title": "Option A", "subtitle": "First choice"},
+            {"title": "Option B", "subtitle": "Second choice"},
+            {"title": "Option C", "subtitle": "Third choice"},
+        ]
+
+        async def on_picked(item):
+            if item is None:
+                wz.alert("Pick dismissed", duration=1.5)
+                return
+            title = item.get("title", "?")
+            wz.alert(f"Processing '{title}'...", duration=2.0)
+            await asyncio.sleep(1.0)
+            wz.notify("Async Pick", f"You picked: {title}")
+
+        wz.chooser.pick(items, callback=on_picked, placeholder="Pick an option...")
+
+    logger.info("Async demo plugin loaded")
