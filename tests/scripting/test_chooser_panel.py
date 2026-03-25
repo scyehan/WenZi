@@ -402,23 +402,19 @@ class TestJSMessageHandling:
         assert "setPreview(null)" in call_args
 
 
-class TestPrefixHints:
-    def test_push_prefix_hints(self):
+class TestModifierHints:
+    def test_push_modifier_hints_with_results(self):
         panel = _make_panel()
-        panel.register_source(_make_source("apps"))
-        panel.register_source(_make_source("clipboard", prefix="cb"))
-        panel._push_prefix_hints_to_js()
+        source = _make_source("clipboard", prefix="cb")
+        source.action_hints = {"cmd_enter": "Copy", "alt_enter": "Show path"}
+        panel._current_items = [
+            ChooserItem(title="Item1", subtitle="sub1"),
+        ]
+        panel._push_items_to_js(source=source)
         call_args = panel._eval_js.call_args[0][0]
-        assert "setPrefixHints" in call_args
-        assert '"prefix": "cb"' in call_args
-        assert '"label": "clipboard"' in call_args
-
-    def test_no_prefix_sources(self):
-        panel = _make_panel()
-        panel.register_source(_make_source("apps"))
-        panel._push_prefix_hints_to_js()
-        call_args = panel._eval_js.call_args[0][0]
-        assert "setPrefixHints([])" in call_args
+        assert "setModifierHints" in call_args
+        assert '"cmd": "Copy"' in call_args
+        assert '"alt": "Show path"' in call_args
 
 
 class TestPushItemsToJS:
@@ -777,41 +773,6 @@ class TestQuickLookIntegration:
 
 
 class TestModifierActions:
-    def test_modifier_subtitle_message(self):
-        panel = _make_panel()
-        panel._current_items = [
-            ChooserItem(
-                title="Safari",
-                subtitle="Application",
-                modifiers={
-                    "alt": ModifierAction(subtitle="/Applications/Safari.app"),
-                },
-            ),
-        ]
-        panel._handle_js_message({
-            "type": "modifierChange", "index": 0, "modifier": "alt",
-        })
-        call_args = panel._eval_js.call_args[0][0]
-        assert "setModifierSubtitle" in call_args
-        assert "/Applications/Safari.app" in call_args
-
-    def test_modifier_release_restores_subtitle(self):
-        panel = _make_panel()
-        panel._current_items = [
-            ChooserItem(
-                title="Safari",
-                subtitle="Application",
-                modifiers={
-                    "alt": ModifierAction(subtitle="/path"),
-                },
-            ),
-        ]
-        panel._handle_js_message({
-            "type": "modifierChange", "index": 0, "modifier": None,
-        })
-        call_args = panel._eval_js.call_args[0][0]
-        assert "Application" in call_args
-
     def test_execute_with_modifier(self):
 
         called = []
@@ -1376,8 +1337,8 @@ class TestCompactCalcHeight:
         all_js = " ".join(c[0][0] for c in panel._eval_js.call_args_list)
         assert "setCompact(true)" in all_js
 
-    def test_calc_results_use_calc_action_hints(self):
-        """Calc-only results should show calculator action hints, not defaults."""
+    def test_calc_results_use_calc_modifier_hints(self):
+        """Calc-only results should show calculator modifier hints, not defaults."""
         panel = _make_panel()
         panel._panel = MagicMock()
         panel._is_expanded = True
@@ -1390,9 +1351,8 @@ class TestCompactCalcHeight:
         panel._do_search("2 + 3")
 
         all_js = " ".join(c[0][0] for c in panel._eval_js.call_args_list)
-        assert '"Copy"' in all_js
-        assert '"Paste"' in all_js
-        assert '"Open"' not in all_js
+        assert "setModifierHints" in all_js
+        assert '"cmd": "Copy"' in all_js
 
     def test_mixed_results_do_not_enter_compact(self):
         """When calc + non-calc results from scratch, should NOT enter compact."""

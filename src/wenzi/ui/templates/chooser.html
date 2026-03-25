@@ -14,7 +14,6 @@
     --item-selected: rgba(0, 122, 255, 0.12);
     --item-selected-text: #003d99;
     --input-bg: #ffffff;
-    --footer-bg: #ececee;
     --shadow: rgba(0, 0, 0, 0.06);
 }
 @media (prefers-color-scheme: dark) {
@@ -28,7 +27,6 @@
         --item-selected: rgba(10, 132, 255, 0.25);
         --item-selected-text: #64d2ff;
         --input-bg: #3a3a3c;
-        --footer-bg: #1c1c1e;
         --shadow: rgba(0, 0, 0, 0.3);
     }
 }
@@ -240,18 +238,9 @@ body { display: flex; flex-direction: column; }
     padding: 20px;
 }
 
-/* Footer hint */
-.footer {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 6px 14px; font-size: 11px; color: var(--secondary);
-    background: var(--footer-bg);
-    border-top: 1px solid var(--border); flex-shrink: 0;
-    gap: 12px;
-}
-.footer kbd {
-    display: inline-block; padding: 1px 5px;
-    background: var(--input-bg); border: 1px solid var(--border);
-    border-radius: 3px; font-size: 10px; font-family: inherit;
+/* Modifier hint style on subtitle */
+.result-item .subtitle-text.modifier-hint {
+    color: var(--accent);
 }
 /* Loading spinner for async sources */
 .search-spinner {
@@ -288,10 +277,6 @@ body { display: flex; flex-direction: column; }
     <div class="preview-panel empty hidden" id="preview-panel"></div>
 </div>
 
-<div class="footer" id="footer">
-    <span id="footer-left"></span>
-    <span id="footer-right"></span>
-</div>
 
 <script>
 // --- i18n ---
@@ -314,8 +299,8 @@ var _PLACEHOLDER_SVG = "data:image/svg+xml,"
     + "%3Cline x1='7' y1='12' x2='17' y2='12'/%3E"
     + "%3Cline x1='7' y1='16' x2='13' y2='16'/%3E"
     + "%3C/svg%3E";
-var prefixHints = [];
-var activeModifier = null;  // "alt", "ctrl", "shift" or null
+var activeModifier = null;  // "alt", "ctrl", "shift", "cmd" or null
+var _activeModifierHint = null;  // source-level hint text for current modifier
 var qlPreviewOpen = false;  // Shift-toggle Quick Look preview
 var _shiftAlone = false;    // true when Shift pressed without other keys
 var _shiftDownTime = 0;
@@ -332,8 +317,6 @@ var searchInput = document.getElementById('search-input');
 var resultList = document.getElementById('result-list');
 var emptyState = document.getElementById('empty-state');
 var previewPanel = document.getElementById('preview-panel');
-var footerLeft = document.getElementById('footer-left');
-var footerRight = document.getElementById('footer-right');
 var mainContent = document.querySelector('.main-content');
 var leftPanel = document.querySelector('.left-panel');
 var createGroup = document.getElementById('create-group');
@@ -385,9 +368,16 @@ function _buildRowHtml(item, i) {
 
     parts.push('<div class="left"><div class="title">',
                _escHtml(item.title), '</div>');
-    if (item.subtitle) {
-        parts.push('<div class="subtitle-text">',
-                   _escHtml(item.subtitle), '</div>');
+    var subText = item.subtitle || '';
+    var subClass = 'subtitle-text';
+    if (activeModifier && _activeModifierHint) {
+        subText = (item._modifierHints && item._modifierHints[activeModifier])
+                  || _activeModifierHint;
+        subClass = 'subtitle-text modifier-hint';
+    }
+    if (subText) {
+        parts.push('<div class="', subClass, '">',
+                   _escHtml(subText), '</div>');
     }
     parts.push('</div><div class="right-group">');
 
@@ -479,9 +469,6 @@ resultList.addEventListener('mousemove', function(e) {
     if (prev) prev.className = 'result-item';
     row.className = 'result-item selected';
     selectedIndex = idx;
-    if (activeModifier) {
-        post('modifierChange', { index: idx, modifier: activeModifier });
-    }
     updatePreview();
 }, false);
 
@@ -770,10 +757,18 @@ document.addEventListener('keydown', function(e) {
 
 // --- Modifier key tracking ---
 function getModifierName(e) {
+    if (e.metaKey && !e.altKey && !e.ctrlKey) return 'cmd';
     if (e.altKey && !e.metaKey && !e.ctrlKey) return 'alt';
     if (e.ctrlKey && !e.metaKey && !e.altKey) return 'ctrl';
     if (e.shiftKey && !e.metaKey && !e.altKey && !e.ctrlKey) return 'shift';
     return null;
+}
+
+function _applyModifierHints() {
+    var newHint = _modifierHintMap[activeModifier] || null;
+    if (newHint === _activeModifierHint) return;
+    _activeModifierHint = newHint;
+    _renderVisibleRows();
 }
 
 document.addEventListener('keydown', function(e) {
@@ -785,15 +780,11 @@ document.addEventListener('keydown', function(e) {
         _shiftAlone = false;
     }
 
-    if (e.key === 'Alt' || e.key === 'Control' || e.key === 'Shift') {
+    if (e.key === 'Meta' || e.key === 'Alt' || e.key === 'Control' || e.key === 'Shift') {
         var mod = getModifierName(e);
         if (mod !== activeModifier) {
             activeModifier = mod;
-            if (selectedIndex >= 0) {
-                post('modifierChange', {
-                    index: selectedIndex, modifier: mod
-                });
-            }
+            _applyModifierHints();
         }
     }
 }, true);
@@ -808,14 +799,10 @@ document.addEventListener('keyup', function(e) {
     }
     _shiftAlone = false;
 
-    if (e.key === 'Alt' || e.key === 'Control' || e.key === 'Shift') {
+    if (e.key === 'Meta' || e.key === 'Alt' || e.key === 'Control' || e.key === 'Shift') {
         if (activeModifier !== null) {
             activeModifier = null;
-            if (selectedIndex >= 0) {
-                post('modifierChange', {
-                    index: selectedIndex, modifier: null
-                });
-            }
+            _applyModifierHints();
         }
     }
 }, true);
@@ -866,37 +853,23 @@ function setLoading(loading) {
 
 function _measureCollapsedHeight() {
     var searchBar = document.querySelector('.search-bar');
-    var footer = document.getElementById('footer');
-    return searchBar.offsetHeight + footer.offsetHeight;
+    return searchBar.offsetHeight;
 }
 
-function setPrefixHints(hints) {
-    prefixHints = hints || [];
-    if (hints.length > 0) {
-        footerRight.innerHTML = hints.map(function(h) {
-            return _hint(h.prefix, h.label || '');
-        }).join('  ');
-    } else {
-        footerRight.innerHTML = '';
-    }
-    // Footer height may have changed; update panel size if collapsed
-    if (!_panelExpanded) {
-        requestAnimationFrame(function() { _requestResize(); });
-    }
-}
+var _modifierHintMap = {};
 
-function setModifierSubtitle(index, subtitle) {
-    var row = _findRenderedRow(index);
-    if (!row) return;
-    var sub = row.querySelector('.subtitle-text');
-    if (sub && subtitle !== null) {
-        sub.textContent = subtitle;
-    } else if (sub && subtitle === null) {
-        // Restore original subtitle
-        if (index < items.length) {
-            sub.textContent = items[index].subtitle || '';
+function setModifierHints(modifierMap, itemOverrides) {
+    _modifierHintMap = modifierMap || {};
+    if (itemOverrides) {
+        for (var idx in itemOverrides) {
+            var ii = parseInt(idx, 10);
+            if (ii >= 0 && ii < items.length) {
+                items[ii]._modifierHints = itemOverrides[idx];
+            }
         }
     }
+    // Re-sync cached hint if modifier is currently held
+    if (activeModifier) _applyModifierHints();
 }
 
 function setPlaceholder(text) {
@@ -937,42 +910,6 @@ function exitHistoryMode() {
     inHistoryMode = false;
 }
 
-function setFooterRightVisible(visible) {
-    footerRight.style.display = visible ? '' : 'none';
-}
-
-// --- Action hints (dynamic per source) ---
-function clearActionHints() {
-    footerLeft.innerHTML = '';
-}
-
-function _hint(kbd, label) {
-    return '<span style="white-space:nowrap"><kbd>' + kbd + '</kbd> ' + label + '</span>';
-}
-
-function setActionHints(hints) {
-    var parts = [_hint('\u2191\u2193', i18n('footer.navigate'))];
-    if (hints.enter) {
-        parts.push(_hint('\u21b5', hints.enter));
-    }
-    if (hints.cmd_enter) {
-        parts.push(_hint('\u2318\u21b5', hints.cmd_enter));
-    }
-    if (hints.alt_enter) {
-        parts.push(_hint('\u2325\u21b5', hints.alt_enter));
-    }
-    if (hints['delete']) {
-        parts.push(_hint('\u2318\u232b', hints['delete']));
-    }
-    if (hints.shift) {
-        parts.push(_hint('\u21e7', hints.shift));
-    }
-    if (hints.tab) {
-        parts.push(_hint('\u21e5', hints.tab));
-    }
-    parts.push(_hint('Esc', i18n('footer.close')));
-    footerLeft.innerHTML = parts.join('  ');
-}
 
 function setPreviewVisible(visible) {
     if (visible) {
@@ -1053,8 +990,9 @@ function _initI18nLabels() {
 _initI18nLabels();
 
 // --- Init ---
-// footer-left starts empty; populated when results appear
 searchInput.focus();
+// Trigger initial resize so the panel height matches the search bar
+requestAnimationFrame(function() { _requestResize(); });
 </script>
 </body>
 </html>

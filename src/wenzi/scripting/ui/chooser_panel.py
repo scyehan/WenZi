@@ -188,7 +188,7 @@ class ChooserPanel:
     """
 
     _INITIAL_WIDTH = 600
-    _INITIAL_HEIGHT = 80  # bootstrap; JS updates after page load
+    _INITIAL_HEIGHT = 49  # bootstrap; JS updates after page load
     _MAX_TOTAL_RESULTS = 50
     _DEFERRED_ACTION_DELAY = 0.15  # seconds to let previous app regain focus
     _DEFAULT_ASYNC_DEBOUNCE = 0.15  # seconds
@@ -611,9 +611,7 @@ class ChooserPanel:
         self._active_source = source
         if source != prev_source:
             has_create = source is not None and source.create_action is not None
-            # Hide prefix hints when inside a source, show otherwise
-            show_right = "true" if source is None else "false"
-            self._eval_js(f"setCreateButton({'true' if has_create else 'false'});setFooterRightVisible({show_right})")
+            self._eval_js(f"setCreateButton({'true' if has_create else 'false'})")
 
         # When searching across all non-prefix sources (no specific source),
         # empty query returns nothing. When a specific source is active
@@ -625,7 +623,7 @@ class ChooserPanel:
                 self._calc_sticky = False
                 self._compact_results = False
                 self._show_preview = False
-                self._eval_js("setResults([]);setPreviewVisible(false);setCompact(false);clearActionHints()")
+                self._eval_js("setResults([]);setPreviewVisible(false);setCompact(false);setModifierHints({},null)")
                 self._set_loading(False)
                 return
 
@@ -729,6 +727,22 @@ class ChooserPanel:
             "cmd_enter": t("chooser.action.reveal"),
         }
 
+    _HINT_KEY_TO_MODIFIER = {
+        "cmd_enter": "cmd",
+        "alt_enter": "alt",
+        "shift": "shift",
+        "ctrl_enter": "ctrl",
+    }
+
+    @classmethod
+    def _action_hints_to_modifier_map(cls, hints: dict) -> dict:
+        """Convert action_hints keys to modifier→label map for JS."""
+        return {
+            mod: hints[key]
+            for key, mod in cls._HINT_KEY_TO_MODIFIER.items()
+            if hints.get(key)
+        }
+
     def _push_items_to_js(
         self,
         selected_index: Optional[int] = None,
@@ -782,16 +796,23 @@ class ChooserPanel:
             idx_arg = f",{selected_index}"
         parts.append(f"setResults({json.dumps(js_items, ensure_ascii=False)},{self._items_version}{idx_arg})")
 
-        # Use the active source's hints, or fall back to the calculator
-        # source's hints when all results are calc items (general search
-        # has source=None, so calc hints would otherwise be lost).
         if source is not None and source.action_hints:
             hints = source.action_hints
         elif self._compact_results and "calculator" in self._sources:
             hints = self._sources["calculator"].action_hints or self._default_action_hints()
         else:
             hints = self._default_action_hints()
-        parts.append(f"setActionHints({json.dumps(hints, ensure_ascii=False)})")
+        modifier_map = self._action_hints_to_modifier_map(hints)
+
+        item_overrides: dict = {}
+        for i, item in enumerate(self._current_items):
+            if item.modifiers:
+                item_overrides[str(i)] = {
+                    mod_key: mod_action.subtitle
+                    for mod_key, mod_action in item.modifiers.items()
+                }
+        ov_json = json.dumps(item_overrides, ensure_ascii=False) if item_overrides else "null"
+        parts.append(f"setModifierHints({json.dumps(modifier_map, ensure_ascii=False)},{ov_json})")
 
         show = "true" if self._show_preview else "false"
         parts.append(f"setPreviewVisible({show})")
@@ -1012,11 +1033,6 @@ class ChooserPanel:
             query = body.get("query", "")
             self._handle_create_item(query)
 
-        elif msg_type == "modifierChange":
-            index = body.get("index", -1)
-            modifier = body.get("modifier")
-            self._send_modifier_subtitle(index, modifier)
-
         elif msg_type == "historyUp":
             self._history_navigate(1)
 
@@ -1208,21 +1224,6 @@ class ChooserPanel:
 
                 threading.Thread(target=_deferred, daemon=True).start()
 
-    def _send_modifier_subtitle(
-        self,
-        index: int,
-        modifier: Optional[str],
-    ) -> None:
-        """Send the modifier-specific subtitle to JS for live display."""
-        if 0 <= index < len(self._current_items):
-            item = self._current_items[index]
-            subtitle = item.subtitle
-            if modifier and item.modifiers and modifier in item.modifiers:
-                subtitle = item.modifiers[modifier].subtitle
-            self._eval_js(f"setModifierSubtitle({index},{json.dumps(subtitle, ensure_ascii=False)})")
-        else:
-            self._eval_js(f"setModifierSubtitle({index},null)")
-
     def _toggle_quicklook(self, is_open: bool, index: int) -> None:
         """Toggle Quick Look preview for the selected item."""
         if is_open:
@@ -1338,10 +1339,7 @@ class ChooserPanel:
             combined = ";".join(pending)
             self._webview.evaluateJavaScript_completionHandler_(combined, None)
 
-        # Push available prefix hints to JS for placeholder display
-        self._push_prefix_hints_to_js()
-
-        # Apply custom placeholder (overrides prefix hints default)
+        # Apply custom placeholder
         if self._pending_placeholder is not None:
             self._eval_js(f"setPlaceholder({json.dumps(self._pending_placeholder)})")
             self._pending_placeholder = None
@@ -1352,18 +1350,6 @@ class ChooserPanel:
             self._pending_initial_query = None
             self._eval_js(f"setInputValue({json.dumps(query)})")
 
-    def _push_prefix_hints_to_js(self) -> None:
-        """Send prefix hints to JS so the search placeholder shows them."""
-        hints = []
-        for src in self._sources.values():
-            if src.prefix:
-                hints.append(
-                    {
-                        "prefix": src.prefix,
-                        "label": src.display_name or src.name,
-                    }
-                )
-        self._eval_js(f"setPrefixHints({json.dumps(hints, ensure_ascii=False)})")
 
     @staticmethod
     def _ensure_edit_menu() -> None:

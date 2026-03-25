@@ -475,7 +475,5 @@
   "chooser.empty.type_to_search": "输入以搜索",
   "chooser.empty.no_results": "无结果",
   "chooser.preview.select_item": "选择一项以预览",
-  "chooser.footer.navigate": "导航",
-  "chooser.footer.close": "关闭",
   "chooser.delete_confirm": "删除？"
 }
