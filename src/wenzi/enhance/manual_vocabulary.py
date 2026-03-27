@@ -37,7 +37,7 @@ class ManualVocabEntry:
     frequency: int = 1  # times the user added/confirmed this pair
     hit_count: int = 0  # times this pair was actually used in correction
     first_seen: str = ""  # ISO 8601
-    last_seen: str = ""  # ISO 8601
+    last_updated: str = ""  # ISO 8601
     last_hit: str = ""  # ISO 8601, last time this pair was hit
     app_bundle_id: str = ""  # e.g. "com.apple.dt.Xcode"
     asr_model: str = ""
@@ -90,7 +90,7 @@ class ManualVocabularyStore:
                     frequency=raw.get("frequency", 1),
                     hit_count=raw.get("hit_count", 0),
                     first_seen=raw.get("first_seen", ""),
-                    last_seen=raw.get("last_seen", ""),
+                    last_updated=raw.get("last_updated", ""),
                     last_hit=raw.get("last_hit", ""),
                     app_bundle_id=raw.get("app_bundle_id", ""),
                     asr_model=raw.get("asr_model", ""),
@@ -103,8 +103,8 @@ class ManualVocabularyStore:
                     # Merge duplicates caused by pre-normalization data
                     existing.frequency += entry.frequency
                     existing.hit_count += entry.hit_count
-                    if entry.last_seen > existing.last_seen:
-                        existing.last_seen = entry.last_seen
+                    if entry.last_updated > existing.last_updated:
+                        existing.last_updated = entry.last_updated
                     if entry.last_hit > existing.last_hit:
                         existing.last_hit = entry.last_hit
                 else:
@@ -152,11 +152,14 @@ class ManualVocabularyStore:
         asr_model: str = "",
         llm_model: str = "",
         enhance_mode: str = "",
+        persist: bool = True,
     ) -> ManualVocabEntry:
         """Add or update a correction pair.
 
         If the (variant, term) pair already exists, increment *frequency*
-        and update *last_seen*.  Returns the (possibly updated) entry.
+        and update *last_updated*.  Returns the (possibly updated) entry.
+
+        When *persist* is False the caller is responsible for calling save().
         """
         variant = _normalize(variant)
         term = _normalize(term)
@@ -166,7 +169,7 @@ class ManualVocabularyStore:
             existing = self._entries.get(k)
             if existing is not None:
                 existing.frequency += 1
-                existing.last_seen = now
+                existing.last_updated = now
                 if app_bundle_id:
                     existing.app_bundle_id = app_bundle_id
                 if asr_model:
@@ -184,7 +187,7 @@ class ManualVocabularyStore:
                     frequency=1,
                     hit_count=0,
                     first_seen=now,
-                    last_seen=now,
+                    last_updated=now,
                     last_hit="",
                     app_bundle_id=app_bundle_id,
                     asr_model=asr_model,
@@ -192,7 +195,8 @@ class ManualVocabularyStore:
                     enhance_mode=enhance_mode,
                 )
                 self._entries[k] = entry
-        self.save()
+        if persist:
+            self.save()
         return entry
 
     def remove(self, variant: str, term: str) -> bool:
@@ -205,11 +209,30 @@ class ManualVocabularyStore:
             return True
         return False
 
-    def contains(self, variant: str, term: str) -> bool:
-        """Check whether a (variant, term) pair exists."""
+    def remove_batch(self, pairs: list[tuple[str, str]], *, persist: bool = True) -> int:
+        """Remove multiple correction pairs.  Returns count removed.
+
+        When *persist* is False the caller is responsible for calling save().
+        """
+        count = 0
+        with self._lock:
+            for variant, term in pairs:
+                k = _key(variant, term)
+                if self._entries.pop(k, None) is not None:
+                    count += 1
+        if count and persist:
+            self.save()
+        return count
+
+    def get(self, variant: str, term: str) -> Optional[ManualVocabEntry]:
+        """Return the entry for a (variant, term) pair, or None."""
         k = _key(variant, term)
         with self._lock:
-            return k in self._entries
+            return self._entries.get(k)
+
+    def contains(self, variant: str, term: str) -> bool:
+        """Check whether a (variant, term) pair exists."""
+        return self.get(variant, term) is not None
 
     # ------------------------------------------------------------------
     # Hit tracking

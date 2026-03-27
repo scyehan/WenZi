@@ -27,7 +27,7 @@ class TestAddRemove:
         assert entry.hit_count == 0
         assert entry.app_bundle_id == "com.test"
         assert entry.first_seen != ""
-        assert entry.last_seen != ""
+        assert entry.last_updated != ""
         assert store.entry_count == 1
 
     def test_add_existing_increments_frequency(self, store):
@@ -245,10 +245,10 @@ class TestNormalization:
             "version": 1,
             "entries": [
                 {"term": "Claude", "variant": "Cloud", "frequency": 2, "hit_count": 3,
-                 "first_seen": "2026-01-01T00:00:00+00:00", "last_seen": "2026-01-02T00:00:00+00:00",
+                 "first_seen": "2026-01-01T00:00:00+00:00", "last_updated": "2026-01-02T00:00:00+00:00",
                  "last_hit": "2026-01-02T00:00:00+00:00"},
                 {"term": " Claude", "variant": "Cloud", "frequency": 1, "hit_count": 1,
-                 "first_seen": "2026-01-03T00:00:00+00:00", "last_seen": "2026-01-03T00:00:00+00:00",
+                 "first_seen": "2026-01-03T00:00:00+00:00", "last_updated": "2026-01-03T00:00:00+00:00",
                  "last_hit": "2026-01-01T00:00:00+00:00"},
             ],
         }
@@ -261,7 +261,57 @@ class TestNormalization:
         assert entry.term == "Claude"  # normalized
         assert entry.frequency == 3  # 2 + 1
         assert entry.hit_count == 4  # 3 + 1
-        assert entry.last_seen == "2026-01-03T00:00:00+00:00"  # latest
+        assert entry.last_updated == "2026-01-03T00:00:00+00:00"  # latest
+
+
+class TestRemoveBatch:
+    def test_remove_batch_single_save(self, store):
+        store.add("a", "A", "asr")
+        store.add("b", "B", "asr")
+        store.add("c", "C", "asr")
+        assert store.entry_count == 3
+        removed = store.remove_batch([("a", "A"), ("b", "B")])
+        assert removed == 2
+        assert store.entry_count == 1
+
+    def test_remove_batch_no_persist(self, store):
+        store.add("a", "A", "asr")
+        removed = store.remove_batch([("a", "A")], persist=False)
+        assert removed == 1
+        assert store.entry_count == 0
+
+    def test_remove_batch_nonexistent(self, store):
+        removed = store.remove_batch([("x", "X")])
+        assert removed == 0
+
+
+class TestGet:
+    def test_get_existing(self, store):
+        store.add("Cloud", "Claude", "asr")
+        entry = store.get("Cloud", "Claude")
+        assert entry is not None
+        assert entry.term == "Claude"
+
+    def test_get_nonexistent(self, store):
+        assert store.get("x", "X") is None
+
+    def test_get_case_insensitive(self, store):
+        store.add("Cloud", "Claude", "asr")
+        entry = store.get("CLOUD", "CLAUDE")
+        assert entry is not None
+
+
+class TestAddPersist:
+    def test_add_no_persist(self, store, tmp_path):
+        store.add("a", "A", "asr", persist=False)
+        assert store.entry_count == 1
+        # File should not exist since persist=False
+        path = tmp_path / "manual_vocabulary.json"
+        assert not path.exists()
+
+    def test_add_with_persist(self, store, tmp_path):
+        store.add("a", "A", "asr", persist=True)
+        assert store.entry_count == 1
 
 
 class TestThreadSafety:
