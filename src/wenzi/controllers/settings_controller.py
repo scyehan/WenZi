@@ -52,7 +52,7 @@ class SettingsController:
         plugins_dir = os.path.join(app._config_dir, "plugins")
         self._plugin_registry = PluginRegistry(plugins_dir=plugins_dir)
         self._plugin_installer = PluginInstaller(plugins_dir=plugins_dir)
-        self._registry_cache_dir = os.path.join(app._config_dir, "registry_cache")
+        self._registry_cache_dir = os.path.join(app._cache_dir, "registry_cache")
         self._needs_reload = False
         self._last_plugin_infos: list[PluginInfo] = []
         self._verify_in_progress = False
