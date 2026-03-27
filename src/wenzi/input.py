@@ -145,15 +145,26 @@ def _get_ax_selected_text() -> str | None:
 def _get_text_via_cmd_c() -> str | None:
     """Simulate Cmd+C to capture the selection, then read clipboard.
 
+    Bypasses the AX pre-check in ``copy_selection_to_clipboard()`` because
+    this function is only called when AX already failed — the guard would
+    reject the same apps we're trying to support via Cmd+C.
+
     Saves and restores the original clipboard content.
     Returns the captured text, or None if nothing was copied.
     """
     old_clip = get_clipboard_text()
 
-    if not copy_selection_to_clipboard():
+    time.sleep(0.05)
+    try:
+        _send_cmd_c()
+    except Exception as exc:
+        logger.debug("Cmd+C simulation failed: %s", exc)
         return None
 
+    time.sleep(0.15)
     new_clip = get_clipboard_text()
+    if new_clip == old_clip:
+        return None  # Cmd+C didn't change clipboard — no selection
 
     # Restore original clipboard in background
     if old_clip is not None:
