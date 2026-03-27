@@ -1,5 +1,7 @@
 """Tests for wz.keychain encrypted vault API."""
 
+import json
+import os
 from unittest.mock import patch
 
 import pytest
@@ -108,3 +110,80 @@ class TestKeychainAPICRUD:
         assert api.get("token") is None
         assert api.set("token", "value") is False
         api.delete("token")
+
+
+class TestKeychainAPIEdgeCases:
+    @patch("wenzi.scripting.api.keychain.keychain_set", return_value=True)
+    @patch("wenzi.scripting.api.keychain.keychain_get", return_value=MOCK_MASTER_KEY_B64)
+    def test_corrupt_entry_returns_none(self, mock_get, mock_set, tmp_path):
+        from wenzi.scripting.api.keychain import KeychainAPI
+
+        vault_path = str(tmp_path / "keychain.json")
+        with open(vault_path, "w") as f:
+            json.dump({"bad_key": "not-valid-base64!!!"}, f)
+
+        api = KeychainAPI(vault_path=vault_path)
+        assert api.get("bad_key") is None
+
+    @patch("wenzi.scripting.api.keychain.keychain_set", return_value=True)
+    @patch("wenzi.scripting.api.keychain.keychain_get", return_value=MOCK_MASTER_KEY_B64)
+    def test_aad_mismatch_returns_none(self, mock_get, mock_set, tmp_path):
+        """Swapping encrypted entries between keys should fail decryption."""
+        from wenzi.scripting.api.keychain import KeychainAPI
+
+        vault_path = str(tmp_path / "keychain.json")
+        api = KeychainAPI(vault_path=vault_path)
+        api.set("key_a", "secret_a")
+        api.set("key_b", "secret_b")
+
+        with api._lock:
+            blob_a = api._data["key_a"]
+            blob_b = api._data["key_b"]
+            api._data["key_a"] = blob_b
+            api._data["key_b"] = blob_a
+
+        assert api.get("key_a") is None
+        assert api.get("key_b") is None
+
+    @patch("wenzi.scripting.api.keychain.keychain_set", return_value=True)
+    @patch("wenzi.scripting.api.keychain.keychain_get", return_value=MOCK_MASTER_KEY_B64)
+    def test_corrupt_vault_file_starts_empty(self, mock_get, mock_set, tmp_path):
+        from wenzi.scripting.api.keychain import KeychainAPI
+
+        vault_path = str(tmp_path / "keychain.json")
+        with open(vault_path, "w") as f:
+            f.write("{{{not json")
+
+        api = KeychainAPI(vault_path=vault_path)
+        assert api.keys() == []
+
+    @patch("wenzi.scripting.api.keychain.keychain_set", return_value=True)
+    @patch("wenzi.scripting.api.keychain.keychain_get", return_value=MOCK_MASTER_KEY_B64)
+    def test_atomic_write_uses_tmp_and_replace(self, mock_get, mock_set, tmp_path):
+        from wenzi.scripting.api.keychain import KeychainAPI
+
+        vault_path = str(tmp_path / "keychain.json")
+        api = KeychainAPI(vault_path=vault_path)
+        api.set("token", "secret")
+        api.flush_sync()
+
+        assert os.path.isfile(vault_path)
+        assert not os.path.isfile(vault_path + ".tmp")
+
+        with open(vault_path, "r") as f:
+            data = json.load(f)
+        assert "token" in data
+        assert data["token"] != "secret"
+
+    @patch("wenzi.scripting.api.keychain.keychain_set", return_value=True)
+    @patch("wenzi.scripting.api.keychain.keychain_get", return_value=MOCK_MASTER_KEY_B64)
+    def test_persistence_across_instances(self, mock_get, mock_set, tmp_path):
+        from wenzi.scripting.api.keychain import KeychainAPI
+
+        vault_path = str(tmp_path / "keychain.json")
+        api1 = KeychainAPI(vault_path=vault_path)
+        api1.set("token", "persisted_secret")
+        api1.flush_sync()
+
+        api2 = KeychainAPI(vault_path=vault_path)
+        assert api2.get("token") == "persisted_secret"
