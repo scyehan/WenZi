@@ -3,8 +3,6 @@
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 SUGGEST_RESPONSE = {
     "result": {"msg": "success", "code": 200},

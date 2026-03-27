@@ -1,7 +1,5 @@
 """Tests for dictionary plugin HTML renderer."""
 
-import pytest
-
 
 SAMPLE_DATA = {
     "ec": {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from html import escape as _esc
 
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
@@ -29,7 +30,7 @@ def setup(wz) -> None:
                     "type": "html",
                     "content": f'<div style="color:var(--secondary);'
                     f'text-align:center;padding:40px">'
-                    f"Failed to load definition for <b>{word}</b></div>",
+                    f"Failed to load definition for <b>{_esc(word)}</b></div>",
                 }
             return {"type": "html", "content": render_definition(data, word)}
         return _load
