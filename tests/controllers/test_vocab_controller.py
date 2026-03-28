@@ -236,9 +236,13 @@ class TestCRUD:
         assert entry.asr_model == "whisper-large-v3"
         assert entry.llm_model == "zai / glm-5"
 
-    def test_add_empty_variant_ignored(self, controller, store):
+    def test_add_empty_variant_uses_term(self, controller, store):
         controller.on_add_entry("", "Claude", "user")
-        assert store.entry_count == 0
+        assert store.entry_count == 1
+        entry = store.get("Claude", "Claude")
+        assert entry is not None
+        assert entry.variant == "Claude"
+        assert entry.term == "Claude"
 
     def test_add_empty_term_ignored(self, controller, store):
         controller.on_add_entry("Cloud", "", "user")

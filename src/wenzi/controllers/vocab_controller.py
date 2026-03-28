@@ -384,8 +384,10 @@ class VocabController:
         """Add a new vocabulary entry."""
         variant = variant.strip()
         term = term.strip()
-        if not variant or not term:
+        if not term:
             return
+        if not variant:
+            variant = term
         from wenzi.enhance.manual_vocabulary import SOURCE_USER
 
         self._app._manual_vocab_store.add(

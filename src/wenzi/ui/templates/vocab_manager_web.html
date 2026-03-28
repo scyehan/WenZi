@@ -580,7 +580,8 @@ function _commitAdd() {
     if (!v || !t) return;
     var variant = v.value.trim();
     var term = t.value.trim();
-    if (!variant || !term) { v.focus(); return; }
+    if (!term) { t.focus(); return; }
+    if (!variant) variant = term;
     post({
         type: 'addEntry',
         variant: variant,
