@@ -107,7 +107,110 @@ class TestHotkeyAPI:
         _, api = self._make_api()
         api._leader_alert = MagicMock()
         api.stop()
-        mock_call_after.assert_called_with(api._leader_alert.close)
+        mock_call_after.assert_called_with(api._close_leader_ui)
+
+
+class TestToggleLeader:
+    """Tests for sticky (toggle) leader mode."""
+
+    def _make_api(self):
+        reg = ScriptingRegistry()
+        reg.register_leader("cmd_d", [
+            LeaderMapping(key="w", app="WeChat"),
+            LeaderMapping(key="t", desc="term", func=lambda: None),
+        ])
+        api = HotkeyAPI(reg)
+        return reg, api
+
+    @patch("wenzi.scripting.api.hotkey.AppHelper", create=True)
+    def test_toggle_leader_activates_sticky(self, mock_helper):
+        _, api = self._make_api()
+        api.toggle_leader("cmd_d")
+        assert api._active_leader is not None
+        assert api._active_leader.trigger_key == "cmd_d"
+        assert api._sticky_leader is True
+
+    @patch("wenzi.scripting.api.hotkey.AppHelper", create=True)
+    def test_toggle_leader_again_deactivates(self, mock_helper):
+        _, api = self._make_api()
+        api.toggle_leader("cmd_d")
+        api.toggle_leader("cmd_d")
+        assert api._active_leader is None
+        assert api._sticky_leader is False
+
+    @patch("wenzi.scripting.api.hotkey.AppHelper", create=True)
+    def test_toggle_leader_unknown_key_noop(self, mock_helper):
+        _, api = self._make_api()
+        api.toggle_leader("nonexistent")
+        assert api._active_leader is None
+        assert api._sticky_leader is False
+
+    @patch("wenzi.scripting.api.hotkey.AppHelper", create=True)
+    def test_sticky_release_does_not_close(self, mock_helper):
+        """Releasing the trigger key should NOT close the panel in sticky mode."""
+        _, api = self._make_api()
+        api.toggle_leader("cmd_d")
+        api._on_release("cmd_d")
+        assert api._active_leader is not None
+        assert api._sticky_leader is True
+
+    @patch("wenzi.scripting.api.hotkey.AppHelper", create=True)
+    def test_sticky_esc_dismisses(self, mock_helper):
+        _, api = self._make_api()
+        api.toggle_leader("cmd_d")
+        result = api._on_press("esc")
+        assert result is True
+        assert api._active_leader is None
+        assert api._sticky_leader is False
+
+    @patch.object(HotkeyAPI, "_execute_mapping")
+    @patch("wenzi.scripting.api.hotkey.AppHelper", create=True)
+    def test_sticky_subkey_executes_and_closes(self, mock_helper, mock_exec):
+        _, api = self._make_api()
+        api.toggle_leader("cmd_d")
+        result = api._on_press("w")
+        assert result is True
+        assert api._active_leader is None
+        assert api._sticky_leader is False
+
+    @patch("wenzi.scripting.api.hotkey.AppHelper", create=True)
+    def test_sticky_unmatched_key_swallowed(self, mock_helper):
+        _, api = self._make_api()
+        api.toggle_leader("cmd_d")
+        result = api._on_press("z")
+        assert result is True
+        # Panel stays open
+        assert api._active_leader is not None
+        assert api._sticky_leader is True
+
+    @patch("wenzi.scripting.api.hotkey.AppHelper", create=True)
+    def test_global_click_dismisses_sticky(self, mock_helper):
+        _, api = self._make_api()
+        api._leader_alert = MagicMock()
+        api.toggle_leader("cmd_d")
+        api._on_global_click()
+        assert api._active_leader is None
+        assert api._sticky_leader is False
+
+    @patch("wenzi.scripting.api.hotkey.AppHelper", create=True)
+    def test_global_click_noop_when_not_sticky(self, mock_helper):
+        """_on_global_click should be a no-op when not in sticky mode."""
+        _, api = self._make_api()
+        api._leader_alert = MagicMock()
+        api._on_global_click()
+        api._leader_alert.close.assert_not_called()
+
+    @patch("PyObjCTools.AppHelper.callAfter")
+    def test_stop_clears_sticky_state(self, mock_call_after):
+        _, api = self._make_api()
+        api._leader_alert = MagicMock()
+        # Manually set sticky state
+        api._active_leader = api._registry.leaders["cmd_d"]
+        api._sticky_leader = True
+        api.stop()
+        assert api._active_leader is None
+        assert api._sticky_leader is False
+        mock_call_after.assert_called_with(api._close_leader_ui)
 
 
 class TestDefineKeys:
