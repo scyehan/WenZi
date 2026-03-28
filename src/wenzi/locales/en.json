@@ -494,7 +494,7 @@
   "vocab.column_source": "Source",
   "vocab.column_last_updated": "Upd",
   "vocab.column_first_seen": "First",
-  "vocab.column_last_hit": "Hit",
+  "vocab.column_last_hit": "Last Hit",
   "vocab.column_mode": "Mode",
   "vocab.column_app": "App",
   "vocab.column_models": "Models",
