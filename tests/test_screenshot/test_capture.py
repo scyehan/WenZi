@@ -225,7 +225,7 @@ class TestCaptureDisplaysSync:
         # Simulate SCScreenshotManager.captureImageWithFilter_configuration_completionHandler_
         def _fake_capture(filter_, config, handler):
             fake_image = MagicMock() if image_per_display else None
-            handler(fake_image)
+            handler(fake_image, None)
 
         sck.SCScreenshotManager.captureImageWithFilter_configuration_completionHandler_.side_effect = _fake_capture
 
@@ -260,6 +260,13 @@ class TestCaptureDisplaysSync:
 
         sck.SCShareableContent.getWithCompletionHandler_.side_effect = _fake_get_content
 
+        from wenzi.screenshot.capture import _capture_displays_sync
+        result = _capture_displays_sync()
+        assert result == {}
+
+    def test_none_image_excluded_from_results(self, monkeypatch):
+        """When a display returns None image, it should be silently excluded."""
+        self._make_fake_sck([1, 2], image_per_display=False)
         from wenzi.screenshot.capture import _capture_displays_sync
         result = _capture_displays_sync()
         assert result == {}
@@ -311,7 +318,7 @@ class TestCaptureScreen:
         sck.SCShareableContent.getWithCompletionHandler_.side_effect = _fake_get_content
 
         def _fake_capture(filter_, config, handler):
-            handler(MagicMock())
+            handler(MagicMock(), None)
 
         sck.SCScreenshotManager.captureImageWithFilter_configuration_completionHandler_.side_effect = _fake_capture
         sck.SCContentFilter.alloc.return_value.initWithDisplay_excludingWindows_.return_value = MagicMock()

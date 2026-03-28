@@ -139,7 +139,10 @@ def _capture_displays_sync() -> Dict[int, Any]:
             )
             config = SCK.SCScreenshotManager.defaultScreenshotConfiguration()
 
-            def _on_image(image, _display_id=display_id, error=None):  # noqa: B023
+            def _on_image(image, error, _display_id=display_id):  # noqa: B023
+                if error is not None:
+                    logger.warning("SCScreenshotManager error for display %d: %s",
+                                   _display_id, error)
                 if image is not None:
                     with lock:
                         result[_display_id] = image
