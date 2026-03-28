@@ -62,77 +62,36 @@ def _ensure_edit_menu() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _relative_time(iso_str: str) -> str:
-    """Convert ISO 8601 timestamp to a human-readable relative time string."""
-    if not iso_str:
-        return "-"
-    try:
-        from datetime import datetime, timezone
-
-        dt = datetime.fromisoformat(iso_str)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        delta = datetime.now(timezone.utc) - dt
-        secs = delta.total_seconds()
-        if secs < 60:
-            return "<1m ago"
-        if secs < 3600:
-            return f"{int(secs // 60)}m ago"
-        if secs < 86400:
-            return f"{int(secs // 3600)}h ago"
-        days = int(secs // 86400)
-        if days < 30:
-            return f"{days}d ago"
-        return f"{days // 30}mo ago"
-    except Exception:
-        return iso_str[:10] if len(iso_str) >= 10 else iso_str
-
-
 def _build_hotwords_html(details: List[HotwordDetail]) -> str:
     """Build an HTML page with a styled table of hotword details."""
-    from wenzi.enhance.vocabulary import LAYER_MANUAL
     from wenzi.i18n import t
 
     rows: list[str] = []
     for d in details:
         term = html.escape(d.term)
-        cat = html.escape(d.category)
-        last_seen = _relative_time(d.last_seen)
-        variants_raw = ", ".join(d.variants)
-        variants = html.escape(variants_raw)
-        context = html.escape(d.context)
-        # Escape with quote=True for title attributes (from raw values)
-        variants_attr = html.escape(variants_raw, quote=True)
-        context_attr = html.escape(d.context, quote=True)
-
-        layer_cls = "layer-manual"
-        layer_label = "manual" if d.layer == LAYER_MANUAL else d.layer
-        bonus_str = f"+{d.recency_bonus}" if d.recency_bonus > 0 else "0"
+        variant = html.escape(d.variant)
+        source = html.escape(d.source)
+        last_hit_attr = html.escape(d.last_hit, quote=True)
+        first_seen_attr = html.escape(d.first_seen, quote=True)
 
         rows.append(
-            f"<tr class='{layer_cls}'>"
-            f"<td class='cell-layer'>{layer_label}</td>"
+            f"<tr>"
             f"<td class='cell-term'>{term}</td>"
-            f"<td class='cell-cat'>{cat}</td>"
-            f"<td class='cell-num'>{d.frequency}</td>"
-            f"<td class='cell-num'>{d.score:.0f}</td>"
-            f"<td class='cell-num'>{bonus_str}</td>"
-            f"<td class='cell-time'>{last_seen}</td>"
-            f'<td class="cell-variants" title="{variants_attr}">{variants}</td>'
-            f'<td class="cell-ctx" title="{context_attr}">{context}</td>'
+            f"<td class='cell-variant'>{variant}</td>"
+            f"<td class='cell-source'>{source}</td>"
+            f"<td class='cell-num'>{d.hit_count}</td>"
+            f'<td class="cell-time" data-ts="{last_hit_attr}"></td>'
+            f'<td class="cell-time" data-ts="{first_seen_attr}"></td>'
             f"</tr>"
         )
 
     tbody = "\n".join(rows)
-    th_layer = html.escape(t("preview.hotwords_table.layer"))
     th_term = html.escape(t("preview.hotwords_table.term"))
-    th_cat = html.escape(t("preview.hotwords_table.cat"))
-    th_freq = html.escape(t("preview.hotwords_table.freq"))
-    th_score = html.escape(t("preview.hotwords_table.score"))
-    th_bonus = html.escape(t("preview.hotwords_table.bonus"))
-    th_last_seen = html.escape(t("preview.hotwords_table.last_seen"))
-    th_variants = html.escape(t("preview.hotwords_table.variants"))
-    th_context = html.escape(t("preview.hotwords_table.context"))
+    th_variant = html.escape(t("preview.hotwords_table.variant"))
+    th_source = html.escape(t("preview.hotwords_table.source"))
+    th_hits = html.escape(t("preview.hotwords_table.hits"))
+    th_last_hit = html.escape(t("preview.hotwords_table.last_hit"))
+    th_first_seen = html.escape(t("preview.hotwords_table.first_seen"))
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -141,14 +100,12 @@ def _build_hotwords_html(details: List[HotwordDetail]) -> str:
 :root {{
     --bg: #ffffff; --text: #1d1d1f; --header-bg: #f0f0f2;
     --border: #d2d2d7; --secondary: #86868b;
-    --ctx-bg: #eef6ee; --base-bg: transparent;
     --hover: #f5f5f7; --accent: #007aff;
 }}
 @media (prefers-color-scheme: dark) {{
     :root {{
         --bg: #1d1d1f; --text: #c8c8cc; --header-bg: #2c2c2e;
         --border: #48484a; --secondary: #98989d;
-        --ctx-bg: #1e2e1e; --base-bg: transparent;
         --hover: #2c2c2e; --accent: #0a84ff;
     }}
 }}
@@ -173,20 +130,16 @@ td {{
     white-space: nowrap; vertical-align: top;
 }}
 tr:hover {{ background: var(--hover); }}
-tr.layer-ctx {{ background: var(--ctx-bg); }}
-tr.layer-ctx:hover {{ background: var(--hover); }}
-tr.layer-base {{ background: var(--base-bg); }}
-.cell-layer {{
-    font-size: 10px; font-weight: 600; text-transform: uppercase;
-    color: var(--secondary); width: 36px;
-}}
 .cell-term {{ font-weight: 600; color: var(--accent); }}
-.cell-cat {{ color: var(--secondary); font-size: 11px; }}
+.cell-variant {{ color: var(--secondary); font-size: 11px; }}
+.cell-source {{
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    color: var(--secondary);
+}}
 .cell-num {{ text-align: right; font-variant-numeric: tabular-nums; }}
-.cell-time {{ color: var(--secondary); font-size: 11px; }}
-.cell-variants, .cell-ctx {{
-    max-width: 120px; overflow: hidden; text-overflow: ellipsis;
+.cell-time {{
     color: var(--secondary); font-size: 11px;
+    font-family: "SF Mono", Menlo, monospace;
 }}
 </style>
 </head>
@@ -194,15 +147,33 @@ tr.layer-base {{ background: var(--base-bg); }}
 <table>
 <thead>
 <tr>
-    <th>{th_layer}</th><th>{th_term}</th><th>{th_cat}</th>
-    <th>{th_freq}</th><th>{th_score}</th><th>{th_bonus}</th>
-    <th>{th_last_seen}</th><th>{th_variants}</th><th>{th_context}</th>
+    <th>{th_term}</th><th>{th_variant}</th><th>{th_source}</th>
+    <th>{th_hits}</th><th>{th_last_hit}</th><th>{th_first_seen}</th>
 </tr>
 </thead>
 <tbody>
 {tbody}
 </tbody>
 </table>
+<script>
+function fmtDate(ts) {{
+    if (!ts || ts.length < 10) return '';
+    var d = new Date(ts);
+    if (isNaN(d.getTime())) return '';
+    var diff = Math.floor((Date.now() - d.getTime()) / 1000);
+    if (diff < 60) return diff + 's';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h';
+    if (diff < 2592000) return Math.floor(diff / 86400) + 'd';
+    if (diff < 31536000) return Math.floor(diff / 2592000) + 'mo';
+    return Math.floor(diff / 31536000) + 'y';
+}}
+document.querySelectorAll('.cell-time[data-ts]').forEach(function(el) {{
+    var ts = el.getAttribute('data-ts');
+    el.textContent = fmtDate(ts);
+    if (ts) el.title = ts;
+}});
+</script>
 </body>
 </html>"""
 
