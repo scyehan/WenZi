@@ -65,7 +65,7 @@ def _attach_methods(obj):
     import types
     from wenzi import app as app_module
 
-    for name in ("_on_screenshot", "_on_screenshot_done", "_on_screenshot_cancel"):
+    for name in ("_on_screenshot", "_show_screenshot_ui", "_on_screenshot_done", "_on_screenshot_cancel"):
         method = getattr(app_module.WenZiApp, name)
         setattr(obj, name, types.MethodType(method, obj))
 
@@ -99,42 +99,44 @@ def mock_screenshot_module():
         }
 
 
-def test_on_screenshot_creates_overlay_and_annotation(fake_app, mock_screenshot_module):
-    """_on_screenshot should instantiate ScreenshotOverlay and AnnotationLayer."""
+def test_show_screenshot_ui_creates_overlay_and_annotation(fake_app, mock_screenshot_module):
+    """_show_screenshot_ui should instantiate ScreenshotOverlay and AnnotationLayer."""
     mocks = mock_screenshot_module
     mod = mocks["module"]
 
-    fake_app._on_screenshot()
+    fake_app._show_screenshot_ui(mocks["screen_data"])
 
-    mod.capture_screen.assert_called_once()
     mod.ScreenshotOverlay.assert_called_once_with(mocks["screen_data"])
     mod.AnnotationLayer.assert_called_once()
     mocks["overlay"].show.assert_called_once()
 
 
-def test_on_screenshot_stores_instances(fake_app, mock_screenshot_module):
-    """After _on_screenshot, the overlay and annotation are stored on the app."""
+def test_show_screenshot_ui_stores_instances(fake_app, mock_screenshot_module):
+    """After _show_screenshot_ui, the overlay and annotation are stored on the app."""
     mocks = mock_screenshot_module
 
-    fake_app._on_screenshot()
+    fake_app._show_screenshot_ui(mocks["screen_data"])
 
     assert fake_app._screenshot_overlay is mocks["overlay"]
     assert fake_app._screenshot_annotation is mocks["annotation"]
 
 
-def test_on_screenshot_capture_failure_logs_and_returns(fake_app, mock_screenshot_module):
-    """If capture_screen raises, _on_screenshot should log and not crash."""
+def test_on_screenshot_capture_failure_does_not_show_ui(fake_app, mock_screenshot_module):
+    """If capture_screen raises, no UI should be created."""
     mocks = mock_screenshot_module
     mocks["module"].capture_screen.side_effect = RuntimeError("no screen")
 
-    # Should not raise
-    with patch("wenzi.app.logger") as mock_logger:
-        fake_app._on_screenshot()
-        mock_logger.exception.assert_called_once()
+    # Call _on_screenshot and wait for the background thread
+    import threading
+    fake_app._on_screenshot()
+    # Give background thread time to finish
+    for t in threading.enumerate():
+        if t.daemon and t.name != "MainThread":
+            t.join(timeout=2.0)
 
     # No overlay or annotation should be created
-    mocks["module"].ScreenshotOverlay.assert_not_called()
-    mocks["module"].AnnotationLayer.assert_not_called()
+    assert fake_app._screenshot_overlay is None
+    assert fake_app._screenshot_annotation is None
 
 
 def test_on_screenshot_done_clears_annotation_and_overlay(fake_app):

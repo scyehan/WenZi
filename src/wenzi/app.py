@@ -1046,14 +1046,32 @@ class WenZiApp(StatusBarApp):
     # ── Screenshot ────────────────────────────────────────────────────────
 
     def _on_screenshot(self, _=None) -> None:
-        """Handle screenshot hotkey press or menu item click."""
-        from wenzi.screenshot import capture_screen, ScreenshotOverlay, AnnotationLayer
+        """Handle screenshot hotkey press or menu item click.
 
-        try:
-            screen_data = capture_screen()
-        except Exception:
-            logger.exception("Screenshot capture failed")
-            return
+        May be called from a background thread (Quartz event tap).
+        capture_screen() runs on the calling thread; UI creation is
+        dispatched to the main thread via AppHelper.callAfter().
+        """
+        import threading
+
+        from wenzi.screenshot import capture_screen
+
+        def _capture_and_show():
+            try:
+                screen_data = capture_screen()
+            except Exception:
+                logger.exception("Screenshot capture failed")
+                return
+
+            from PyObjCTools import AppHelper
+
+            AppHelper.callAfter(self._show_screenshot_ui, screen_data)
+
+        threading.Thread(target=_capture_and_show, daemon=True).start()
+
+    def _show_screenshot_ui(self, screen_data) -> None:
+        """Create and show screenshot overlay + annotation UI (main thread only)."""
+        from wenzi.screenshot import ScreenshotOverlay, AnnotationLayer
 
         self._screenshot_overlay = ScreenshotOverlay(screen_data)
         self._screenshot_annotation = AnnotationLayer()
