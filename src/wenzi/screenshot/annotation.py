@@ -104,7 +104,7 @@ class AnnotationLayer:
 
         image_dir = os.path.dirname(os.path.realpath(image_path))
         self._panel = WebViewPanel(
-            title="Screenshot",
+            title="WenZi Picture Editor",
             html_file=_ANNOTATION_HTML,
             width=canvas_w,
             height=canvas_h + _TOOLBAR_HEIGHT,
