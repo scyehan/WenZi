@@ -18,7 +18,7 @@ class TestHotwordDetail:
         assert d.variant == ""
         assert d.source == ""
         assert d.asr_miss_count == 0
-        assert d.llm_hit_count == 0
+        assert d.asr_hit_count == 0
         assert d.first_seen == ""
 
     def test_full_fields(self):
@@ -27,14 +27,14 @@ class TestHotwordDetail:
             variant="库伯尼特斯",
             source="asr",
             asr_miss_count=5,
-            llm_hit_count=3,
+            asr_hit_count=3,
             first_seen="2023-06-15T00:00:00",
         )
         assert d.term == "Kubernetes"
         assert d.variant == "库伯尼特斯"
         assert d.source == "asr"
         assert d.asr_miss_count == 5
-        assert d.llm_hit_count == 3
+        assert d.asr_hit_count == 3
 
 
 class TestBuildHotwordListDetailed:
@@ -110,12 +110,12 @@ class TestBuildHotwordListDetailed:
 
         store.get_stats_summary_batch.return_value = {
             (1, "asr_miss"): 7,
-            (1, "llm_hit"): 3,
+            (1, "asr_hit"): 3,
         }
 
         result = build_hotword_list_detailed(manual_vocab_store=store)
         assert result[0].variant == "a p i"
         assert result[0].source == "llm"
         assert result[0].asr_miss_count == 7
-        assert result[0].llm_hit_count == 3
+        assert result[0].asr_hit_count == 3
         assert result[0].first_seen == "2024-01-01T00:00:00"

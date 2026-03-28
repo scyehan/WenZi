@@ -238,6 +238,8 @@ class TestQueryHelpers:
         entries = store.get_llm_vocab(llm_model="test")
         assert len(entries) == 2
         assert entries[0].term == "Kubernetes"
+        assert entries[0].llm_miss_count == 3
+        assert entries[1].llm_miss_count == 1
 
 
 class TestGetEntryStats:

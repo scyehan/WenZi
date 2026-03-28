@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Optional
 
-from wenzi.enhance.vocab_db import METRIC_ASR_MISS, METRIC_LLM_HIT
+from wenzi.enhance.vocab_db import METRIC_ASR_HIT, METRIC_ASR_MISS
 
 if TYPE_CHECKING:
     from wenzi.enhance.manual_vocabulary import ManualVocabEntry, ManualVocabularyStore
@@ -22,7 +22,7 @@ class HotwordDetail:
     variant: str = ""
     source: str = ""
     asr_miss_count: int = 0
-    llm_hit_count: int = 0
+    asr_hit_count: int = 0
     first_seen: str = ""
 
 
@@ -53,7 +53,7 @@ def build_hotword_list_detailed(
             # Batch-fetch stats for all entries in one query
             entry_ids = [e.id for e in all_entries if e.id]
             stats_map = manual_vocab_store.get_stats_summary_batch(
-                entry_ids, [METRIC_ASR_MISS, METRIC_LLM_HIT],
+                entry_ids, [METRIC_ASR_MISS, METRIC_ASR_HIT],
             )
 
             for term in manual_terms:
@@ -70,7 +70,7 @@ def build_hotword_list_detailed(
                         variant=entry.variant,
                         source=entry.source,
                         asr_miss_count=stats_map.get((entry.id, METRIC_ASR_MISS), 0),
-                        llm_hit_count=stats_map.get((entry.id, METRIC_LLM_HIT), 0),
+                        asr_hit_count=stats_map.get((entry.id, METRIC_ASR_HIT), 0),
                         first_seen=entry.first_seen,
                     ))
                 else:

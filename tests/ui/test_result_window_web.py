@@ -1114,7 +1114,7 @@ class TestBuildHotwordsHtml:
 
         defaults = dict(
             term="API", variant="a p i", source="asr",
-            asr_miss_count=5, llm_hit_count=0, first_seen="",
+            asr_miss_count=5, asr_hit_count=0, first_seen="",
         )
         defaults.update(kwargs)
         return HotwordDetail(**defaults)

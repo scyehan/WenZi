@@ -144,42 +144,60 @@ def generate_stats(asr_model: str, llm_model: str, app_bundle_id: str) -> list[d
     if app_bundle_id:
         llm_contexts.append(f"app:{app_bundle_id}")
 
-    # ASR dimension: asr_miss (variant appeared in ASR text) and asr_hit (term appeared)
+    # ASR dimension: split total encounters into asr_miss and asr_hit.
+    # miss_rate varies per entry — some words ASR handles well, others poorly.
+    asr_miss_rate = random.betavariate(2, 2)  # 0.0–1.0, centered ~0.5
     for ctx in asr_contexts:
         if random.random() < 0.7:
-            count = random.choices(
-                [1, 2, 3, 5, 10, 20, 50],
-                weights=[20, 20, 15, 15, 15, 10, 5],
+            total = random.choices(
+                [1, 2, 3, 5, 8, 12, 20],
+                weights=[15, 20, 20, 20, 12, 8, 5],
                 k=1,
             )[0]
-            stats.append({
-                "metric": "asr_miss",
-                "context_key": ctx,
-                "count": count,
-                "last_time": random_ts(30),
-            })
-        if random.random() < 0.4:
-            stats.append({
-                "metric": "asr_hit",
-                "context_key": ctx,
-                "count": random.randint(1, 10),
-                "last_time": random_ts(30),
-            })
+            miss_count = int(total * asr_miss_rate + 0.5)
+            hit_count = total - miss_count
+            if miss_count > 0:
+                stats.append({
+                    "metric": "asr_miss",
+                    "context_key": ctx,
+                    "count": miss_count,
+                    "last_time": random_ts(30),
+                })
+            if hit_count > 0:
+                stats.append({
+                    "metric": "asr_hit",
+                    "context_key": ctx,
+                    "count": hit_count,
+                    "last_time": random_ts(30),
+                })
 
-    # LLM dimension: llm_hit (LLM corrected it) and llm_miss (LLM didn't correct)
-    for ctx in llm_contexts:
-        if random.random() < 0.6:
+    # LLM dimension: derive from asr_miss counts (phase 2 only runs after phase 1)
+    # Each asr_miss event leads to either llm_hit or llm_miss, so their sum ≈ asr_miss.
+    # Vary the LLM correction rate per entry to create realistic diversity.
+    llm_correct_rate = random.betavariate(2, 2)  # 0.0–1.0, centered ~0.5
+    asr_miss_rows = [s for s in stats if s["metric"] == "asr_miss"]
+    for asr_row in asr_miss_rows:
+        total = asr_row["count"]
+        hit_count = int(total * llm_correct_rate + 0.5)
+        miss_count = total - hit_count
+        # Map asr context key to corresponding llm context key
+        ctx = asr_row["context_key"]
+        if ctx.startswith("asr:") and llm_contexts:
+            llm_ctx = random.choice(llm_contexts)
+        else:
+            llm_ctx = ctx  # app: keys stay the same
+        if hit_count > 0:
             stats.append({
                 "metric": "llm_hit",
-                "context_key": ctx,
-                "count": random.randint(1, 30),
+                "context_key": llm_ctx,
+                "count": hit_count,
                 "last_time": random_ts(30),
             })
-        if random.random() < 0.3:
+        if miss_count > 0:
             stats.append({
                 "metric": "llm_miss",
-                "context_key": ctx,
-                "count": random.randint(1, 5),
+                "context_key": llm_ctx,
+                "count": miss_count,
                 "last_time": random_ts(30),
             })
 

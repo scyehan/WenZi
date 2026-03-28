@@ -47,6 +47,8 @@ class ManualVocabEntry:
     llm_model: str = ""
     enhance_mode: str = ""
     id: int = 0  # database primary key
+    llm_miss_count: int = 0
+    llm_hit_count: int = 0
 
 
 _STRIP_CHARS = string.whitespace + string.punctuation + "\u3000\u3001\u3002\uff0c\uff01\uff1f"
@@ -98,7 +100,7 @@ class ManualVocabularyStore:
         METRIC_LLM_HIT: ("llm", "hit"),
         METRIC_LLM_MISS: ("llm", "miss"),
     }
-    _SORT_KEY = {"asr": "miss", "llm": "hit"}
+    _SORT_KEY = {"asr": "miss", "llm": "miss"}
 
     def __init__(self, path: str, *, stats_include_app: bool = False) -> None:
         self._path = path
@@ -345,7 +347,17 @@ class ManualVocabularyStore:
         ranked = self._db.top_with_fallback(
             METRIC_LLM_MISS, context_key, max_entries, exclude_app=exclude_app,
         )
-        return [_entry_from_row(d) for d in ranked]
+        entries = [_entry_from_row(d) for d in ranked]
+        # Populate display stats
+        entry_ids = [e.id for e in entries if e.id]
+        if entry_ids:
+            stats_map = self.get_stats_summary_batch(
+                entry_ids, [METRIC_LLM_MISS, METRIC_LLM_HIT],
+            )
+            for e in entries:
+                e.llm_miss_count = stats_map.get((e.id, METRIC_LLM_MISS), 0)
+                e.llm_hit_count = stats_map.get((e.id, METRIC_LLM_HIT), 0)
+        return entries
 
     def get_entry_stats(self, variant: str, term: str) -> dict:
         """Return full bucketed statistics for an entry.
