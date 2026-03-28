@@ -275,11 +275,11 @@
     var cos = Math.cos(angle);
     var sin = Math.sin(angle);
 
-    // Dimensions: sharp tail → fast taper → moderate head
+    // Dimensions: sharp tail → gradual taper → moderate head
     var tailW = sw * 0.15;
-    var bodyW = sw * 1.8;
-    var headW = sw * 3.5;
-    var headLen = Math.min(len * 0.55, sw * 10);
+    var bodyW = sw * 1.5;
+    var headW = sw * 4;
+    var headLen = Math.min(len * 0.45, sw * 9);
     var bodyLen = len - headLen;
 
     // Polygon points in local coords (arrow along +X axis)
