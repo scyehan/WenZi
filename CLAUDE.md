@@ -229,6 +229,35 @@ wz.keychain.keys()                          # list all keys
 
 **Note:** This is separate from the core app's `wenzi.keychain` module (`keychain_get`/`keychain_set`) which stores provider API keys directly in macOS Keychain. `wz.keychain` is for the plugin/scripting layer only.
 
+## Plugin Menu API — `wz.menu`
+
+Plugins can enumerate and trigger both WenZi's own statusbar menu and the frontmost application's menu bar.
+
+### WenZi Menu
+
+```python
+items = wz.menu.list()              # nested tree: [{title, key, state, has_action, children}, ...]
+items = wz.menu.list(flat=True)     # flat list with "path" field (e.g. "Parent > Child")
+wz.menu.trigger("Settings...")      # trigger by title
+wz.menu.trigger("Parent > Child")   # trigger nested item by path
+```
+
+### Frontmost App Menu (Accessibility API)
+
+```python
+items = wz.menu.app_menu()          # flat list from the app active before chooser opened
+items = wz.menu.app_menu(pid=1234)  # explicit pid
+wz.menu.app_menu_trigger(item)      # activate app, re-find by path, AXPress
+```
+
+Each app menu item dict contains: `title`, `path`, `enabled`, `shortcut`, `_ax_element`.
+
+**Requirements:** Accessibility permission (System Settings → Privacy → Accessibility). The system Apple menu is automatically excluded from `app_menu()` results.
+
+**Trigger behavior:** `app_menu_trigger()` activates the target app first, waits briefly, then re-locates the menu item by path in the AX tree before pressing. The stored `_ax_element` is NOT reused because it becomes stale when the app loses focus.
+
+**Architecture:** `MenuAPI` is injected with the app's root `StatusMenuItem` (for WenZi menus) and the wz namespace (for dynamic chooser access to get the previous-app pid). The wz namespace reference ensures the current `ChooserAPI` instance is always used, even after script reloads.
+
 ## Usage Statistics
 
 When adding new user-facing behaviors or interactions, always add corresponding tracking to `UsageStats` (`src/wenzi/usage_stats.py`):
