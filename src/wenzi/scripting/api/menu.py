@@ -67,13 +67,13 @@ class MenuAPI:
 
     def _find(self, title: str) -> Any:
         """Find a StatusMenuItem by title or path (``"A > B"``)."""
+        from wenzi.statusbar import SeparatorMenuItem
+
         parts = [p.strip() for p in title.split(" > ")]
         node = self._root
         for part in parts:
             found = None
             for _key, child in node._items.items():
-                from wenzi.statusbar import SeparatorMenuItem
-
                 if isinstance(child, SeparatorMenuItem):
                     continue
                 if child.title == part:
