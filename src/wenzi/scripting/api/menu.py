@@ -44,7 +44,7 @@ class MenuAPI:
 
     def __init__(self) -> None:
         self._root = None  # StatusMenuItem (app's root menu)
-        self._chooser_api = None  # ChooserAPI for previous-app pid
+        self._wz_ns = None  # _WZNamespace for accessing current chooser
 
     def _set_root(self, root: Any) -> None:
         """Inject the app's root StatusMenuItem. Called by ScriptEngine."""
@@ -155,7 +155,16 @@ class MenuAPI:
 
     def _set_chooser_api(self, chooser_api):
         """Inject the ChooserAPI for accessing previous-app pid."""
-        self._chooser_api = chooser_api
+        # Kept for tests that inject a mock directly
+        self._chooser_api_direct = chooser_api
+
+    def _set_wz_ns(self, wz_ns):
+        """Inject the wz namespace for dynamic chooser access.
+
+        This ensures we always use the *current* ChooserAPI instance,
+        even after script reloads that recreate it.
+        """
+        self._wz_ns = wz_ns
 
     def app_menu(self, pid=None):
         """Return the menu items of an application as a flat list.
@@ -226,10 +235,18 @@ class MenuAPI:
 
     def _get_previous_pid(self):
         """Get pid of app that was frontmost before chooser opened."""
-        if self._chooser_api is None:
+        chooser = None
+        if self._wz_ns is not None:
+            try:
+                chooser = self._wz_ns.chooser
+            except Exception:
+                pass
+        if chooser is None:
+            chooser = getattr(self, "_chooser_api_direct", None)
+        if chooser is None:
             return None
         try:
-            prev_app = self._chooser_api.panel._previous_app
+            prev_app = chooser.panel._previous_app
             if prev_app is not None:
                 return prev_app.processIdentifier()
         except Exception:
