@@ -7,4 +7,6 @@ author = "WenZi"
 min_wenzi_version = "0.1.12"
 files = [
     "__init__.py",
+    "README.md",
+    "README_zh.md",
 ]
