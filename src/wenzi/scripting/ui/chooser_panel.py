@@ -1498,11 +1498,14 @@ class ChooserPanel:
                 def _deferred():
                     import time
 
+                    import objc
+
                     time.sleep(self._DEFERRED_ACTION_DELAY)
-                    try:
-                        action()
-                    except Exception:
-                        logger.exception("Chooser action failed for %r", item.title)
+                    with objc.autorelease_pool():
+                        try:
+                            action()
+                        except Exception:
+                            logger.exception("Chooser action failed for %r", item.title)
 
                 threading.Thread(target=_deferred, daemon=True).start()
 

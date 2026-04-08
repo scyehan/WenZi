@@ -204,31 +204,34 @@ class UniversalActionController:
         import asyncio
 
         def _run():
-            try:
-                if source.is_async:
-                    loop = asyncio.new_event_loop()
-                    try:
-                        results = loop.run_until_complete(source.search(text))
-                    finally:
-                        loop.close()
-                else:
-                    results = source.search(text)
-                if not results:
-                    return
-                first = results[0]
-                # Run action on this background thread — same as the normal
-                # chooser deferred action path.  Actions that need the main
-                # thread (e.g. panel.show) use callAfter internally.
-                if first.action is not None:
-                    first.action()
-                elif first.preview:
-                    from PyObjCTools import AppHelper
+            import objc
 
-                    chooser = self._app._script_engine._wz.chooser
-                    ql = chooser._panel._ql_panel
-                    if ql is not None:
-                        AppHelper.callAfter(ql.show_preview, first.preview)
-            except Exception:
-                logger.exception("UA source %s search failed", source.name)
+            with objc.autorelease_pool():
+                try:
+                    if source.is_async:
+                        loop = asyncio.new_event_loop()
+                        try:
+                            results = loop.run_until_complete(source.search(text))
+                        finally:
+                            loop.close()
+                    else:
+                        results = source.search(text)
+                    if not results:
+                        return
+                    first = results[0]
+                    # Run action on this background thread — same as the normal
+                    # chooser deferred action path.  Actions that need the main
+                    # thread (e.g. panel.show) use callAfter internally.
+                    if first.action is not None:
+                        first.action()
+                    elif first.preview:
+                        from PyObjCTools import AppHelper
+
+                        chooser = self._app._script_engine._wz.chooser
+                        ql = chooser._panel._ql_panel
+                        if ql is not None:
+                            AppHelper.callAfter(ql.show_preview, first.preview)
+                except Exception:
+                    logger.exception("UA source %s search failed", source.name)
 
         threading.Thread(target=_run, daemon=True).start()

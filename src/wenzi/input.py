@@ -74,13 +74,13 @@ def _send_cmd_c() -> None:
     event_down = Quartz.CGEventCreateKeyboardEvent(None, _C_KEYCODE, True)
     Quartz.CGEventSetFlags(event_down, Quartz.kCGEventFlagMaskCommand)
     Quartz.CGEventPost(Quartz.kCGAnnotatedSessionEventTap, event_down)
-    Quartz.CFRelease(event_down)
+    # No explicit CFRelease — PyObjC owns the +1 ref from Create and
+    # releases it when the Python wrapper is deallocated.
 
     # Key up
     event_up = Quartz.CGEventCreateKeyboardEvent(None, _C_KEYCODE, False)
     Quartz.CGEventSetFlags(event_up, Quartz.kCGEventFlagMaskCommand)
     Quartz.CGEventPost(Quartz.kCGAnnotatedSessionEventTap, event_up)
-    Quartz.CFRelease(event_up)
 
 
 def get_selected_text() -> str | None:
