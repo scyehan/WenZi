@@ -358,6 +358,7 @@ var selectedIndex = -1;
 var itemsVersion = 0;
 var hasAnyIcon = false;  // true when at least one item has an icon
 var _lastMouseX = -1, _lastMouseY = -1;  // suppress scroll-induced hover
+var _mouseActivated = false;  // ignore mouse until user actually moves it
 var _PLACEHOLDER_SVG = "data:image/svg+xml,"
     + "%3Csvg xmlns='http://www.w3.org/2000/svg' "
     + "viewBox='0 0 24 24' fill='none' stroke='black' "
@@ -596,6 +597,7 @@ resultList.addEventListener('mousemove', function(e) {
     if (e.clientX === _lastMouseX && e.clientY === _lastMouseY) return;
     _lastMouseX = e.clientX;
     _lastMouseY = e.clientY;
+    if (!_mouseActivated) { _mouseActivated = true; return; }
     var row = e.target.closest('.result-item');
     if (!row) return;
     var idx = parseInt(row.getAttribute('data-idx'), 10);
@@ -967,6 +969,7 @@ function setResults(newItems, version, selectedIdx) {
         // New search results — reset to top
         selectedIndex = items.length > 0 ? 0 : -1;
         resultList.scrollTop = 0;
+        _mouseActivated = false;
     }
     renderItems();
     _checkPanelResize();
