@@ -57,7 +57,7 @@ body {
     display: flex; opacity: 1;
 }
 .left-panel {
-    width: 440px; flex-shrink: 0;
+    width: 340px; flex-shrink: 0;
     display: flex; flex-direction: column;
     min-height: 0;
 }
@@ -66,7 +66,7 @@ body {
     flex: 1; display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     border-left: 0.5px solid var(--border);
-    padding: 20px; overflow: hidden;
+    padding: 16px; overflow: hidden;
     min-height: 0;
     background: transparent;
 }
@@ -113,8 +113,8 @@ body {
 
 /* Search bar */
 .search-bar {
-    display: flex; align-items: center; gap: 10px;
-    padding: 16px 20px;
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px;
     background: var(--input-bg);
     border-bottom: 0.5px solid var(--border);
     flex-shrink: 0;
@@ -123,12 +123,12 @@ body {
 /* Subtle bottom fade instead of hard line */
 .search-bar::after {
     content: ''; position: absolute;
-    left: 20px; right: 20px; bottom: -0.5px; height: 0.5px;
+    left: 16px; right: 16px; bottom: -0.5px; height: 0.5px;
     background: linear-gradient(90deg, transparent, var(--border), transparent);
     pointer-events: none;
 }
 .search-icon {
-    width: 26px; height: 26px; flex-shrink: 0;
+    width: 22px; height: 22px; flex-shrink: 0;
     color: var(--secondary);
     cursor: grab;
 }
@@ -138,7 +138,7 @@ body {
 }
 .search-input {
     flex: 1; border: none; outline: none;
-    font-size: 22px; font-family: inherit;
+    font-size: 18px; font-family: inherit;
     background: transparent; color: var(--text);
     caret-color: var(--accent);
 }
@@ -147,7 +147,7 @@ body {
 /* Context block (Universal Action mode) */
 .context-block {
     display: none; flex-shrink: 0;
-    padding: 12px 18px;
+    padding: 10px 14px;
     background: transparent;
     border-bottom: 0.5px solid var(--border);
 }
@@ -158,7 +158,7 @@ body {
     margin-bottom: 4px;
 }
 .context-text {
-    font-size: 13px; color: var(--text);
+    font-size: 12px; color: var(--text);
     line-height: 1.5;
     display: -webkit-box;
     -webkit-line-clamp: 3;
@@ -170,7 +170,7 @@ body {
 .context-text.expanded {
     display: block;
     -webkit-line-clamp: unset;
-    max-height: 120px;
+    max-height: 90px;
     overflow-y: auto;
 }
 .context-text.expanded::-webkit-scrollbar { width: 4px; }
@@ -213,9 +213,9 @@ body {
 }
 .result-item {
     display: flex; align-items: center;
-    padding: 10px 14px; cursor: default;
+    padding: 8px 12px; cursor: default;
     transition: background 0.2s ease;
-    gap: 12px;
+    gap: 10px;
     box-sizing: border-box;
     overflow: hidden;
     border-radius: 10px;
@@ -223,16 +223,16 @@ body {
 }
 .icon-wrap {
     position: relative; flex-shrink: 0;
-    width: 40px; height: 40px;
+    width: 32px; height: 32px;
 }
 .result-item .icon {
-    width: 40px; height: 40px; flex-shrink: 0;
-    border-radius: 9px;
+    width: 32px; height: 32px; flex-shrink: 0;
+    border-radius: 7px;
     image-rendering: -webkit-optimize-contrast;
 }
 .result-item .icon-placeholder {
     background-color: var(--secondary);
-    -webkit-mask-size: 24px 24px;
+    -webkit-mask-size: 20px 20px;
     -webkit-mask-repeat: no-repeat;
     -webkit-mask-position: center;
     opacity: 0.35;
@@ -255,7 +255,7 @@ body {
     min-width: 0; flex: 1;
 }
 .result-item .title {
-    font-size: 15px; font-weight: 500;
+    font-size: 13px; font-weight: 500;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .result-item.selected .title { color: var(--item-selected-text); }
@@ -301,7 +301,7 @@ body {
 .empty-state {
     display: flex; align-items: center; justify-content: center;
     flex: 1; color: var(--secondary); font-size: 13px;
-    padding: 20px;
+    padding: 16px;
     transition: opacity 0.2s ease;
 }
 
@@ -379,7 +379,7 @@ var _settingHistoryValue = false;
 
 // --- Virtual scrolling ---
 var ITEM_HEIGHT = 0;  // measured from first rendered row
-var ITEM_HEIGHT_DEFAULT = 60;  // fallback before measurement
+var ITEM_HEIGHT_DEFAULT = 48;  // fallback before measurement
 var BUFFER_COUNT = 5;  // extra rows above/below viewport
 
 // --- DOM ---
@@ -744,10 +744,10 @@ function updateSelection(newIndex) {
 }
 
 // --- Panel resize ---
-var PANEL_WIDTH_NARROW = 680;
-var PANEL_WIDTH_WIDE = 1040;
-var PANEL_HEIGHT_EXPANDED = 420;
-var PANEL_HEIGHT_COMPACT = 160;
+var PANEL_WIDTH_NARROW = 520;
+var PANEL_WIDTH_WIDE = 800;
+var PANEL_HEIGHT_EXPANDED = 320;
+var PANEL_HEIGHT_COMPACT = 120;
 
 var _panelExpanded = false;
 var _previewVisible = false;

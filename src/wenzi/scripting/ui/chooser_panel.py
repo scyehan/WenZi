@@ -189,7 +189,7 @@ class ChooserPanel:
     registered ChooserSource instances, and executes item actions.
     """
 
-    _INITIAL_WIDTH = 680
+    _INITIAL_WIDTH = 520
     _INITIAL_HEIGHT = 49  # bootstrap; JS updates after page load
     _MAX_TOTAL_RESULTS = 50
     _DEFERRED_ACTION_DELAY = 0.15  # seconds to let previous app regain focus
