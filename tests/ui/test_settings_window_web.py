@@ -571,7 +571,7 @@ class TestLoadHtml:
         html_content = panel._webview.loadHTMLString_baseURL_.call_args[0][0]
         # Verify tab HTML structure
         assert 'id="tab-general"' in html_content
+        assert 'id="tab-microphone"' in html_content
         assert 'id="tab-speech"' in html_content
-        assert 'id="tab-llm"' in html_content
         assert 'id="tab-ai"' in html_content
         assert 'id="tab-launcher"' in html_content

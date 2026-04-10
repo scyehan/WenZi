@@ -549,7 +549,7 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         ("asr.language", str, lambda v: len(v) > 0, DEFAULT_CONFIG["asr"]["language"]),
         ("logging.level", str, lambda v: v in {"DEBUG", "INFO", "WARNING", "ERROR"},
          DEFAULT_CONFIG["logging"]["level"]),
-        ("ui.settings_last_tab", str, lambda v: v in {"general", "stt", "llm", "ai", "launcher"},
+        ("ui.settings_last_tab", str, lambda v: v in {"general", "microphone", "stt", "ai", "launcher"},
          DEFAULT_CONFIG["ui"]["settings_last_tab"]),
         ("ai_enhance.timeout", (int, float), lambda v: v > 0, DEFAULT_CONFIG["ai_enhance"]["timeout"]),
         ("ai_enhance.connection_timeout", (int, float), lambda v: v > 0,

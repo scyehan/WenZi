@@ -96,6 +96,9 @@
   "alert.model.switch_failed.retry_message": "重试失败。\n\n错误：{error}\n\n请检查网络连接并重试。",
   "alert.model.cache_retry": "清除缓存并重试",
 
+  "alert.recording.empty": "未捕获到音频",
+  "alert.recording.empty.message": "麦克风未采集到任何音频，请检查麦克风是否被静音或已断开连接。",
+
   "alert.provider.add_asr.title": "添加 ASR 服务商",
   "alert.provider.add_asr.message": "name       — 唯一的服务商名称\nbase_url   — OpenAI 兼容的 ASR 端点\napi_key    — 认证密钥\nmodels     — 每行一个模型（缩进）",
   "alert.provider.add_llm.title": "添加 AI 服务商",
@@ -372,6 +375,14 @@
   "settings.general_tab.browse": "浏览...",
   "settings.general_tab.reset": "重置",
   "settings.general_tab.config_dir_hint": "更改需要重启应用才能生效",
+
+  "settings.microphone_tab.sidebar": "麦克风",
+  "settings.microphone_tab.title": "麦克风",
+  "settings.microphone_tab.input_device": "输入设备",
+  "settings.microphone_tab.refresh": "刷新",
+  "settings.microphone_tab.device_label": "设备",
+  "settings.microphone_tab.device_desc": "选择用于录音的麦克风",
+  "settings.microphone_tab.system_default": "系统默认",
 
   "settings.stt_tab.title": "语音识别",
   "settings.stt_tab.local_section": "本地",

@@ -96,6 +96,9 @@
   "alert.model.switch_failed.retry_message": "Retry failed.\n\nError: {error}\n\nPlease check your network connection and try again.",
   "alert.model.cache_retry": "Clear Cache & Retry",
 
+  "alert.recording.empty": "No Audio Captured",
+  "alert.recording.empty.message": "The microphone did not capture any audio. Please check that your microphone is not muted or disconnected.",
+
   "alert.provider.add_asr.title": "Add ASR Provider",
   "alert.provider.add_asr.message": "name       — unique provider name\nbase_url   — OpenAI-compatible ASR endpoint\napi_key    — authentication key\nmodels     — one model per line (indented)",
   "alert.provider.add_llm.title": "Add AI Provider",
@@ -372,6 +375,14 @@
   "settings.general_tab.browse": "Browse...",
   "settings.general_tab.reset": "Reset",
   "settings.general_tab.config_dir_hint": "Changes require app restart to take effect",
+
+  "settings.microphone_tab.sidebar": "Microphone",
+  "settings.microphone_tab.title": "Microphone",
+  "settings.microphone_tab.input_device": "Input Device",
+  "settings.microphone_tab.refresh": "Refresh",
+  "settings.microphone_tab.device_label": "Device",
+  "settings.microphone_tab.device_desc": "Select which microphone to use for recording",
+  "settings.microphone_tab.system_default": "System Default",
 
   "settings.stt_tab.title": "STT",
   "settings.stt_tab.local_section": "Local",

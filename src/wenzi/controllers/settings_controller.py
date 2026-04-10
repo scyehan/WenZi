@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from wenzi.app import WenZiApp
 
 from wenzi import get_version, is_version_compatible
+from wenzi.audio.recorder import default_input_device_name, list_input_devices
 from wenzi.config import BUILTIN_REGISTRY_URL, is_keychain_enabled, save_config
 from wenzi.enhance.enhancer import MODE_OFF
 from wenzi.i18n import build_doc_url, t
@@ -331,10 +332,15 @@ class SettingsController:
         ui_cfg = app._config.get("ui", {})
         last_tab = ui_cfg.get("settings_last_tab", "general")
 
+        audio_cfg = app._config.get("audio", {})
+
         fb_cfg = app._config.get("feedback", {})
         return {
             "last_tab": last_tab,
             "hotkeys": hotkeys,
+            "audio_devices": list_input_devices(),
+            "audio_device": audio_cfg.get("device"),
+            "default_device_name": default_input_device_name(),
             "restart_key": fb_cfg.get("restart_key", "cmd"),
             "cancel_key": fb_cfg.get("cancel_key", "space"),
             "sound_enabled": app._sound_manager.enabled,
@@ -440,6 +446,8 @@ class SettingsController:
             "on_new_snippet_hotkey_clear": self.new_snippet_hotkey_clear,
             "on_launcher_ua_hotkey_record": self.launcher_ua_hotkey_record,
             "on_launcher_ua_hotkey_clear": self.launcher_ua_hotkey_clear,
+            "on_mic_select": self.mic_select,
+            "on_mic_refresh": self.mic_refresh,
             "on_language_change": self.language_change,
             "on_plugins_tab_open": self._on_plugins_tab_open,
             "on_plugin_install_by_id": self._on_plugin_install_by_id,
@@ -784,6 +792,27 @@ class SettingsController:
         fb_cfg = app._config.setdefault("feedback", {})
         fb_cfg["show_device_name"] = enabled
         self._save_and_reload()
+
+    def mic_select(self, uid: str) -> None:
+        """Handle microphone device selection from Settings panel."""
+        app = self._app
+        device = uid if uid else None
+        audio_cfg = app._config.setdefault("audio", {})
+        audio_cfg["device"] = device
+        app._recorder.device = device
+        logger.info("Microphone set to: %s", device or "system default")
+        self._save_and_reload()
+
+    def mic_refresh(self) -> None:
+        """Re-enumerate audio devices and update the Settings panel."""
+        app = self._app
+        audio_cfg = app._config.get("audio", {})
+        devices = list_input_devices()
+        app._settings_panel.update_state({
+            "audio_devices": devices,
+            "audio_device": audio_cfg.get("device"),
+            "default_device_name": default_input_device_name(),
+        })
 
     def hide_status_icon_toggle(self, enabled: bool) -> None:
         """Handle hide status icon toggle from Settings panel."""
